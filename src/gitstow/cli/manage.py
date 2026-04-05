@@ -31,7 +31,7 @@ err_console = Console(stderr=True)
 
 @manage_app.command()
 def freeze(
-    repo_key: str = typer.Argument(help="Repo to freeze (owner/repo)."),
+    repo_key: Optional[str] = typer.Argument(default=None, help="Repo to freeze (owner/repo). Optional if --tag is used."),
     tag_filter: Optional[str] = typer.Option(
         None, "--tag", "-t", help="Freeze all repos with this tag instead.",
     ),
@@ -55,6 +55,10 @@ def freeze(
         console.print(f"  [cyan]❄[/cyan] Froze {len(repos)} repos with tag '{tag_filter}'.")
         return
 
+    if not repo_key:
+        err_console.print("[red]Error:[/red] Provide a repo key or use --tag.")
+        raise typer.Exit(code=1)
+
     repo = store.get(repo_key)
     if not repo:
         err_console.print(f"[red]Error:[/red] '{repo_key}' not tracked.")
@@ -70,7 +74,7 @@ def freeze(
 
 @manage_app.command()
 def unfreeze(
-    repo_key: str = typer.Argument(help="Repo to unfreeze (owner/repo)."),
+    repo_key: Optional[str] = typer.Argument(default=None, help="Repo to unfreeze (owner/repo). Optional if --tag is used."),
     tag_filter: Optional[str] = typer.Option(
         None, "--tag", "-t", help="Unfreeze all repos with this tag.",
     ),
@@ -94,6 +98,10 @@ def unfreeze(
             store.update(repo.key, frozen=False)
         console.print(f"  [green]✓[/green] Unfroze {len(frozen)} repos with tag '{tag_filter}'.")
         return
+
+    if not repo_key:
+        err_console.print("[red]Error:[/red] Provide a repo key or use --tag.")
+        raise typer.Exit(code=1)
 
     repo = store.get(repo_key)
     if not repo:

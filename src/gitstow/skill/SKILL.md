@@ -50,6 +50,14 @@ When the USER wants to run commands themselves, show them the human-readable for
 | Repo details | `gitstow repo info owner/repo` |
 | Remove a repo | `gitstow remove owner/repo` |
 | Adopt existing repos | `gitstow migrate /path/to/repo` |
+| Run a command in all repos | `gitstow exec -- git log -1 --oneline` |
+| Search across all repos | `gitstow search "pattern" --glob "*.py"` |
+| Open in editor | `gitstow open owner/repo` |
+| Open in browser | `gitstow open owner/repo --browser` |
+| Collection stats | `gitstow stats` |
+| Export collection | `gitstow collection export -o repos.yaml` |
+| Import collection | `gitstow collection import repos.yaml` |
+| Move repos to new root | `gitstow config migrate-root ~/new-path` |
 | See current config | `gitstow config show` |
 | Change settings | `gitstow config set key value` |
 | Run setup wizard | `gitstow onboard` |
@@ -105,6 +113,33 @@ gitstow repo freeze owner/repo
 ### "What's the status of X?"
 ```bash
 gitstow repo info owner/repo --json
+```
+
+### "Search for something across all repos"
+```bash
+gitstow search "pattern" --json --quiet
+```
+Parse results and show file paths with context.
+
+### "Run this command in every repo"
+```bash
+gitstow exec --json -- git log -1 --oneline
+```
+
+### "How much disk space do my repos use?"
+```bash
+gitstow stats --json
+```
+
+### "Share my repo list" / "Export my collection"
+```bash
+gitstow collection export -o /tmp/repos.yaml
+```
+Then tell the user the file path.
+
+### "Move my repos to a new folder"
+```bash
+gitstow config migrate-root ~/new-path --yes
 ```
 
 ## Bulk Operations from a File

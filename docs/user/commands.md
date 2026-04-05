@@ -267,6 +267,192 @@ gitstow repo info anthropic/claude-code --json
 
 ---
 
+## Power Commands
+
+### `gitstow exec`
+
+Run an arbitrary command in every repo's directory.
+
+```bash
+gitstow exec <command...>
+```
+
+**Flags:**
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--tag` | `-t` | Only run in repos with this tag. |
+| `--owner` | | Only run in repos from this owner. |
+| `--frozen` | | Only run in frozen repos. |
+| `--sequential` | `-s` | Run one at a time (default: parallel). |
+| `--json` | `-j` | JSON output. |
+| `--quiet` | `-q` | Only show command output, no headers. |
+
+**Examples:**
+
+```bash
+gitstow exec -- git log -1 --oneline
+gitstow exec -- git branch --show-current
+gitstow exec --tag python -- wc -l README.md
+gitstow exec -- ls -la
+gitstow exec --sequential -- git fetch    # One at a time
+```
+
+> Use `--` before the command to separate gitstow flags from command arguments.
+
+---
+
+### `gitstow search`
+
+Grep across all repos. Uses ripgrep (`rg`) if available, falls back to `git grep`.
+
+```bash
+gitstow search <pattern> [flags]
+```
+
+**Flags:**
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--tag` | `-t` | Only search in repos with this tag. |
+| `--owner` | | Only search in repos from this owner. |
+| `--glob` | `-g` | File glob pattern (e.g., `*.py`, `*.md`). |
+| `--ignore-case` | `-i` | Case-insensitive search. |
+| `--files` | `-l` | Only show file paths, not matching lines. |
+| `--max` | `-m` | Max results per repo (default: 50). |
+| `--json` | `-j` | JSON output. |
+
+**Examples:**
+
+```bash
+gitstow search "TODO"
+gitstow search "def main" --glob "*.py"
+gitstow search "import React" --tag frontend
+gitstow search "error" -i --files
+```
+
+---
+
+### `gitstow open`
+
+Open a repo in your editor, browser, or file manager.
+
+```bash
+gitstow open <owner/repo> [flags]
+```
+
+**Flags:**
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--editor` | `-e` | Open in default editor (VS Code, Cursor, etc.). |
+| `--browser` | `-b` | Open the repo on GitHub/GitLab in your browser. |
+| `--finder` | `-f` | Open in Finder/file manager. |
+| `--path` | `-p` | Just print the path to stdout. |
+
+With no flags, opens in the default editor. The `--path` flag is useful for shell integration:
+
+```bash
+cd "$(gitstow open anthropic/claude-code -p)"
+```
+
+---
+
+### `gitstow stats`
+
+Collection statistics — total repos, owners, tags, frozen count, and disk usage breakdown.
+
+```bash
+gitstow stats
+gitstow stats --json
+```
+
+---
+
+## Sharing Commands
+
+### `gitstow collection export`
+
+Export your collection to a portable file.
+
+```bash
+gitstow collection export [flags]
+```
+
+**Flags:**
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--output` | `-o` | Output file path. Defaults to stdout. |
+| `--tag` | `-t` | Only export repos with this tag. |
+| `--format` | `-f` | Output format: `yaml` (default), `json`, or `urls`. |
+
+**Examples:**
+
+```bash
+gitstow collection export                          # YAML to stdout
+gitstow collection export -o my-repos.yaml         # YAML to file
+gitstow collection export --format urls            # Plain URL list
+gitstow collection export --tag ai -o ai.yaml      # Export subset
+```
+
+### `gitstow collection import`
+
+Import a collection from a file. Supports YAML (from export), JSON, or plain URL lists.
+
+```bash
+gitstow collection import <file> [flags]
+```
+
+**Flags:**
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--tag` | `-t` | Apply tag(s) to all imported repos. |
+| `--shallow` | `-s` | Shallow clone imported repos. |
+| `--dry-run` | `-n` | Show what would be imported without doing it. |
+
+---
+
+## Shell Integration
+
+### `gitstow shell setup`
+
+Show instructions for setting up shell integration (aliases and fzf picker).
+
+### `gitstow shell init [bash|zsh|fish]`
+
+Print shell functions to source in your rc file. Provides:
+- `gs` — cd into a repo via fzf picker
+- `gse` — open a repo in editor via fzf picker
+- `gsp` — `gitstow pull` shorthand
+- `gss` — `gitstow status` shorthand
+- `gsl` — `gitstow list` shorthand
+- `gsa` — `gitstow add` shorthand
+
+### `gitstow shell pick`
+
+Interactive repo picker (uses fzf if available, falls back to beaupy). Outputs the selected repo's path. Designed for piping:
+
+```bash
+cd "$(gitstow shell pick)"
+code "$(gitstow shell pick)"
+```
+
+### `gitstow tui`
+
+Interactive terminal dashboard built with [Textual](https://github.com/Textualize/textual). Requires `pip install gitstow[tui]`.
+
+Keyboard shortcuts:
+- `r` — Refresh
+- `p` — Pull all unfrozen repos
+- `f` — Toggle freeze on selected repo
+- `Enter` — Show repo details
+- `/` — Focus filter input
+- `q` — Quit
+
+---
+
 ## Configuration Commands
 
 ### `gitstow config show`

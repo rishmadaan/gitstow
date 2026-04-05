@@ -87,6 +87,39 @@ gitstow install-skill   # Install Claude Code skill
 # Then in Claude Code: "add this repo" or "update my repos"
 ```
 
+### Run Commands Across Repos
+```bash
+gitstow exec -- git log -1 --oneline      # Last commit in each repo
+gitstow exec --tag python -- wc -l README.md  # Line count in Python repos
+```
+
+### Search Across Repos
+```bash
+gitstow search "TODO"                     # Grep everything
+gitstow search "def main" --glob "*.py"   # Only Python files
+gitstow search "error" --tag ai -i        # Case-insensitive, AI repos only
+```
+
+### Share Your Collection
+```bash
+gitstow collection export -o my-repos.yaml   # Export as portable YAML
+gitstow collection import my-repos.yaml      # Import on another machine
+gitstow collection export --format urls      # Plain URL list
+```
+
+### Shell Integration
+```bash
+eval "$(gitstow shell init)"    # Add to ~/.zshrc or ~/.bashrc
+gs                               # cd into a repo (fzf picker)
+gse                              # Open repo in editor (fzf picker)
+gsp                              # gitstow pull shorthand
+```
+
+### Interactive Dashboard
+```bash
+gitstow tui    # Keyboard-driven dashboard with filter, pull, freeze
+```
+
 ### JSON Output
 Every command supports `--json` for scripting and AI consumption:
 ```bash
@@ -99,18 +132,33 @@ gitstow status --json
 
 | Command | Description |
 |---------|-------------|
+| **Core** | |
 | `gitstow add <url> [urls...]` | Clone repos into organized structure |
 | `gitstow pull` | Bulk update all (or filtered) repos |
 | `gitstow list` | List repos grouped by owner |
 | `gitstow status` | Git status dashboard |
 | `gitstow remove <owner/repo>` | Remove a repo from tracking |
 | `gitstow migrate <path>` | Adopt existing repos into structure |
+| **Repo Management** | |
 | `gitstow repo freeze <owner/repo>` | Skip repo during pull |
 | `gitstow repo unfreeze <owner/repo>` | Re-enable pulling |
 | `gitstow repo tag <owner/repo> <tags...>` | Add tags to a repo |
 | `gitstow repo untag <owner/repo> <tag>` | Remove a tag |
 | `gitstow repo tags` | List all tags with counts |
 | `gitstow repo info <owner/repo>` | Detailed repo info |
+| **Power** | |
+| `gitstow exec <command>` | Run a command in every repo |
+| `gitstow search <pattern>` | Grep across all repos (uses ripgrep) |
+| `gitstow open <owner/repo>` | Open in editor, browser, or Finder |
+| `gitstow stats` | Collection statistics and disk usage |
+| **Sharing** | |
+| `gitstow collection export` | Export collection as YAML, JSON, or URLs |
+| `gitstow collection import <file>` | Import a collection from file |
+| **Shell** | |
+| `gitstow shell setup` | Show shell integration instructions |
+| `gitstow shell pick` | fzf-powered repo picker |
+| `gitstow tui` | Interactive terminal dashboard |
+| **Config** | |
 | `gitstow config show` | Show current config |
 | `gitstow config set <key> <value>` | Change a setting |
 | `gitstow config migrate-root <path>` | Move all repos to a new root |
