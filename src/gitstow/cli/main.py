@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Optional
 
 import typer
@@ -62,6 +61,7 @@ def _auto_update_skill() -> None:
 
 @app.callback()
 def main(
+    ctx: typer.Context,
     version: Optional[bool] = typer.Option(
         None,
         "--version",
@@ -70,8 +70,16 @@ def main(
         callback=version_callback,
         is_eager=True,
     ),
+    workspace: Optional[str] = typer.Option(
+        None,
+        "--workspace",
+        "-w",
+        help="Filter to a specific workspace.",
+    ),
 ) -> None:
     """[bold]gitstow[/bold] — clone, organize, and maintain collections of git repos."""
+    ctx.ensure_object(dict)
+    ctx.obj["workspace"] = workspace
     _auto_update_skill()
 
 
@@ -97,6 +105,7 @@ from gitstow.cli.export_cmd import export_app  # noqa: E402
 from gitstow.cli.shell import shell_app  # noqa: E402
 from gitstow.cli.tui import tui_cmd  # noqa: E402
 from gitstow.cli.setup_ai import setup_ai  # noqa: E402
+from gitstow.cli.workspace_cmd import workspace_app  # noqa: E402
 
 app.command()(add)
 app.command()(pull)
@@ -117,3 +126,4 @@ app.add_typer(export_app, name="collection", help="Export and import repo collec
 app.command("tui")(tui_cmd)
 app.command("setup-ai")(setup_ai)
 app.add_typer(shell_app, name="shell", help="Shell integration — fzf picker, cd helper, setup.")
+app.add_typer(workspace_app, name="workspace", help="Manage workspaces — add, remove, list, scan.")
