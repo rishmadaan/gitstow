@@ -60,7 +60,9 @@ def setup_ai(
         console.print(Panel(
             "[bold]AI Integration Setup[/bold]\n\n"
             "gitstow is designed to be used primarily through AI tools.\n"
-            "Let's configure the integrations available on this machine.",
+            "The Claude Code skill is the recommended integration (zero\n"
+            "context overhead, auto-updates). MCP is optional for tools\n"
+            "that don't support Claude Code skills.",
             border_style="cyan",
             padding=(1, 2),
         ))
@@ -79,11 +81,23 @@ def setup_ai(
             console.print(f"    [green]✓[/green] {tool['name']}")
         console.print()
 
-    # Configure each detected tool
-    for tool in detected:
-        if tool["type"] == "claude_code":
-            _setup_claude_code(auto=auto, quiet=quiet)
-        elif tool["type"] == "mcp_config":
+    # Always configure Claude Code skill first (primary integration)
+    claude_code = [t for t in detected if t["type"] == "claude_code"]
+    mcp_tools = [t for t in detected if t["type"] == "mcp_config"]
+
+    for tool in claude_code:
+        _setup_claude_code(auto=auto, quiet=quiet)
+
+    # Offer MCP for non-Claude-Code tools with clear context warning
+    if mcp_tools:
+        if not quiet:
+            console.print()
+            console.print("  [bold]MCP Server[/bold] (optional, for non-Claude-Code tools)")
+            console.print("  [dim]Warning: MCP tools are always loaded into context,")
+            console.print("  costing tokens even when you're not managing repos.[/dim]")
+            console.print("  [dim]The Claude Code skill has zero overhead when inactive.[/dim]")
+            console.print()
+        for tool in mcp_tools:
             _setup_mcp_config(tool["path"], tool["name"], auto=auto, quiet=quiet)
 
     if not quiet:

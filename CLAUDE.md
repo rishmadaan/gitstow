@@ -83,15 +83,17 @@ pip install -e ".[tui]"   # For TUI development
 - `git status --porcelain=v2 --branch` for single-call status (vs gita's 4-5 calls)
 - Portable repos.yaml with auto-migration from legacy location
 
-## MCP Server
+## AI Integration
 
-`src/gitstow/mcp/server.py` — FastMCP server exposing 12 tools + 3 resources via stdio.
-Entry point: `gitstow-mcp` (registered in pyproject.toml).
+**Primary: Claude Code skill** (`src/gitstow/skill/SKILL.md`)
+- Installed to `~/.claude/skills/gitstow/` via `gitstow install-skill` or `gitstow onboard`
+- Auto-updates on version bumps (checks `.version` marker on every CLI invocation)
+- Zero context cost when inactive — only loaded when task matches the skill description
+- Claude runs gitstow CLI commands via Bash — full access to all 23 commands
 
-The MCP server wraps the same `core/` modules as the CLI — zero code duplication.
-All tools return JSON strings. Designed for Claude Desktop, Cursor, Windsurf, or any MCP client.
-
-Tools: `list_repos`, `add_repo`, `pull_repos`, `repo_status`, `repo_info`, `freeze_repo`,
-`unfreeze_repo`, `tag_repo`, `untag_repo`, `remove_repo`, `search_repos`, `collection_stats`
-
-Resources: `gitstow://config`, `gitstow://tags`, `gitstow://owners`
+**Optional: MCP server** (`src/gitstow/mcp/server.py`)
+- For non-Claude-Code AI tools (Claude Desktop, Cursor, Windsurf)
+- Install: `pip install gitstow[mcp]`, entry point: `gitstow-mcp`
+- 12 tools + 3 resources, wraps same `core/` modules as CLI
+- **Tradeoff:** MCP tools are always loaded into context (costs tokens even when idle).
+  The skill has no such cost. Only use MCP for dedicated repo-management setups.

@@ -134,11 +134,11 @@ Configure with: `gitstow config set parallel_limit <N>`
 
 ## AI Integration
 
-gitstow is designed to work with AI tools:
+gitstow is designed to be used primarily through AI tools — the CLI is the engine, but AI is the expected interface.
 
-- **`--json` output** on every command — AI tools parse structured data, not terminal formatting
-- **Claude Code skill** — `gitstow install-skill` enables conversational repo management ("add this repo", "update my repos", "what repos do I have?")
-- **MCP server** — `gitstow-mcp` exposes 12 tools and 3 resources via the Model Context Protocol, so any MCP-compatible tool (Claude Desktop, Cursor, Windsurf, etc.) can manage your repos. See [Configuration — MCP Server Setup](configuration.md#mcp-server-setup).
+- **Claude Code skill** (primary) — `gitstow install-skill` or `gitstow onboard`. Enables conversational repo management ("add this repo", "update my repos"). Auto-updates on version bumps. Zero context cost when inactive — only loads when the task matches.
+- **`--json` output** on every command — AI tools parse structured data, not terminal formatting. The skill uses `--json --quiet` behind the scenes.
+- **MCP server** (optional) — for AI tools that don't support Claude Code skills (Claude Desktop, Cursor). Install with `pip install gitstow[mcp]`. Tradeoff: MCP tools are always loaded into context, costing tokens even when idle. See [Configuration](configuration.md#mcp-server-optional).
 
 This is the core thesis: developers increasingly maintain local repo clones that AI tools reference. gitstow makes that collection a managed, queryable resource.
 

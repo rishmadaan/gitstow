@@ -125,40 +125,20 @@ If you see SSH connection errors during bulk pulls, lower it:
 gitstow config set parallel_limit 3
 ```
 
-## MCP Server Setup
+## MCP Server (Optional)
 
-The MCP server lets any MCP-compatible AI tool manage your repos. Install with:
+> **Most users don't need this.** The Claude Code skill is the recommended AI integration — it has zero context overhead and auto-updates on version bumps. The MCP server is only for AI tools that don't support Claude Code skills (Claude Desktop, Cursor, Windsurf).
+
+**Context cost tradeoff:** MCP tools are always loaded into the AI's context window and cost tokens in every conversation, even when you're not managing repos. The Claude Code skill has zero cost when inactive — it only activates when the task matches.
+
+If you still want MCP:
 
 ```bash
-pip install gitstow[mcp]
+pip install gitstow[mcp]    # Install the optional dependency
+gitstow setup-ai             # Auto-detect AI tools and configure
 ```
 
-Then configure your AI tool to use `gitstow-mcp` as a stdio server.
-
-**Claude Desktop** — add to `claude_desktop_config.json`:
-```json
-{
-  "mcpServers": {
-    "gitstow": {
-      "command": "gitstow-mcp"
-    }
-  }
-}
-```
-
-**Claude Code** — add to `.mcp.json` in your project root:
-```json
-{
-  "mcpServers": {
-    "gitstow": {
-      "command": "gitstow-mcp",
-      "type": "stdio"
-    }
-  }
-}
-```
-
-The server exposes 12 tools (list, add, pull, status, freeze, tag, search, stats, etc.) and 3 resources. See [Commands Reference — MCP Server](commands.md#mcp-server) for the full list.
+Or configure manually — see [Commands Reference — MCP Server](commands.md#mcp-server-optional).
 
 ## Health Check
 

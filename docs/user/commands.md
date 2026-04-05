@@ -521,19 +521,19 @@ gitstow install-skill
 
 ---
 
-## MCP Server
+## MCP Server (Optional)
 
-gitstow includes a Model Context Protocol (MCP) server so any MCP-compatible AI tool can manage your repo collection.
+> **Most users don't need this.** If you use Claude Code, the bundled skill (`gitstow install-skill`) gives full access to all commands with zero context overhead. The MCP server is for AI tools that don't support Claude Code skills — Claude Desktop, Cursor, Windsurf, etc.
+>
+> **Context cost warning:** MCP tools are always loaded into your AI tool's context window, costing tokens even when you're not managing repos. Only set this up if you have a dedicated repo-management workflow.
 
 ### Setup
 
 ```bash
-pip install gitstow[mcp]    # Install with MCP support
+pip install gitstow[mcp]    # Install the optional MCP dependency
 ```
 
-### `gitstow-mcp`
-
-Start the MCP server (stdio transport). This is typically not run directly — it's configured in your AI tool's MCP settings.
+Then add to your AI tool's config:
 
 **Claude Desktop** (`claude_desktop_config.json`):
 ```json
@@ -546,19 +546,20 @@ Start the MCP server (stdio transport). This is typically not run directly — i
 }
 ```
 
-**Claude Code** (`.mcp.json` in project root):
+**Cursor** (`~/.cursor/mcp.json`):
 ```json
 {
   "mcpServers": {
     "gitstow": {
-      "command": "gitstow-mcp",
-      "type": "stdio"
+      "command": "gitstow-mcp"
     }
   }
 }
 ```
 
-### Available MCP Tools (12)
+Or use `gitstow setup-ai` to auto-detect and configure.
+
+### MCP Tools (12)
 
 | Tool | Description |
 |------|-------------|
@@ -575,7 +576,7 @@ Start the MCP server (stdio transport). This is typically not run directly — i
 | `search_repos` | Grep across repos with pattern and glob |
 | `collection_stats` | Disk usage, owner breakdown, tag counts |
 
-### Available MCP Resources (3)
+### MCP Resources (3)
 
 | Resource URI | Description |
 |-------------|-------------|

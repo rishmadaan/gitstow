@@ -130,15 +130,17 @@ gitstow onboard
 
 This walks you through choosing a root directory, default git host, SSH vs HTTPS preference, and scans for existing repos to register.
 
-## Optional: Claude Code Integration
+## AI Integration (Recommended)
 
-If you use [Claude Code](https://claude.ai/claude-code):
+gitstow is built to be used primarily through AI tools. If you use [Claude Code](https://claude.ai/claude-code), install the skill:
 
 ```bash
 gitstow install-skill
 ```
 
-Then you can say things like "add this repo" or "update my repos" conversationally.
+This is also done automatically during `gitstow onboard` and auto-updates when you upgrade gitstow. Once installed, you can say things like "add this repo" or "update my repos" conversationally.
+
+> For non-Claude-Code AI tools (Claude Desktop, Cursor), an optional MCP server is available. See [Configuration — MCP Server](configuration.md#mcp-server-optional).
 
 ## Troubleshooting
 

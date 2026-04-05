@@ -83,30 +83,14 @@ gitstow add https://codeberg.org/owner/repo    # Codeberg
 
 ### AI Integration
 
-**Claude Code skill:**
+gitstow is designed to be used primarily through AI tools. The Claude Code skill is installed automatically during onboarding and auto-updates on version bumps:
+
 ```bash
-gitstow install-skill   # Install Claude Code skill
+gitstow install-skill   # Or: gitstow onboard (includes this)
 # Then in Claude Code: "add this repo" or "update my repos"
 ```
 
-**MCP server** (works with Claude Desktop, Cursor, Windsurf, any MCP client):
-```bash
-pip install gitstow[mcp]   # Install with MCP support
-gitstow-mcp                # Start the MCP server (stdio transport)
-```
-
-Add to Claude Desktop config (`claude_desktop_config.json`):
-```json
-{
-  "mcpServers": {
-    "gitstow": {
-      "command": "gitstow-mcp"
-    }
-  }
-}
-```
-
-Exposes 12 tools (list, add, pull, status, freeze, tag, search, stats, etc.) and 3 resources.
+> **MCP server** is also available for non-Claude-Code AI tools (Claude Desktop, Cursor, etc.) via `pip install gitstow[mcp]`. See [docs/user/configuration.md](docs/user/configuration.md#mcp-server-optional) for setup. Note: MCP tools are always loaded into context and cost tokens even when not in use — the skill has zero overhead when inactive.
 
 ### Run Commands Across Repos
 ```bash
