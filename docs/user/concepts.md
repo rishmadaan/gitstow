@@ -138,7 +138,7 @@ gitstow is designed to work with AI tools:
 
 - **`--json` output** on every command — AI tools parse structured data, not terminal formatting
 - **Claude Code skill** — `gitstow install-skill` enables conversational repo management ("add this repo", "update my repos", "what repos do I have?")
-- **MCP server** (planned) — will expose gitstow as tools any AI agent can call
+- **MCP server** — `gitstow-mcp` exposes 12 tools and 3 resources via the Model Context Protocol, so any MCP-compatible tool (Claude Desktop, Cursor, Windsurf, etc.) can manage your repos. See [Configuration — MCP Server Setup](configuration.md#mcp-server-setup).
 
 This is the core thesis: developers increasingly maintain local repo clones that AI tools reference. gitstow makes that collection a managed, queryable resource.
 

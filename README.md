@@ -82,10 +82,31 @@ gitstow add https://codeberg.org/owner/repo    # Codeberg
 ```
 
 ### AI Integration
+
+**Claude Code skill:**
 ```bash
 gitstow install-skill   # Install Claude Code skill
 # Then in Claude Code: "add this repo" or "update my repos"
 ```
+
+**MCP server** (works with Claude Desktop, Cursor, Windsurf, any MCP client):
+```bash
+pip install gitstow[mcp]   # Install with MCP support
+gitstow-mcp                # Start the MCP server (stdio transport)
+```
+
+Add to Claude Desktop config (`claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "gitstow": {
+      "command": "gitstow-mcp"
+    }
+  }
+}
+```
+
+Exposes 12 tools (list, add, pull, status, freeze, tag, search, stats, etc.) and 3 resources.
 
 ### Run Commands Across Repos
 ```bash

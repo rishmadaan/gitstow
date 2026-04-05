@@ -125,6 +125,41 @@ If you see SSH connection errors during bulk pulls, lower it:
 gitstow config set parallel_limit 3
 ```
 
+## MCP Server Setup
+
+The MCP server lets any MCP-compatible AI tool manage your repos. Install with:
+
+```bash
+pip install gitstow[mcp]
+```
+
+Then configure your AI tool to use `gitstow-mcp` as a stdio server.
+
+**Claude Desktop** — add to `claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "gitstow": {
+      "command": "gitstow-mcp"
+    }
+  }
+}
+```
+
+**Claude Code** — add to `.mcp.json` in your project root:
+```json
+{
+  "mcpServers": {
+    "gitstow": {
+      "command": "gitstow-mcp",
+      "type": "stdio"
+    }
+  }
+}
+```
+
+The server exposes 12 tools (list, add, pull, status, freeze, tag, search, stats, etc.) and 3 resources. See [Commands Reference — MCP Server](commands.md#mcp-server) for the full list.
+
 ## Health Check
 
 Run `gitstow doctor` to verify everything is configured correctly:

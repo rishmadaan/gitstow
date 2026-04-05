@@ -82,3 +82,16 @@ pip install -e ".[tui]"   # For TUI development
 - asyncio with semaphore for parallel git ops
 - `git status --porcelain=v2 --branch` for single-call status (vs gita's 4-5 calls)
 - Portable repos.yaml with auto-migration from legacy location
+
+## MCP Server
+
+`src/gitstow/mcp/server.py` — FastMCP server exposing 12 tools + 3 resources via stdio.
+Entry point: `gitstow-mcp` (registered in pyproject.toml).
+
+The MCP server wraps the same `core/` modules as the CLI — zero code duplication.
+All tools return JSON strings. Designed for Claude Desktop, Cursor, Windsurf, or any MCP client.
+
+Tools: `list_repos`, `add_repo`, `pull_repos`, `repo_status`, `repo_info`, `freeze_repo`,
+`unfreeze_repo`, `tag_repo`, `untag_repo`, `remove_repo`, `search_repos`, `collection_stats`
+
+Resources: `gitstow://config`, `gitstow://tags`, `gitstow://owners`

@@ -162,8 +162,18 @@ cat /tmp/repos.txt | gitstow add --quiet --json
 4. **Use `--json --quiet`** when parsing output programmatically
 5. **Check `gitstow doctor`** if something seems broken
 
+## MCP Server
+
+gitstow also has an MCP server (`gitstow-mcp`) that exposes 12 tools to any MCP-compatible AI tool. If the user is using Claude Desktop or another MCP client, they can configure it with:
+
+```json
+{"mcpServers": {"gitstow": {"command": "gitstow-mcp"}}}
+```
+
+The MCP server provides the same operations as the CLI but via structured JSON tool calls.
+
 ## File Locations
 
 - Config: `~/.gitstow/config.yaml`
-- Repo metadata: `~/.gitstow/repos.yaml`
+- Repo metadata: `<root>/.gitstow/repos.yaml` (portable, lives with repos)
 - Repos: configured root path (default `~/opensource/`)

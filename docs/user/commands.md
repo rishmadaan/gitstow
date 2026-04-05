@@ -521,6 +521,70 @@ gitstow install-skill
 
 ---
 
+## MCP Server
+
+gitstow includes a Model Context Protocol (MCP) server so any MCP-compatible AI tool can manage your repo collection.
+
+### Setup
+
+```bash
+pip install gitstow[mcp]    # Install with MCP support
+```
+
+### `gitstow-mcp`
+
+Start the MCP server (stdio transport). This is typically not run directly — it's configured in your AI tool's MCP settings.
+
+**Claude Desktop** (`claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "gitstow": {
+      "command": "gitstow-mcp"
+    }
+  }
+}
+```
+
+**Claude Code** (`.mcp.json` in project root):
+```json
+{
+  "mcpServers": {
+    "gitstow": {
+      "command": "gitstow-mcp",
+      "type": "stdio"
+    }
+  }
+}
+```
+
+### Available MCP Tools (12)
+
+| Tool | Description |
+|------|-------------|
+| `list_repos` | List repos with tag/owner/query filters |
+| `add_repo` | Clone a repo (shorthand or full URL) |
+| `pull_repos` | Bulk pull with tag/exclude/frozen filters |
+| `repo_status` | Git status dashboard across repos |
+| `repo_info` | Detailed single repo info |
+| `freeze_repo` | Freeze a repo (skip during pull) |
+| `unfreeze_repo` | Unfreeze a repo |
+| `tag_repo` | Add tags to a repo |
+| `untag_repo` | Remove tags from a repo |
+| `remove_repo` | Remove from tracking (optionally delete) |
+| `search_repos` | Grep across repos with pattern and glob |
+| `collection_stats` | Disk usage, owner breakdown, tag counts |
+
+### Available MCP Resources (3)
+
+| Resource URI | Description |
+|-------------|-------------|
+| `gitstow://config` | Current gitstow configuration |
+| `gitstow://tags` | All tags with repo counts |
+| `gitstow://owners` | All owners with repo counts |
+
+---
+
 ## JSON Output
 
 Every main command supports `--json` (`-j`) for machine-readable output. Combined with `--quiet` (`-q`), this suppresses human-readable progress and only outputs structured JSON.
