@@ -12,13 +12,15 @@ from rich.console import Console
 from gitstow.core.config import load_config
 from gitstow.core.git import get_remote_url
 from gitstow.core.repo import RepoStore
+from gitstow.cli.helpers import resolve_repo
 
 console = Console()
 err_console = Console(stderr=True)
 
 
 def open_repo(
-    repo_key: str = typer.Argument(help="Repo to open (owner/repo)."),
+    ctx: typer.Context,
+    repo_key: str = typer.Argument(help="Repo to open (owner/repo or name)."),
     editor: bool = typer.Option(
         False, "--editor", "-e", help="Open in default editor (VS Code, etc.).",
     ),
@@ -46,14 +48,10 @@ def open_repo(
     """
     settings = load_config()
     store = RepoStore()
-    root = settings.get_root()
+    ws_label = ctx.obj.get("workspace") if ctx.obj else None
 
-    repo = store.get(repo_key)
-    if not repo:
-        err_console.print(f"[red]Error:[/red] '{repo_key}' not tracked.")
-        raise typer.Exit(code=1)
-
-    repo_path = repo.get_path(root)
+    repo, ws = resolve_repo(store, settings, repo_key, ws_label)
+    repo_path = repo.get_path(ws.get_path())
 
     if not repo_path.exists():
         err_console.print(f"[red]Error:[/red] '{repo_key}' not found on disk at {repo_path}")

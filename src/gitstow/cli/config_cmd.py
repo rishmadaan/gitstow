@@ -42,7 +42,6 @@ def config_show(
     console.print("\n  [bold]gitstow config[/bold]\n")
 
     rows = [
-        ("root_path", settings.root_path or f"~/opensource [dim](default)[/dim]"),
         ("default_host", settings.default_host),
         ("prefer_ssh", str(settings.prefer_ssh).lower()),
         ("parallel_limit", str(settings.parallel_limit)),
@@ -51,6 +50,17 @@ def config_show(
     max_label = max(len(r[0]) for r in rows)
     for label, value in rows:
         console.print(f"    {label.ljust(max_label + 2)}{value}")
+
+    console.print()
+
+    # Show workspaces
+    workspaces = settings.get_workspaces()
+    console.print(f"    [bold]Workspaces ({len(workspaces)}):[/bold]")
+    ws_counts = store.all_workspaces()
+    for ws in workspaces:
+        count = ws_counts.get(ws.label, 0)
+        tags_str = f"  auto_tags: [{', '.join(ws.auto_tags)}]" if ws.auto_tags else ""
+        console.print(f"      [cyan]{ws.label}[/cyan] — {ws.path} ({ws.layout}, {count} repos){tags_str}")
 
     console.print()
     console.print(f"    [dim]Config file:   {CONFIG_FILE}[/dim]")
@@ -75,42 +85,33 @@ def config_set(
     """
     settings = load_config()
 
-    valid_keys = {"root_path", "default_host", "prefer_ssh", "parallel_limit"}
+    valid_keys = {"default_host", "prefer_ssh", "parallel_limit"}
     if key not in valid_keys:
-        err_console.print(f"[red]Error:[/red] Unknown key '{key}'. Valid keys: {', '.join(sorted(valid_keys))}")
+        err_console.print(
+            f"[red]Error:[/red] Unknown key '{key}'. Valid keys: {', '.join(sorted(valid_keys))}\n"
+            f"  [dim]Use 'gitstow workspace add/remove' to manage workspace paths.[/dim]"
+        )
         raise typer.Exit(code=1)
 
-    # Type conversion
     if key == "prefer_ssh":
         if value.lower() in ("true", "yes", "1"):
             setattr(settings, key, True)
         elif value.lower() in ("false", "no", "0"):
             setattr(settings, key, False)
         else:
-            err_console.print(f"[red]Error:[/red] prefer_ssh must be true or false.")
+            err_console.print("[red]Error:[/red] prefer_ssh must be true or false.")
             raise typer.Exit(code=1)
     elif key == "parallel_limit":
         try:
             setattr(settings, key, int(value))
         except ValueError:
-            err_console.print(f"[red]Error:[/red] parallel_limit must be a number.")
+            err_console.print("[red]Error:[/red] parallel_limit must be a number.")
             raise typer.Exit(code=1)
     else:
         setattr(settings, key, value)
 
     save_config(settings)
     console.print(f"  [green]✓[/green] {key} = {value}")
-
-    # Warn about migrate-root if changing root_path
-    if key == "root_path":
-        console.print(
-            "\n  [yellow]Note:[/yellow] This only updates the config pointer. "
-            "Existing repos were NOT moved."
-        )
-        console.print(
-            "  To move repos to the new location, use: "
-            "[bold]gitstow config migrate-root <path>[/bold]\n"
-        )
 
 
 @config_app.command("path")

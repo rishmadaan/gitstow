@@ -14,11 +14,13 @@ from rich.table import Table
 from gitstow.core.config import load_config
 from gitstow.core.git import get_disk_size, format_size, is_git_repo
 from gitstow.core.repo import RepoStore
+from gitstow.cli.helpers import iter_repos_with_workspace
 
 console = Console()
 
 
 def stats(
+    ctx: typer.Context,
     output_json: bool = typer.Option(
         False, "--json", "-j", help="JSON output.",
     ),
@@ -29,9 +31,10 @@ def stats(
     """
     settings = load_config()
     store = RepoStore()
-    root = settings.get_root()
+    ws_label = ctx.obj.get("workspace") if ctx.obj else None
 
-    repos = store.list_all()
+    repo_ws_pairs = iter_repos_with_workspace(store, settings, ws_label)
+    repos = [r for r, _ in repo_ws_pairs]
     owners = store.all_owners()
     tags = store.all_tags()
     frozen = store.list_frozen()
@@ -41,8 +44,8 @@ def stats(
     size_by_owner: dict[str, int] = defaultdict(int)
     largest_repos: list[tuple[str, int]] = []
 
-    for repo in repos:
-        path = repo.get_path(root)
+    for repo, ws in repo_ws_pairs:
+        path = repo.get_path(ws.get_path())
         if path.exists() and is_git_repo(path):
             size = get_disk_size(path)
             total_size += size

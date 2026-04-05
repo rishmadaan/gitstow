@@ -19,6 +19,7 @@ from gitstow.core.git import (
     is_git_repo,
 )
 from gitstow.core.repo import RepoStore
+from gitstow.cli.helpers import resolve_repo
 
 manage_app = typer.Typer(
     help="Manage individual repos — freeze, tag, info.",
@@ -188,7 +189,8 @@ def list_tags() -> None:
 
 @manage_app.command()
 def info(
-    repo_key: str = typer.Argument(help="Repo to inspect (owner/repo)."),
+    ctx: typer.Context,
+    repo_key: str = typer.Argument(help="Repo to inspect (owner/repo or name)."),
     output_json: bool = typer.Option(
         False, "--json", "-j", help="JSON output.",
     ),
@@ -201,16 +203,13 @@ def info(
     """
     settings = load_config()
     store = RepoStore()
-    root = settings.get_root()
+    ws_label = (ctx.obj or {}).get("workspace")
 
-    repo = store.get(repo_key)
-    if not repo:
-        err_console.print(f"[red]Error:[/red] '{repo_key}' not tracked.")
-        raise typer.Exit(code=1)
-
-    path = repo.get_path(root)
+    repo, ws = resolve_repo(store, settings, repo_key, ws_label)
+    path = repo.get_path(ws.get_path())
     info_data = {
         "repo": repo.key,
+        "workspace": repo.workspace,
         "remote_url": repo.remote_url,
         "path": str(path),
         "frozen": repo.frozen,

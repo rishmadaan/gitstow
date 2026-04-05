@@ -20,6 +20,7 @@ err_console = Console(stderr=True)
 
 
 def migrate(
+    ctx: typer.Context,
     paths: list[str] = typer.Argument(
         help="Path(s) to existing git repos to adopt.",
     ),
@@ -32,22 +33,27 @@ def migrate(
 ) -> None:
     """[bold]Migrate[/bold] existing repos into the gitstow structure.
 
-    Moves repos into the organized owner/repo directory and registers them.
+    Moves repos into the target workspace directory and registers them.
+    Uses the default workspace unless -w is specified.
 
     \b
     Examples:
       gitstow migrate ~/old-projects/some-repo
-      gitstow migrate ~/random-clones/repo1 ~/random-clones/repo2
+      gitstow migrate -w active ~/random-clones/repo1
     """
     settings = load_config()
     store = RepoStore()
-    root = settings.get_root()
+    ws_label = (ctx.obj or {}).get("workspace")
+
+    from gitstow.cli.helpers import resolve_workspaces
+    ws_list = resolve_workspaces(settings, ws_label)
+    ws = ws_list[0]
+    root = ws.get_path()
     results = []
 
     for path_str in paths:
         path = Path(path_str).expanduser().resolve()
 
-        # Validate
         if not path.exists():
             results.append({"path": path_str, "status": "error", "detail": "Path does not exist"})
             if not quiet:
@@ -60,7 +66,6 @@ def migrate(
                 err_console.print(f"  [red]✗[/red] {path_str}: not a git repo")
             continue
 
-        # Get remote URL
         remote_url = get_remote_url(path)
         if not remote_url:
             results.append({"path": path_str, "status": "error", "detail": "No remote URL configured"})
@@ -68,7 +73,6 @@ def migrate(
                 err_console.print(f"  [red]✗[/red] {path_str}: no remote URL (can't determine owner/repo)")
             continue
 
-        # Parse remote URL to get owner/repo
         try:
             parsed = parse_git_url(remote_url, default_host=settings.default_host)
         except ValueError as e:
@@ -77,53 +81,56 @@ def migrate(
                 err_console.print(f"  [red]✗[/red] {path_str}: can't parse remote URL: {e}")
             continue
 
-        target = root / parsed.owner / parsed.repo
+        # Determine target based on workspace layout
+        if ws.layout == "flat":
+            target = root / parsed.repo
+            repo_owner = ""
+        else:
+            target = root / parsed.owner / parsed.repo
+            repo_owner = parsed.owner
+
+        repo_key = f"{repo_owner}/{parsed.repo}" if repo_owner else parsed.repo
 
         # Already in the right place?
         if path == target:
-            # Just register
-            repo = Repo(owner=parsed.owner, name=parsed.repo, remote_url=remote_url)
+            repo = Repo(owner=repo_owner, name=parsed.repo, remote_url=remote_url, workspace=ws.label)
             store.add(repo)
-            results.append({"path": path_str, "status": "registered", "key": parsed.key})
+            results.append({"path": path_str, "status": "registered", "key": repo_key})
             if not quiet:
-                console.print(f"  [green]✓[/green] {parsed.key} registered (already in place)")
+                console.print(f"  [green]✓[/green] {repo_key} registered (already in place)")
             continue
 
         # Already tracked?
-        existing = store.get(parsed.key)
+        existing = store.get(repo_key, workspace=ws.label)
         if existing:
-            results.append({"path": path_str, "status": "exists", "key": parsed.key})
+            results.append({"path": path_str, "status": "exists", "key": repo_key})
             if not quiet:
-                console.print(f"  [yellow]○[/yellow] {parsed.key} already tracked at {existing.get_path(root)}")
+                console.print(f"  [yellow]○[/yellow] {repo_key} already tracked")
             continue
 
         # Target already exists?
         if target.exists():
-            results.append({"path": path_str, "status": "conflict", "key": parsed.key, "detail": f"Target exists: {target}"})
+            results.append({"path": path_str, "status": "conflict", "key": repo_key, "detail": f"Target exists: {target}"})
             if not quiet:
-                err_console.print(f"  [red]✗[/red] {parsed.key}: target path already exists: {target}")
+                err_console.print(f"  [red]✗[/red] {repo_key}: target path already exists: {target}")
             continue
 
-        # Move the repo
         if not quiet:
             console.print(f"  [dim]Moving[/dim] {path_str} → {target}...")
 
         target.parent.mkdir(parents=True, exist_ok=True)
 
         try:
-            # Try rename first (same filesystem = instant)
             path.rename(target)
         except OSError:
-            # Cross-device: copy + delete
             shutil.copytree(path, target, symlinks=True)
             shutil.rmtree(path)
 
-        # Register
-        repo = Repo(owner=parsed.owner, name=parsed.repo, remote_url=remote_url)
+        repo = Repo(owner=repo_owner, name=parsed.repo, remote_url=remote_url, workspace=ws.label)
         store.add(repo)
-        results.append({"path": path_str, "status": "migrated", "key": parsed.key, "target": str(target)})
+        results.append({"path": path_str, "status": "migrated", "key": repo_key, "target": str(target)})
         if not quiet:
-            console.print(f"  [green]✓[/green] {parsed.key} migrated to {target}")
+            console.print(f"  [green]✓[/green] {repo_key} migrated to {target}")
 
     if output_json:
         json.dump(results, sys.stdout, indent=2)

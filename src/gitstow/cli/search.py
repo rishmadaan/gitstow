@@ -12,12 +12,14 @@ from rich.console import Console
 
 from gitstow.core.config import load_config
 from gitstow.core.repo import RepoStore
+from gitstow.cli.helpers import iter_repos_with_workspace
 
 console = Console()
 err_console = Console(stderr=True)
 
 
 def search(
+    ctx: typer.Context,
     pattern: str = typer.Argument(help="Search pattern (regex supported if using ripgrep)."),
     tag: Optional[list[str]] = typer.Option(
         None, "--tag", "-t", help="Only search in repos with this tag.",
@@ -53,21 +55,21 @@ def search(
       gitstow search "TODO"
       gitstow search "def main" --glob "*.py"
       gitstow search "import React" --tag frontend
-      gitstow search "error" -i --files
+      gitstow search -w active "error" -i --files
     """
     settings = load_config()
     store = RepoStore()
-    root = settings.get_root()
+    ws_label = ctx.obj.get("workspace") if ctx.obj else None
 
-    repos = store.list_all()
+    repo_ws_pairs = iter_repos_with_workspace(store, settings, ws_label)
 
     if tag:
         tag_set = set(tag)
-        repos = [r for r in repos if tag_set.intersection(r.tags)]
+        repo_ws_pairs = [(r, ws) for r, ws in repo_ws_pairs if tag_set.intersection(r.tags)]
     if owner:
-        repos = [r for r in repos if r.owner == owner]
+        repo_ws_pairs = [(r, ws) for r, ws in repo_ws_pairs if r.owner == owner]
 
-    if not repos:
+    if not repo_ws_pairs:
         if not quiet:
             console.print("[dim]No repos match the filter.[/dim]")
         return
@@ -77,8 +79,8 @@ def search(
     all_results = []
     total_matches = 0
 
-    for repo in repos:
-        path = repo.get_path(root)
+    for repo, ws in repo_ws_pairs:
+        path = repo.get_path(ws.get_path())
         if not path.exists():
             continue
 
@@ -117,7 +119,7 @@ def search(
         print()
     elif not quiet:
         if total_matches == 0:
-            console.print(f"\n  [dim]No matches for '{pattern}' across {len(repos)} repos.[/dim]\n")
+            console.print(f"\n  [dim]No matches for '{pattern}' across {len(repo_ws_pairs)} repos.[/dim]\n")
         else:
             console.print(f"\n  [green]{total_matches} matches[/green] across {len(all_results)} repos\n")
 

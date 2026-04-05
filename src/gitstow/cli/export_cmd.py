@@ -25,6 +25,7 @@ err_console = Console(stderr=True)
 
 @export_app.command("export")
 def export_collection(
+    ctx: typer.Context,
     output: Optional[str] = typer.Option(
         None, "--output", "-o", help="Output file path. Defaults to stdout.",
     ),
@@ -51,7 +52,12 @@ def export_collection(
       gitstow collection export --tag ai -o ai.yaml    # Export subset
     """
     store = RepoStore()
-    repos = store.list_all()
+    ws_label = (ctx.obj or {}).get("workspace")
+
+    if ws_label:
+        repos = store.list_by_workspace(ws_label)
+    else:
+        repos = store.list_all()
 
     if tag:
         tag_set = set(tag)
@@ -68,6 +74,7 @@ def export_collection(
         data = [
             {
                 "key": r.key,
+                "workspace": r.workspace,
                 "remote_url": r.remote_url,
                 "tags": r.tags,
                 "frozen": r.frozen,
@@ -79,6 +86,8 @@ def export_collection(
         data = {}
         for r in repos:
             entry = {"remote_url": r.remote_url}
+            if r.workspace:
+                entry["workspace"] = r.workspace
             if r.tags:
                 entry["tags"] = r.tags
             if r.frozen:
@@ -95,6 +104,7 @@ def export_collection(
 
 @export_app.command("import")
 def import_collection(
+    ctx: typer.Context,
     file_path: str = typer.Argument(help="File to import (YAML, JSON, or plain URLs)."),
     tag: Optional[list[str]] = typer.Option(
         None, "--tag", "-t", help="Apply tag(s) to all imported repos.",
@@ -161,17 +171,20 @@ def import_collection(
     # Build add commands
     from gitstow.core.url_parser import parse_git_url
     from gitstow.core.git import clone as git_clone
-    from gitstow.core.config import load_config
+    from gitstow.cli.helpers import resolve_workspaces
     from datetime import datetime
 
     settings = load_config()
-    root = settings.get_root()
+    ws_label = (ctx.obj or {}).get("workspace")
+    ws_list = resolve_workspaces(settings, ws_label)
+    ws = ws_list[0]
+    root = ws.get_path()
     succeeded = 0
     failed = 0
 
     for entry in new_repos:
         url = entry.get("url") or entry.get("remote_url", "")
-        entry_tags = entry.get("tags", []) + tags
+        entry_tags = entry.get("tags", []) + tags + list(ws.auto_tags)
         frozen = entry.get("frozen", False)
 
         try:
@@ -181,10 +194,16 @@ def import_collection(
             failed += 1
             continue
 
-        target = root / parsed.owner / parsed.repo
+        if ws.layout == "flat":
+            target = root / parsed.repo
+            repo_owner = ""
+        else:
+            target = root / parsed.owner / parsed.repo
+            repo_owner = parsed.owner
+
         if target.exists():
             console.print(f"  [yellow]○[/yellow] {parsed.key} already on disk, registering")
-            repo = Repo(owner=parsed.owner, name=parsed.repo, remote_url=url, tags=entry_tags, frozen=frozen)
+            repo = Repo(owner=repo_owner, name=parsed.repo, remote_url=url, workspace=ws.label, tags=entry_tags, frozen=frozen)
             store.add(repo)
             succeeded += 1
             continue
@@ -195,9 +214,10 @@ def import_collection(
         success, error = git_clone(url=parsed.clone_url, target=target, shallow=shallow)
         if success:
             repo = Repo(
-                owner=parsed.owner,
+                owner=repo_owner,
                 name=parsed.repo,
                 remote_url=parsed.clone_url,
+                workspace=ws.label,
                 tags=entry_tags,
                 frozen=frozen,
                 last_pulled=datetime.now().isoformat(),

@@ -14,6 +14,7 @@ from rich.panel import Panel
 from gitstow.core.config import load_config
 from gitstow.core.repo import RepoStore
 from gitstow.core.parallel import run_parallel_sync
+from gitstow.cli.helpers import iter_repos_with_workspace
 
 console = Console()
 err_console = Console(stderr=True)
@@ -43,6 +44,7 @@ def _exec_in_repo(repo_path, command: list[str]) -> dict:
 
 
 def exec_cmd(
+    ctx: typer.Context,
     command: list[str] = typer.Argument(
         help="Command to run in each repo (e.g., 'git log -1 --oneline').",
     ),
@@ -74,23 +76,23 @@ def exec_cmd(
       gitstow exec git log -1 --oneline
       gitstow exec -- git branch --show-current
       gitstow exec --tag ai -- wc -l README.md
-      gitstow exec -- ls -la
+      gitstow exec -w active -- ls -la
     """
     settings = load_config()
     store = RepoStore()
-    root = settings.get_root()
+    ws_label = ctx.obj.get("workspace") if ctx.obj else None
 
-    repos = store.list_all()
+    repo_ws_pairs = iter_repos_with_workspace(store, settings, ws_label)
 
     if tag:
         tag_set = set(tag)
-        repos = [r for r in repos if tag_set.intersection(r.tags)]
+        repo_ws_pairs = [(r, ws) for r, ws in repo_ws_pairs if tag_set.intersection(r.tags)]
     if owner:
-        repos = [r for r in repos if r.owner == owner]
+        repo_ws_pairs = [(r, ws) for r, ws in repo_ws_pairs if r.owner == owner]
     if frozen_only:
-        repos = [r for r in repos if r.frozen]
+        repo_ws_pairs = [(r, ws) for r, ws in repo_ws_pairs if r.frozen]
 
-    if not repos:
+    if not repo_ws_pairs:
         if not quiet:
             console.print("[dim]No repos match the filter.[/dim]")
         return
@@ -102,8 +104,8 @@ def exec_cmd(
     results = []
 
     if sequential:
-        for repo in repos:
-            path = repo.get_path(root)
+        for repo, ws in repo_ws_pairs:
+            path = repo.get_path(ws.get_path())
             if not path.exists():
                 results.append({"repo": repo.key, "returncode": -1, "stdout": "", "stderr": "Not found on disk"})
                 continue
@@ -115,8 +117,8 @@ def exec_cmd(
                 _print_repo_result(repo.key, result)
     else:
         tasks = [
-            (repo.key, lambda r=repo: _exec_in_repo(r.get_path(root), command))
-            for repo in repos
+            (repo.global_key, lambda r=repo, w=ws: _exec_in_repo(r.get_path(w.get_path()), command))
+            for repo, ws in repo_ws_pairs
         ]
         task_results = run_parallel_sync(tasks, max_concurrent=settings.parallel_limit)
 

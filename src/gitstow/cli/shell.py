@@ -38,47 +38,51 @@ def pick(
     import shutil
     import subprocess
 
+    from gitstow.cli.helpers import iter_repos_with_workspace
+
     settings = load_config()
     store = RepoStore()
-    root = settings.get_root()
 
-    repos = store.list_all()
+    repo_ws_pairs = iter_repos_with_workspace(store, settings)
     if tag:
-        repos = [r for r in repos if tag in r.tags]
+        repo_ws_pairs = [(r, ws) for r, ws in repo_ws_pairs if tag in r.tags]
     if owner:
-        repos = [r for r in repos if r.owner == owner]
+        repo_ws_pairs = [(r, ws) for r, ws in repo_ws_pairs if r.owner == owner]
 
-    if not repos:
+    if not repo_ws_pairs:
         sys.exit(1)
+
+    ws_map = {r.global_key: ws for r, ws in repo_ws_pairs}
+    repos = [r for r, _ in repo_ws_pairs]
+    multi_ws = len({r.workspace for r in repos}) > 1
 
     # Check for fzf
     if not shutil.which("fzf"):
-        # Fallback: beaupy selector
         try:
             from beaupy import select as bselect
-            options = [r.key for r in repos]
+            options = [f"[{r.workspace}] {r.key}" if multi_ws else r.key for r in repos]
             choice = bselect(options, cursor=">>>", cursor_style="bold cyan")
             if choice:
-                repo = store.get(choice)
-                if repo:
-                    print(str(repo.get_path(root)) if path_only else repo.key)
+                idx = options.index(choice)
+                r = repos[idx]
+                ws = ws_map[r.global_key]
+                print(str(r.get_path(ws.get_path())) if path_only else r.key)
             else:
                 sys.exit(1)
         except ImportError:
-            # No fzf, no beaupy — just list
             for r in repos:
                 print(r.key)
             sys.exit(1)
         return
 
-    # Build fzf input: "key  [tags]  path"
+    # Build fzf input
     lines = []
     for r in repos:
+        prefix = f"[{r.workspace}] " if multi_ws else ""
         frozen = " ❄" if r.frozen else ""
         tags_str = f"  [{', '.join(r.tags)}]" if r.tags else ""
-        lines.append(f"{r.key}{frozen}{tags_str}")
+        lines.append(f"{prefix}{r.key}{frozen}{tags_str}")
 
-    # Pipe to fzf
     fzf_input = "\n".join(lines)
     try:
         result = subprocess.run(
@@ -90,14 +94,16 @@ def pick(
         if result.returncode != 0 or not result.stdout.strip():
             sys.exit(1)
 
-        # Extract the key (first word before any spaces/tags)
-        selected = result.stdout.strip().split()[0]
-        repo = store.get(selected)
-        if repo:
-            print(str(repo.get_path(root)) if path_only else repo.key)
+        selected_line = result.stdout.strip()
+        # Find the matching repo by comparing fzf lines
+        idx = lines.index(selected_line) if selected_line in lines else -1
+        if idx >= 0:
+            r = repos[idx]
+            ws = ws_map[r.global_key]
+            print(str(r.get_path(ws.get_path())) if path_only else r.key)
         else:
             sys.exit(1)
-    except FileNotFoundError:
+    except (FileNotFoundError, ValueError):
         sys.exit(1)
 
 
