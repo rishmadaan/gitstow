@@ -10,7 +10,7 @@ from rich.console import Console
 
 from gitstow import __version__
 from gitstow.core.config import load_config
-from gitstow.core.paths import APP_HOME, CONFIG_FILE, REPOS_FILE
+from gitstow.core.paths import APP_HOME, CONFIG_FILE, get_repos_file
 from gitstow.core.git import is_git_installed, is_git_repo, format_size, get_disk_size
 from gitstow.core.repo import RepoStore
 from gitstow.core.discovery import discover_repos, reconcile
@@ -37,10 +37,12 @@ def doctor(
     }
 
     # 2. Configuration
+    repos_file = get_repos_file(root)
     checks["config"] = {
         "app_dir_exists": APP_HOME.exists(),
         "config_file_exists": CONFIG_FILE.exists(),
-        "repos_file_exists": REPOS_FILE.exists(),
+        "repos_file_exists": repos_file.exists(),
+        "repos_file_path": str(repos_file),
         "root_dir_exists": root.exists(),
         "root_path": str(root),
         "repos_tracked": store.count(),
@@ -86,7 +88,7 @@ def doctor(
     console.print("\n  [bold]2. Configuration[/bold]\n")
     _check("App directory", APP_HOME.exists())
     _check("Config file", CONFIG_FILE.exists())
-    _check("Repos file", REPOS_FILE.exists())
+    _check("Repos file", repos_file.exists(), str(repos_file))
     _check("Root directory", root.exists(), str(root))
     console.print(f"     Repos tracked: {store.count()}")
 

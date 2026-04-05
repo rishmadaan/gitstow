@@ -12,7 +12,7 @@ from pathlib import Path
 
 import yaml
 
-from gitstow.core.paths import REPOS_FILE, ensure_app_dirs
+from gitstow.core.paths import get_repos_file, ensure_app_dirs, ensure_root_dirs
 
 
 @dataclass
@@ -64,10 +64,14 @@ class Repo:
 
 
 class RepoStore:
-    """CRUD operations on ~/.gitstow/repos.yaml."""
+    """CRUD operations on repos.yaml.
 
-    def __init__(self, path: Path = REPOS_FILE):
-        self._path = path
+    Since v0.2.0, repos.yaml lives at root/.gitstow/repos.yaml (portable).
+    Falls back to ~/.gitstow/repos.yaml if no root is configured.
+    """
+
+    def __init__(self, path: Path | None = None):
+        self._path = path or get_repos_file()
         self._repos: dict[str, Repo] = {}
         self._loaded = False
 
@@ -89,7 +93,7 @@ class RepoStore:
 
     def save(self) -> None:
         """Write repos to repos.yaml."""
-        ensure_app_dirs()
+        self._path.parent.mkdir(parents=True, exist_ok=True)
         data = {}
         for key in sorted(self._repos.keys()):
             data[key] = self._repos[key].to_dict()

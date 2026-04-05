@@ -45,6 +45,9 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.4",
 ]
+tui = [
+    "textual>=0.50",
+]
 
 [project.scripts]
 gitstow = "gitstow.cli.main:app"
