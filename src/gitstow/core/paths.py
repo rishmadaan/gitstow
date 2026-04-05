@@ -3,14 +3,18 @@
 from importlib.resources import files as pkg_files
 from pathlib import Path
 
-# App home — hidden config directory (always in home dir — solves chicken-and-egg)
+# App home — hidden config directory (always in home dir)
 APP_HOME = Path.home() / ".gitstow"
 CONFIG_FILE = APP_HOME / "config.yaml"
 
-# Legacy repos file location (pre-0.2.0, in home dir)
-LEGACY_REPOS_FILE = APP_HOME / "repos.yaml"
+# Central repos file — always in app home (since workspace support)
+REPOS_FILE = APP_HOME / "repos.yaml"
 
-# Default root for repos (configurable via config.yaml or onboarding)
+# Legacy location: root/.gitstow/repos.yaml (pre-workspace, v0.2.0 era)
+# Migrated to central REPOS_FILE on first access.
+LEGACY_REPOS_FILE = REPOS_FILE  # alias for imports that used this name
+
+# Default root for repos (used when no workspaces configured)
 DEFAULT_ROOT = Path.home() / "opensource"
 
 # Claude Code skill installation paths
@@ -22,35 +26,19 @@ SKILL_TARGET = CLAUDE_SKILLS_DIR / "gitstow"
 def get_repos_file(root: Path | None = None) -> Path:
     """Get the repos.yaml path.
 
-    Since v0.2.0, repos.yaml lives at root/.gitstow/repos.yaml (portable).
-    Falls back to ~/.gitstow/repos.yaml (legacy) if the root location doesn't exist.
-    Auto-migrates from legacy on first access.
+    Since workspace support, repos.yaml is always central at ~/.gitstow/repos.yaml.
+    Auto-migrates from the old root/.gitstow/repos.yaml location if found.
     """
-    if root is None:
-        # Import here to avoid circular import
-        from gitstow.core.config import load_config
-        root = load_config().get_root()
+    # Auto-migrate from old per-root location
+    if root is not None:
+        old_path = root / ".gitstow" / "repos.yaml"
+        if old_path.exists() and not REPOS_FILE.exists():
+            REPOS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            import shutil
+            shutil.copy2(old_path, REPOS_FILE)
+            old_path.rename(old_path.with_suffix(".yaml.migrated"))
 
-    new_path = root / ".gitstow" / "repos.yaml"
-
-    # Auto-migrate: if legacy exists and new doesn't, move it
-    if LEGACY_REPOS_FILE.exists() and not new_path.exists():
-        new_path.parent.mkdir(parents=True, exist_ok=True)
-        import shutil
-        shutil.copy2(LEGACY_REPOS_FILE, new_path)
-        # Keep legacy as backup briefly, remove after confirmed working
-        LEGACY_REPOS_FILE.rename(LEGACY_REPOS_FILE.with_suffix(".yaml.migrated"))
-
-    # If new path exists, use it
-    if new_path.exists() or new_path.parent.exists():
-        return new_path
-
-    # Fallback: use legacy location (first run, no root yet)
-    return LEGACY_REPOS_FILE
-
-
-# Keep REPOS_FILE as a simple default for imports that don't have root context
-REPOS_FILE = LEGACY_REPOS_FILE
+    return REPOS_FILE
 
 
 def get_skill_source_dir():
@@ -61,8 +49,3 @@ def get_skill_source_dir():
 def ensure_app_dirs() -> None:
     """Create required app directories if they don't exist."""
     APP_HOME.mkdir(parents=True, exist_ok=True)
-
-
-def ensure_root_dirs(root: Path) -> None:
-    """Create the .gitstow dir inside the root for portable metadata."""
-    (root / ".gitstow").mkdir(parents=True, exist_ok=True)

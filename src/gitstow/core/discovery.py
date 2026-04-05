@@ -1,7 +1,8 @@
 """Discovery — walk directory tree to find repos and reconcile with store.
 
-The directory structure (root/owner/repo/) is the primary source of truth.
-This module finds what's on disk and compares it to what's in repos.yaml.
+Supports two layout modes:
+  - structured: root/owner/repo/.git (two-level walk)
+  - flat: root/repo/.git (one-level walk)
 """
 
 from __future__ import annotations
@@ -17,32 +18,37 @@ from gitstow.core.repo import Repo
 class DiscoveredRepo:
     """A git repo found on disk."""
 
-    key: str             # "owner/repo"
-    owner: str
+    key: str             # "owner/repo" (structured) or "repo" (flat)
+    owner: str           # "" for flat layout
     name: str
     path: Path
     remote_url: str | None
 
 
-def discover_repos(root: Path) -> list[DiscoveredRepo]:
-    """Walk root/*/  looking for git repos.
+def discover_repos(root: Path, layout: str = "structured") -> list[DiscoveredRepo]:
+    """Walk a workspace directory looking for git repos.
 
-    Two-level walk only: root/owner/repo/.git
-    Skips hidden directories (starting with .).
+    Args:
+        root: The workspace path to scan.
+        layout: "structured" (root/owner/repo/.git) or "flat" (root/repo/.git).
     """
-    found = []
-
     if not root.is_dir():
-        return found
+        return []
 
+    if layout == "flat":
+        return _discover_flat(root)
+    return _discover_structured(root)
+
+
+def _discover_structured(root: Path) -> list[DiscoveredRepo]:
+    """Two-level walk: root/owner/repo/.git. Skips hidden directories."""
+    found = []
     for owner_dir in sorted(root.iterdir()):
         if not owner_dir.is_dir() or owner_dir.name.startswith("."):
             continue
-
         for repo_dir in sorted(owner_dir.iterdir()):
             if not repo_dir.is_dir() or repo_dir.name.startswith("."):
                 continue
-
             if is_git_repo(repo_dir):
                 remote = get_remote_url(repo_dir)
                 found.append(DiscoveredRepo(
@@ -52,7 +58,24 @@ def discover_repos(root: Path) -> list[DiscoveredRepo]:
                     path=repo_dir,
                     remote_url=remote,
                 ))
+    return found
 
+
+def _discover_flat(root: Path) -> list[DiscoveredRepo]:
+    """One-level walk: root/repo/.git. Skips hidden directories."""
+    found = []
+    for repo_dir in sorted(root.iterdir()):
+        if not repo_dir.is_dir() or repo_dir.name.startswith("."):
+            continue
+        if is_git_repo(repo_dir):
+            remote = get_remote_url(repo_dir)
+            found.append(DiscoveredRepo(
+                key=repo_dir.name,
+                owner="",
+                name=repo_dir.name,
+                path=repo_dir,
+                remote_url=remote,
+            ))
     return found
 
 
@@ -76,7 +99,6 @@ def reconcile(
     orphaned_keys = sorted(disk_keys - store_keys)
     missing_keys = sorted(store_keys - disk_keys)
 
-    # Build orphaned info
     disk_map = {r.key: r for r in on_disk}
     orphaned = [
         {
