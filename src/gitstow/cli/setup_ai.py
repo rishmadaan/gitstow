@@ -197,7 +197,12 @@ def _setup_mcp_config(config_path: str, tool_name: str, auto: bool = False, quie
 
 # Also make this callable from onboard.py
 def _setup_ai_integrations(auto: bool = False, quiet: bool = False) -> None:
-    """Run AI setup as part of onboarding. Non-interactive wrapper."""
+    """Run AI setup as part of onboarding.
+
+    During onboarding, only the Claude Code skill is installed by default.
+    MCP setup is offered but explained as opt-in, since MCP tools are always
+    loaded into context and cost tokens even when not in use.
+    """
     console.print("  [bold]5. AI Integration[/bold]\n")
 
     detected = _detect_ai_tools()
@@ -206,12 +211,23 @@ def _setup_ai_integrations(auto: bool = False, quiet: bool = False) -> None:
         console.print("     [dim]No AI tools detected. You can set up later with 'gitstow setup-ai'.[/dim]\n")
         return
 
-    console.print(f"     Detected: {', '.join(t['name'] for t in detected)}\n")
+    # Always install Claude Code skill (zero context cost when not in use)
+    claude_code = [t for t in detected if t["type"] == "claude_code"]
+    if claude_code:
+        _setup_claude_code(auto=True, quiet=quiet)
 
-    for tool in detected:
-        if tool["type"] == "claude_code":
-            _setup_claude_code(auto=False, quiet=quiet)
-        elif tool["type"] == "mcp_config":
+    # Offer MCP setup but explain the tradeoff
+    mcp_tools = [t for t in detected if t["type"] == "mcp_config"]
+    if mcp_tools:
+        console.print()
+        console.print("     [bold]MCP server[/bold] (optional)")
+        console.print("     The MCP server lets Claude Desktop, Cursor, etc. manage repos.")
+        console.print("     [dim]Note: MCP tools are always loaded into context and use tokens")
+        console.print("     even when you're not managing repos. Best for dedicated setups.[/dim]")
+        console.print("     [dim]You can set this up later with: gitstow setup-ai[/dim]")
+        console.print()
+
+        for tool in mcp_tools:
             _setup_mcp_config(tool["path"], tool["name"], auto=False, quiet=quiet)
 
     console.print()

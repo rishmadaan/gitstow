@@ -41,6 +41,10 @@ def _do_install_skill(quiet: bool = False) -> bool:
                 console.print("  [red]✗[/red] Could not find bundled SKILL.md")
             return False
 
+    # Write version marker for auto-update detection
+    from gitstow import __version__
+    (SKILL_TARGET / ".version").write_text(__version__)
+
     if not quiet:
         console.print(f"  [green]✓[/green] Skill installed to {SKILL_TARGET}")
     return True

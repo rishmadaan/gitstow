@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
 
 import typer
 from rich.console import Console
 
 from gitstow import __version__
+from gitstow.core.paths import CLAUDE_SKILLS_DIR
 
 app = typer.Typer(
     name="gitstow",
@@ -26,6 +28,38 @@ def version_callback(value: bool) -> None:
         raise typer.Exit()
 
 
+def _auto_update_skill() -> None:
+    """Silently update the Claude Code skill if the version has changed.
+
+    Checks a .version marker file in the installed skill directory.
+    If it doesn't match the current package version, re-copies SKILL.md.
+    This runs on every invocation but is fast (one file read + compare).
+    """
+    skill_dir = CLAUDE_SKILLS_DIR / "gitstow"
+    version_marker = skill_dir / ".version"
+
+    if not skill_dir.exists():
+        # Skill not installed — don't auto-install (user hasn't opted in)
+        return
+
+    # Check version marker
+    try:
+        installed_version = version_marker.read_text().strip()
+    except (FileNotFoundError, OSError):
+        installed_version = ""
+
+    if installed_version == __version__:
+        return  # Already up to date
+
+    # Version mismatch — silently update
+    try:
+        from gitstow.cli.skill_cmd import _do_install_skill
+        _do_install_skill(quiet=True)
+        version_marker.write_text(__version__)
+    except Exception:
+        pass  # Never block CLI on skill update failure
+
+
 @app.callback()
 def main(
     version: Optional[bool] = typer.Option(
@@ -38,6 +72,7 @@ def main(
     ),
 ) -> None:
     """[bold]gitstow[/bold] — clone, organize, and maintain collections of git repos."""
+    _auto_update_skill()
 
 
 # --- Register Stage 1 commands ---
