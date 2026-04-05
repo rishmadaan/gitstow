@@ -61,6 +61,7 @@ from gitstow.cli.stats import stats  # noqa: E402
 from gitstow.cli.export_cmd import export_app  # noqa: E402
 from gitstow.cli.shell import shell_app  # noqa: E402
 from gitstow.cli.tui import tui_cmd  # noqa: E402
+from gitstow.cli.setup_ai import setup_ai  # noqa: E402
 
 app.command()(add)
 app.command()(pull)
@@ -79,4 +80,5 @@ app.add_typer(config_app, name="config")
 app.add_typer(manage_app, name="repo", help="Manage individual repos — freeze, tag, info.")
 app.add_typer(export_app, name="collection", help="Export and import repo collections.")
 app.command("tui")(tui_cmd)
+app.command("setup-ai")(setup_ai)
 app.add_typer(shell_app, name="shell", help="Shell integration — fzf picker, cd helper, setup.")

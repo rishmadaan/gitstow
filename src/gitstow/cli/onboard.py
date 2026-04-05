@@ -124,15 +124,9 @@ def onboard(
     if root_path.exists():
         _scan_existing_repos(root_path, settings)
 
-    # 6. Offer to install Claude Code skill
-    console.print("  [bold]5. Claude Code skill[/bold]")
-    console.print("     Install the skill so Claude can manage repos for you.")
-    console.print()
-    install_skill = bconfirm("     Install Claude Code skill?", default=True)
-    if install_skill:
-        from gitstow.cli.skill_cmd import _do_install_skill
-        _do_install_skill(quiet=False)
-    console.print()
+    # 6. AI integration setup
+    from gitstow.cli.setup_ai import _setup_ai_integrations
+    _setup_ai_integrations()
 
     # Done
     console.print(Panel(
@@ -141,7 +135,10 @@ def onboard(
         "  [cyan]gitstow add owner/repo[/cyan]     Clone a repo\n"
         "  [cyan]gitstow pull[/cyan]               Update all repos\n"
         "  [cyan]gitstow list[/cyan]               See your collection\n"
-        "  [cyan]gitstow status[/cyan]             Git status dashboard",
+        "  [cyan]gitstow status[/cyan]             Git status dashboard\n\n"
+        "AI integration:\n"
+        "  Your AI tools are configured to manage repos for you.\n"
+        "  Re-run anytime with: [cyan]gitstow setup-ai[/cyan]",
         border_style="green",
         padding=(1, 2),
     ))
