@@ -48,9 +48,13 @@ dev = [
 tui = [
     "textual>=0.50",
 ]
+mcp = [
+    "mcp>=1.0",
+]
 
 [project.scripts]
 gitstow = "gitstow.cli.main:app"
+gitstow-mcp = "gitstow.mcp.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gitstow"]
