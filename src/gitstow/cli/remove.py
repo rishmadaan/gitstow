@@ -11,14 +11,16 @@ from rich.console import Console
 
 from gitstow.core.config import load_config
 from gitstow.core.repo import RepoStore
+from gitstow.cli.helpers import resolve_repo
 
 console = Console()
 err_console = Console(stderr=True)
 
 
 def remove(
+    ctx: typer.Context,
     repo_key: str = typer.Argument(
-        help="Repo to remove (owner/repo).",
+        help="Repo to remove (owner/repo or name).",
     ),
     yes: bool = typer.Option(
         False, "--yes", "-y", help="Skip confirmation prompt.",
@@ -39,31 +41,24 @@ def remove(
     Examples:
       gitstow remove facebook/react
       gitstow remove facebook/react --delete --yes
+      gitstow remove -w active gitstow
     """
     settings = load_config()
     store = RepoStore()
-    root = settings.get_root()
+    ws_label = ctx.obj.get("workspace") if ctx.obj else None
 
-    repo = store.get(repo_key)
-    if not repo:
-        if output_json:
-            json.dump({"success": False, "error": f"'{repo_key}' not tracked"}, sys.stdout, indent=2)
-            print()
-        else:
-            err_console.print(f"[red]Error:[/red] '{repo_key}' is not tracked.")
-        raise typer.Exit(code=1)
-
-    path = repo.get_path(root)
+    repo, ws = resolve_repo(store, settings, repo_key, ws_label)
+    path = repo.get_path(ws.get_path())
 
     # Confirmation
     if not yes:
         action = "remove from tracking and delete from disk" if delete_files else "remove from tracking"
-        if not typer.confirm(f"  {action}: {repo_key}?"):
+        if not typer.confirm(f"  {action}: {repo.key} ({ws.label})?"):
             console.print("  [dim]Cancelled.[/dim]")
             raise typer.Exit()
 
     # Remove from store
-    store.remove(repo_key)
+    store.remove(repo.key, workspace=ws.label)
 
     # Optionally delete from disk
     deleted = False
@@ -71,22 +66,23 @@ def remove(
         shutil.rmtree(path, ignore_errors=True)
         deleted = True
 
-        # Clean up empty owner directory
-        owner_dir = root / repo.owner
-        if owner_dir.exists() and not any(owner_dir.iterdir()):
-            owner_dir.rmdir()
+        # Clean up empty owner directory (only for structured layout)
+        if repo.owner:
+            owner_dir = ws.get_path() / repo.owner
+            if owner_dir.exists() and not any(owner_dir.iterdir()):
+                owner_dir.rmdir()
 
     if output_json:
         json.dump(
-            {"success": True, "repo": repo_key, "deleted_from_disk": deleted},
+            {"success": True, "repo": repo.key, "workspace": ws.label, "deleted_from_disk": deleted},
             sys.stdout,
             indent=2,
         )
         print()
     else:
         if deleted:
-            console.print(f"  [green]✓[/green] {repo_key} removed and deleted from disk.")
+            console.print(f"  [green]✓[/green] {repo.key} removed and deleted from disk.")
         else:
-            console.print(f"  [green]✓[/green] {repo_key} removed from tracking.")
+            console.print(f"  [green]✓[/green] {repo.key} removed from tracking.")
             if path.exists():
                 console.print(f"  [dim]Files still at: {path}[/dim]")

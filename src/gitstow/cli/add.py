@@ -13,13 +13,14 @@ from gitstow.core.config import load_config
 from gitstow.core.url_parser import parse_git_url
 from gitstow.core.git import clone as git_clone, is_git_repo, get_remote_url
 from gitstow.core.repo import Repo, RepoStore
-from gitstow.core.parallel import run_parallel_sync, TaskResult
+from gitstow.cli.helpers import resolve_workspaces
 
 console = Console()
 err_console = Console(stderr=True)
 
 
 def add(
+    ctx: typer.Context,
     urls: list[str] = typer.Argument(
         default=None,
         help="Git URLs or owner/repo shorthand. Reads from stdin if omitted.",
@@ -46,22 +47,25 @@ def add(
         False, "--quiet", "-q", help="Suppress progress messages."
     ),
 ) -> None:
-    """[bold green]Add[/bold green] repos — clone into organized owner/repo structure.
+    """[bold green]Add[/bold green] repos — clone into organized structure.
 
     Accepts full URLs, SSH URLs, or shorthand (owner/repo assumes GitHub).
+    Uses the default workspace unless -w is specified.
 
     \b
     Examples:
       gitstow add anthropic/claude-code
       gitstow add https://github.com/facebook/react
-      gitstow add git@gitlab.com:group/project.git
-      gitstow add repo1 repo2 repo3
+      gitstow add -w active anthropic/claude-code
       cat urls.txt | gitstow add
     """
     settings = load_config()
     store = RepoStore()
-    root = settings.get_root()
-    tags = tag or []
+    ws_label = ctx.obj.get("workspace") if ctx.obj else None
+    ws_list = resolve_workspaces(settings, ws_label)
+    ws = ws_list[0]  # Use the specified or default workspace
+    root = ws.get_path()
+    tags = list(tag or []) + list(ws.auto_tags)
 
     # Read from stdin if no URLs provided and stdin is piped
     if not urls:
@@ -93,62 +97,69 @@ def add(
     results = []
 
     for parsed in parsed_urls:
-        target = root / parsed.owner / parsed.repo
-        existing = store.get(parsed.key)
+        # Determine target path based on workspace layout
+        if ws.layout == "flat":
+            target = root / parsed.repo
+            repo_owner = ""  # Flat layout stores no owner in path
+        else:
+            target = root / parsed.owner / parsed.repo
+            repo_owner = parsed.owner
 
-        # Already tracked
+        repo_key = f"{repo_owner}/{parsed.repo}" if repo_owner else parsed.repo
+        existing = store.get(repo_key, workspace=ws.label)
+
+        # Already tracked in this workspace
         if existing:
             if update:
                 if not quiet:
-                    console.print(f"  [dim]Updating[/dim] {parsed.key}...")
+                    console.print(f"  [dim]Updating[/dim] {repo_key}...")
                 from gitstow.core.git import pull as git_pull
                 pull_result = git_pull(target)
                 if pull_result.success:
                     from datetime import datetime
-                    store.update(parsed.key, last_pulled=datetime.now().isoformat())
-                    results.append({"repo": parsed.key, "status": "updated"})
+                    store.update(repo_key, workspace=ws.label, last_pulled=datetime.now().isoformat())
+                    results.append({"repo": repo_key, "status": "updated"})
                     if not quiet:
-                        console.print(f"  [green]✓[/green] {parsed.key} updated")
+                        console.print(f"  [green]✓[/green] {repo_key} updated")
                 else:
-                    results.append({"repo": parsed.key, "status": "error", "error": pull_result.error})
+                    results.append({"repo": repo_key, "status": "error", "error": pull_result.error})
                     if not quiet:
-                        err_console.print(f"  [red]✗[/red] {parsed.key}: {pull_result.error}")
+                        err_console.print(f"  [red]✗[/red] {repo_key}: {pull_result.error}")
             else:
-                results.append({"repo": parsed.key, "status": "exists"})
+                results.append({"repo": repo_key, "status": "exists"})
                 if not quiet:
-                    console.print(f"  [yellow]○[/yellow] {parsed.key} already tracked. Use --update to pull.")
+                    console.print(f"  [yellow]○[/yellow] {repo_key} already tracked. Use --update to pull.")
             continue
 
         # Path exists on disk but not tracked
         if target.exists() and is_git_repo(target):
             remote = get_remote_url(target)
             if remote:
-                # Register the existing repo
                 repo = Repo(
-                    owner=parsed.owner,
+                    owner=repo_owner,
                     name=parsed.repo,
                     remote_url=remote,
+                    workspace=ws.label,
                     tags=list(tags),
                 )
                 store.add(repo)
-                results.append({"repo": parsed.key, "status": "registered"})
+                results.append({"repo": repo_key, "status": "registered"})
                 if not quiet:
-                    console.print(f"  [green]✓[/green] {parsed.key} registered (already on disk)")
+                    console.print(f"  [green]✓[/green] {repo_key} registered (already on disk)")
                 continue
 
         # Path exists but is not a git repo
         if target.exists() and not is_git_repo(target):
-            results.append({"repo": parsed.key, "status": "error", "error": "Path exists but is not a git repo"})
+            results.append({"repo": repo_key, "status": "error", "error": "Path exists but is not a git repo"})
             if not quiet:
-                err_console.print(f"  [red]✗[/red] {parsed.key}: path exists but is not a git repo")
+                err_console.print(f"  [red]✗[/red] {repo_key}: path exists but is not a git repo")
             continue
 
         # Clone
         if not quiet:
-            console.print(f"  [dim]Cloning[/dim] {parsed.key}...")
+            console.print(f"  [dim]Cloning[/dim] {repo_key} → {ws.label}...")
 
-        # Ensure owner directory exists
-        (root / parsed.owner).mkdir(parents=True, exist_ok=True)
+        target.parent.mkdir(parents=True, exist_ok=True)
 
         success, error = git_clone(
             url=parsed.clone_url,
@@ -160,20 +171,21 @@ def add(
         if success:
             from datetime import datetime
             repo = Repo(
-                owner=parsed.owner,
+                owner=repo_owner,
                 name=parsed.repo,
                 remote_url=parsed.clone_url,
+                workspace=ws.label,
                 tags=list(tags),
                 last_pulled=datetime.now().isoformat(),
             )
             store.add(repo)
-            results.append({"repo": parsed.key, "status": "cloned"})
+            results.append({"repo": repo_key, "status": "cloned"})
             if not quiet:
-                console.print(f"  [green]✓[/green] {parsed.key} cloned")
+                console.print(f"  [green]✓[/green] {repo_key} cloned")
         else:
-            results.append({"repo": parsed.key, "status": "error", "error": error})
+            results.append({"repo": repo_key, "status": "error", "error": error})
             if not quiet:
-                err_console.print(f"  [red]✗[/red] {parsed.key}: {error}")
+                err_console.print(f"  [red]✗[/red] {repo_key}: {error}")
 
     # Summary
     if output_json:
@@ -191,7 +203,7 @@ def add(
             sys.stdout,
             indent=2,
         )
-        print()  # trailing newline
+        print()
     elif not quiet and len(results) > 1:
         cloned = sum(1 for r in results if r["status"] == "cloned")
         registered = sum(1 for r in results if r["status"] == "registered")
@@ -209,6 +221,5 @@ def add(
             parts.append(f"[red]{errors} failed[/red]")
         console.print(f"  Done: {' | '.join(parts)}")
 
-    # Exit with error code if any failed
     if any(r["status"] == "error" for r in results):
         raise typer.Exit(code=1)

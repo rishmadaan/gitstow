@@ -11,18 +11,19 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from gitstow.core.config import load_config
-from gitstow.core.git import pull as git_pull, get_status, is_git_repo, PullResult
+from gitstow.core.config import load_config, Workspace
+from gitstow.core.git import pull as git_pull, get_status, is_git_repo
 from gitstow.core.repo import Repo, RepoStore
 from gitstow.core.parallel import run_parallel_sync
+from gitstow.cli.helpers import iter_repos_with_workspace
 
 console = Console()
 err_console = Console(stderr=True)
 
 
-def _pull_one_repo(repo: Repo, root) -> dict:
+def _pull_one_repo(repo: Repo, ws: Workspace) -> dict:
     """Pull a single repo. Returns a result dict."""
-    path = repo.get_path(root)
+    path = repo.get_path(ws.get_path())
 
     if not path.exists():
         return {"repo": repo.key, "status": "missing", "detail": "Directory not found on disk"}
@@ -30,7 +31,6 @@ def _pull_one_repo(repo: Repo, root) -> dict:
     if not is_git_repo(path):
         return {"repo": repo.key, "status": "error", "detail": "Not a git repo"}
 
-    # Check if dirty — skip if so
     status = get_status(path)
     if not status.clean:
         return {
@@ -50,6 +50,7 @@ def _pull_one_repo(repo: Repo, root) -> dict:
 
 
 def pull(
+    ctx: typer.Context,
     repos: Optional[list[str]] = typer.Argument(
         default=None,
         help="Specific repos to pull (owner/repo). Omit for all.",
@@ -83,43 +84,43 @@ def pull(
       gitstow pull                    # All unfrozen repos
       gitstow pull --tag ai           # Only repos tagged 'ai'
       gitstow pull --exclude-tag stale
-      gitstow pull anthropic/claude-code facebook/react
+      gitstow pull -w oss             # Only repos in oss workspace
     """
     settings = load_config()
     store = RepoStore()
-    root = settings.get_root()
+    ws_label = ctx.obj.get("workspace") if ctx.obj else None
 
     # Resolve target repos
     if repos:
-        # Specific repos requested
         targets = []
         for key in repos:
             repo = store.get(key)
             if repo:
-                targets.append(repo)
+                ws = settings.get_workspace(repo.workspace)
+                if ws:
+                    targets.append((repo, ws))
             else:
                 err_console.print(f"[yellow]Warning:[/yellow] '{key}' not tracked. Skipping.")
     else:
-        # All repos, with filters
-        targets = store.list_all()
+        targets = iter_repos_with_workspace(store, settings, ws_label)
 
     # Apply filters
     if not include_frozen:
-        frozen_keys = {r.key for r in targets if r.frozen}
-        targets = [r for r in targets if not r.frozen]
+        frozen_keys = {r.key for r, _ in targets if r.frozen}
+        targets = [(r, ws) for r, ws in targets if not r.frozen]
     else:
         frozen_keys = set()
 
     if tag:
         tag_set = set(tag)
-        targets = [r for r in targets if tag_set.intersection(r.tags)]
+        targets = [(r, ws) for r, ws in targets if tag_set.intersection(r.tags)]
 
     if exclude_tag:
         exclude_set = set(exclude_tag)
-        targets = [r for r in targets if not exclude_set.intersection(r.tags)]
+        targets = [(r, ws) for r, ws in targets if not exclude_set.intersection(r.tags)]
 
     if owner:
-        targets = [r for r in targets if r.owner == owner]
+        targets = [(r, ws) for r, ws in targets if r.owner == owner]
 
     if not targets:
         if not quiet:
@@ -134,8 +135,8 @@ def pull(
 
     # Run pulls in parallel
     tasks = [
-        (repo.key, lambda r=repo: _pull_one_repo(r, root))
-        for repo in targets
+        (repo.global_key, lambda r=repo, w=ws: _pull_one_repo(r, w))
+        for repo, ws in targets
     ]
 
     results = run_parallel_sync(
@@ -148,9 +149,11 @@ def pull(
     for task_result in results:
         if task_result.success and task_result.data:
             result_dicts.append(task_result.data)
-            # Update last_pulled on successful pull
             if task_result.data["status"] in ("pulled", "up_to_date"):
-                store.update(task_result.key, last_pulled=datetime.now().isoformat())
+                # task_result.key is global_key (ws:key), parse out workspace and key
+                parts = task_result.key.split(":", 1)
+                if len(parts) == 2:
+                    store.update(parts[1], workspace=parts[0], last_pulled=datetime.now().isoformat())
         else:
             result_dicts.append({
                 "repo": task_result.key,
@@ -185,19 +188,18 @@ def pull(
         )
         print()
     else:
-        # Rich table summary
         table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
         table.add_column("Repo", style="white")
         table.add_column("Status")
         table.add_column("Details", style="dim")
 
         status_styles = {
-            "pulled": ("[green]✓ Pulled[/green]"),
-            "up_to_date": ("[dim]○ Up to date[/dim]"),
-            "frozen": ("[cyan]❄ Frozen[/cyan]"),
-            "skipped": ("[yellow]⚠ Skipped[/yellow]"),
-            "error": ("[red]✗ Error[/red]"),
-            "missing": ("[red]✗ Missing[/red]"),
+            "pulled": "[green]✓ Pulled[/green]",
+            "up_to_date": "[dim]○ Up to date[/dim]",
+            "frozen": "[cyan]❄ Frozen[/cyan]",
+            "skipped": "[yellow]⚠ Skipped[/yellow]",
+            "error": "[red]✗ Error[/red]",
+            "missing": "[red]✗ Missing[/red]",
         }
 
         for r in sorted(result_dicts, key=lambda x: x["repo"]):
@@ -206,7 +208,6 @@ def pull(
 
         console.print(table)
 
-        # Summary line
         pulled = sum(1 for r in result_dicts if r["status"] == "pulled")
         up_to_date = sum(1 for r in result_dicts if r["status"] == "up_to_date")
         skipped = sum(1 for r in result_dicts if r["status"] in ("skipped", "frozen"))

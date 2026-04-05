@@ -10,30 +10,32 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from gitstow.core.config import load_config
-from gitstow.core.git import get_status, is_git_repo, get_last_commit, RepoStatus
+from gitstow.core.config import load_config, Workspace
+from gitstow.core.git import get_status, is_git_repo, get_last_commit
 from gitstow.core.repo import Repo, RepoStore
 from gitstow.core.parallel import run_parallel_sync
+from gitstow.cli.helpers import iter_repos_with_workspace
 
 console = Console()
 err_console = Console(stderr=True)
 
 
-def _get_repo_status(repo: Repo, root) -> dict:
+def _get_repo_status(repo: Repo, ws: Workspace) -> dict:
     """Gather status for a single repo."""
-    path = repo.get_path(root)
+    path = repo.get_path(ws.get_path())
 
     if not path.exists():
-        return {"repo": repo.key, "error": "Not found on disk"}
+        return {"repo": repo.key, "workspace": repo.workspace, "error": "Not found on disk"}
 
     if not is_git_repo(path):
-        return {"repo": repo.key, "error": "Not a git repo"}
+        return {"repo": repo.key, "workspace": repo.workspace, "error": "Not a git repo"}
 
     status = get_status(path)
     commit = get_last_commit(path)
 
     return {
         "repo": repo.key,
+        "workspace": repo.workspace,
         "branch": status.branch,
         "dirty": status.dirty,
         "staged": status.staged,
@@ -52,6 +54,7 @@ def _get_repo_status(repo: Repo, root) -> dict:
 
 
 def status(
+    ctx: typer.Context,
     tag: Optional[list[str]] = typer.Option(
         None, "--tag", "-t", help="Filter by tag.",
     ),
@@ -77,29 +80,30 @@ def status(
       gitstow status                  # All repos
       gitstow status --dirty          # Only dirty repos
       gitstow status --tag ai         # Filter by tag
+      gitstow status -w active        # Filter by workspace
     """
     settings = load_config()
     store = RepoStore()
-    root = settings.get_root()
+    ws_label = ctx.obj.get("workspace") if ctx.obj else None
 
-    repos = store.list_all()
+    repo_ws_pairs = iter_repos_with_workspace(store, settings, ws_label)
 
     if tag:
         tag_set = set(tag)
-        repos = [r for r in repos if tag_set.intersection(r.tags)]
+        repo_ws_pairs = [(r, ws) for r, ws in repo_ws_pairs if tag_set.intersection(r.tags)]
 
     if owner:
-        repos = [r for r in repos if r.owner == owner]
+        repo_ws_pairs = [(r, ws) for r, ws in repo_ws_pairs if r.owner == owner]
 
-    if not repos:
+    if not repo_ws_pairs:
         if not quiet:
             console.print("[dim]No repos tracked.[/dim]")
         return
 
     # Gather status in parallel
     tasks = [
-        (repo.key, lambda r=repo: _get_repo_status(r, root))
-        for repo in repos
+        (repo.global_key, lambda r=repo, w=ws: _get_repo_status(r, w))
+        for repo, ws in repo_ws_pairs
     ]
 
     results = run_parallel_sync(tasks, max_concurrent=settings.parallel_limit)
@@ -128,25 +132,29 @@ def status(
         console.print("[dim]No repos match the filter.[/dim]")
         return
 
+    # Check if multiple workspaces — show workspace column if so
+    ws_labels = {s.get("workspace", "") for s in statuses if "error" not in s or "workspace" in s}
+    multi_ws = len(ws_labels) > 1
+
     # Rich table
     console.print(f"\n  [bold]gitstow status[/bold] — {len(statuses)} repos\n")
 
     table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
+    if multi_ws:
+        table.add_column("Workspace", style="cyan")
     table.add_column("Repo", style="white", min_width=20)
     table.add_column("Branch")
     table.add_column("Status")
     table.add_column("Ahead/Behind")
     table.add_column("Last Commit", style="dim")
 
-    for s in sorted(statuses, key=lambda x: x["repo"]):
+    for s in sorted(statuses, key=lambda x: x.get("workspace", "") + ":" + x["repo"]):
         if "error" in s:
-            table.add_row(
-                s["repo"],
-                "",
-                f"[red]✗ {s['error']}[/red]",
-                "",
-                "",
-            )
+            row = []
+            if multi_ws:
+                row.append(s.get("workspace", ""))
+            row.extend([s["repo"], "", f"[red]✗ {s['error']}[/red]", "", ""])
+            table.add_row(*row)
             continue
 
         # Status styling
@@ -178,13 +186,11 @@ def status(
         if commit_date:
             commit_str = f"{commit_str} ({commit_date})"
 
-        table.add_row(
-            s["repo"],
-            s.get("branch", ""),
-            status_str,
-            ab_styled,
-            commit_str,
-        )
+        row = []
+        if multi_ws:
+            row.append(s.get("workspace", ""))
+        row.extend([s["repo"], s.get("branch", ""), status_str, ab_styled, commit_str])
+        table.add_row(*row)
 
     console.print(table)
 
