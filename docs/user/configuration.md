@@ -1,7 +1,8 @@
 ---
-summary: Configure gitstow — root path, default host, SSH preference, and repo metadata.
+summary: Configure gitstow — workspaces, default host, SSH preference, and repo metadata.
 read_when:
   - Changing where repos are stored
+  - Setting up workspaces
   - Setting up SSH cloning
   - Moving repos to a new location
   - Understanding the config and metadata files
@@ -16,10 +17,13 @@ read_when:
 gitstow config show
 
 # Change settings
-gitstow config set root_path ~/labs/OSS
 gitstow config set default_host gitlab.com
 gitstow config set prefer_ssh true
 gitstow config set parallel_limit 8
+
+# Manage workspaces
+gitstow workspace list
+gitstow workspace add ~/projects --label active --layout flat
 ```
 
 Or run the interactive wizard:
@@ -32,7 +36,7 @@ gitstow onboard
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `root_path` | `~/opensource` | Where repos are cloned. The `owner/repo/` structure is created under this directory. |
+| `workspaces` | Single workspace at `~/opensource` | List of workspace directories. Each has a path, label, layout, and optional auto-tags. |
 | `default_host` | `github.com` | Assumed host when you type shorthand like `owner/repo`. |
 | `prefer_ssh` | `false` | If `true`, clones via SSH (`git@host:owner/repo.git`) instead of HTTPS. |
 | `parallel_limit` | `6` | Maximum concurrent git operations during `pull` and `status`. |
@@ -46,34 +50,68 @@ gitstow uses two files, both in `~/.gitstow/`:
 Your settings. Created on first use or by `gitstow onboard`.
 
 ```yaml
-root_path: ~/labs/OSS
+workspaces:
+  - path: ~/opensource
+    label: oss
+    layout: structured
+  - path: ~/projects
+    label: active
+    layout: flat
+    auto_tags: [mine]
 default_host: github.com
 prefer_ssh: false
 parallel_limit: 6
 ```
 
+Each workspace entry has:
+- `path` — directory on disk where repos are stored
+- `label` — unique short name used in commands and repos.yaml
+- `layout` — `structured` (owner/repo subdirectories) or `flat` (repos directly in workspace)
+- `auto_tags` — (optional) tags automatically applied when repos are added or discovered
+
 ### `~/.gitstow/repos.yaml`
 
-Per-repo metadata: frozen status, tags, timestamps. Managed automatically — you don't edit this by hand.
+Per-repo metadata: frozen status, tags, timestamps. Managed automatically — you don't edit this by hand. Repos are nested under their workspace label:
 
 ```yaml
-anthropic/claude-code:
-  remote_url: https://github.com/anthropic/claude-code.git
-  frozen: false
-  tags: [ai, tools]
-  added: 2026-04-05
-  last_pulled: 2026-04-05T15:30:00
+oss:
+  anthropic/claude-code:
+    remote_url: https://github.com/anthropic/claude-code.git
+    frozen: false
+    tags: [ai, tools]
+    added: 2026-04-05
+    last_pulled: 2026-04-05T15:30:00
+active:
+  my-app:
+    remote_url: https://github.com/me/my-app.git
+    frozen: false
+    tags: [mine]
+    added: 2026-04-05
+    last_pulled: 2026-04-05T16:00:00
+```
+
+> **Legacy migration:** If you have a pre-workspace `repos.yaml` with flat keys (no workspace nesting), gitstow auto-migrates it to the new format under the `oss` workspace label on first load.
+
+## Managing Workspaces
+
+Workspaces replace the old single `root_path` setting. See [Concepts — Workspaces](concepts.md#workspaces) for the mental model.
+
+```bash
+# List all workspaces
+gitstow workspace list
+
+# Add a new workspace
+gitstow workspace add ~/opensource --label oss
+gitstow workspace add ~/projects --label active --layout flat --auto-tag mine
+
+# Remove a workspace (files stay on disk)
+gitstow workspace remove old-workspace
+
+# Scan a workspace to discover repos on disk
+gitstow workspace scan oss
 ```
 
 ## Changing Your Root Directory
-
-**Just changing the pointer** (repos stay where they are):
-
-```bash
-gitstow config set root_path ~/new-path
-```
-
-> This only updates the config. Existing repos are NOT moved. gitstow will warn you about this.
 
 **Moving repos to a new location:**
 
@@ -151,6 +189,6 @@ gitstow doctor
 This checks:
 - git is installed
 - Config and repos files exist
-- Root directory exists and is accessible
-- Tracked repos match what's actually on disk
+- All workspace directories exist and are accessible
+- Tracked repos match what's actually on disk (per workspace)
 - Reports orphaned repos (on disk but not tracked) and missing repos (tracked but not on disk)

@@ -45,10 +45,10 @@ gitstow add anthropic/claude-code
 
 That's it. gitstow:
 1. Recognizes `anthropic/claude-code` as GitHub shorthand
-2. Clones to `~/opensource/anthropic/claude-code/`
+2. Clones to `~/opensource/anthropic/claude-code/` (your default workspace)
 3. Registers it in your collection
 
-> **Default root:** Repos go to `~/opensource/` by default. Change it with `gitstow config set root_path ~/your/preferred/path` or run `gitstow onboard` for the interactive setup wizard.
+> **Default workspace:** Repos go to `~/opensource/` by default (in a workspace labeled `oss`). Change it with `gitstow onboard` for the interactive setup wizard, or add additional workspaces with `gitstow workspace add`.
 
 ## 3. Add More Repos
 
@@ -117,8 +117,8 @@ Shows branch, clean/dirty state, ahead/behind counts, and last commit across all
 ## What's Next
 
 - **[Commands Reference](commands.md)** — full list of commands and flags
-- **[Configuration](configuration.md)** — customize root path, default host, SSH preference
-- **[Concepts](concepts.md)** — how gitstow organizes repos, folder structure, tags and freeze
+- **[Configuration](configuration.md)** — customize workspaces, default host, SSH preference
+- **[Concepts](concepts.md)** — how gitstow organizes repos, workspaces, folder structure, tags and freeze
 
 ## Optional: Interactive Setup
 
@@ -129,6 +129,24 @@ gitstow onboard
 ```
 
 This walks you through choosing a root directory, default git host, SSH vs HTTPS preference, and scans for existing repos to register.
+
+## Multiple Workspaces
+
+If you want to manage repos in separate directories (e.g., open-source references vs active projects), add more workspaces:
+
+```bash
+gitstow workspace add ~/projects --label active --layout flat
+```
+
+Use `-w` to target a specific workspace:
+
+```bash
+gitstow add my-app -w active       # Clones to ~/projects/my-app/
+gitstow pull -w oss                 # Only pull the oss workspace
+gitstow list                        # Lists all workspaces by default
+```
+
+See [Concepts — Workspaces](concepts.md#workspaces) for more details.
 
 ## AI Integration (Recommended)
 

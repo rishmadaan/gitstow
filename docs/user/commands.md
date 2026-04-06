@@ -15,6 +15,18 @@ gitstow add --help
 gitstow pull --help
 ```
 
+## Global Flag: `--workspace` / `-w`
+
+All commands accept a global `-w/--workspace` flag to scope operations to a single workspace:
+
+```bash
+gitstow -w oss pull            # Only pull repos in the 'oss' workspace
+gitstow -w active list         # Only list repos in the 'active' workspace
+gitstow -w work status         # Only show status for 'work' workspace
+```
+
+Without `-w`, commands operate across all workspaces. If a repo key is ambiguous (exists in multiple workspaces), gitstow will prompt you to choose or you can disambiguate with `-w`.
+
 ## Core Commands
 
 ### `gitstow add`
@@ -66,6 +78,7 @@ gitstow add anthropic/claude-code --update
 ```
 
 **Behavior:**
+- Repos are added to the default workspace (first configured), or the workspace specified with `-w`
 - If the repo is already tracked: skips (or pulls with `--update`)
 - If the path exists on disk but isn't tracked: registers it automatically
 - If the path exists but isn't a git repo: errors
@@ -469,11 +482,12 @@ gitstow config show --json
 Change a setting.
 
 ```bash
-gitstow config set root_path ~/labs/OSS
 gitstow config set default_host gitlab.com
 gitstow config set prefer_ssh true
 gitstow config set parallel_limit 8
 ```
+
+> **Note:** The old `root_path` setting has been replaced by workspaces. Use `gitstow workspace add` to manage where repos are stored.
 
 ### `gitstow config migrate-root`
 
@@ -518,6 +532,76 @@ Install the Claude Code skill for AI-assisted repo management.
 ```bash
 gitstow install-skill
 ```
+
+---
+
+## Workspace Commands
+
+All under the `gitstow workspace` subcommand. See [Concepts — Workspaces](concepts.md#workspaces) for the mental model.
+
+### `gitstow workspace list`
+
+Show all configured workspaces with their path, layout, auto-tags, and repo count.
+
+```bash
+gitstow workspace list
+```
+
+### `gitstow workspace add`
+
+Add a new workspace.
+
+```bash
+gitstow workspace add <path> --label <label> [flags]
+```
+
+**Flags:**
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--label` | `-l` | **Required.** Unique label for this workspace. |
+| `--layout` | | Directory layout: `structured` (default, owner/repo) or `flat`. |
+| `--auto-tag` | `-t` | Tags auto-applied to discovered repos. Repeatable. |
+| `--scan/--no-scan` | | Scan for existing repos after adding (default: scan). |
+
+**Examples:**
+
+```bash
+# Add a structured workspace for open-source repos
+gitstow workspace add ~/opensource --label oss
+
+# Add a flat workspace for your own projects, auto-tagged
+gitstow workspace add ~/projects --label active --layout flat --auto-tag mine
+
+# Add without scanning for existing repos
+gitstow workspace add ~/archive --label archive --no-scan
+```
+
+### `gitstow workspace remove`
+
+Remove a workspace from the configuration. Does not delete files on disk.
+
+```bash
+gitstow workspace remove <label> [flags]
+```
+
+**Flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--keep-repos/--untrack-repos` | Keep tracked repos in the store (default) or untrack them. |
+
+You cannot remove the only remaining workspace.
+
+### `gitstow workspace scan`
+
+Scan a workspace directory to discover and register any repos that aren't yet tracked.
+
+```bash
+gitstow workspace scan <label>
+```
+
+This respects the workspace's layout mode — in `structured` workspaces it looks for `owner/repo/.git`, in `flat` workspaces it looks for `repo/.git`.
 
 ---
 
