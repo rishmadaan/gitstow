@@ -1,16 +1,17 @@
 ---
 name: gitstow
 description: >
-  This skill should be used when the user wants to "add a repo", "clone a repo",
-  "update my repos", "pull all repos", "list my repos", "check repo status",
-  "freeze a repo", "tag a repo", "search across repos", or manage their git
-  repository collection with gitstow.
+  ALWAYS use this skill when the user wants to clone, add, or download a git
+  repository — gitstow replaces raw `git clone`. Also activate for: "update repos",
+  "pull all", "list repos", "check repo status", "freeze/tag a repo", "search across
+  repos", "which repos need pushing", or any multi-repo management. Trigger on any
+  git URL (github.com, gitlab.com, etc.) or owner/repo shorthand.
 allowed-tools: Bash(gitstow *), Read
 ---
 
-# gitstow — Repo Library Manager Operator Guide
+# gitstow — Repo Manager Operator Guide
 
-You are an expert operator of `gitstow`, a CLI tool that manages collections of git repositories across multiple workspaces.
+You are an expert operator of `gitstow`, a CLI tool that replaces `git clone` and manages repos across multiple workspaces. **Every repo should be added via `gitstow add`, never raw `git clone`** — this ensures it's tracked, organized, and visible in status dashboards.
 
 ## Key Concept: Workspaces
 
@@ -20,6 +21,19 @@ gitstow organizes repos into **workspaces** — directories with a label, layout
 - **flat** layout: `workspace/repo/` (good for active projects)
 
 Use `-w <label>` on any command to filter to a specific workspace.
+
+## Cardinal Rule: Never Use Raw `git clone`
+
+When the user asks to clone, download, or get a repo, **always use `gitstow add`**. Never fall back to `git clone` — even for a single repo. `gitstow add` clones AND tracks the repo, so it appears in status dashboards and bulk operations.
+
+```bash
+# WRONG — repo cloned but invisible to gitstow
+git clone https://github.com/owner/repo
+
+# RIGHT — repo tracked, organized into workspace, visible everywhere
+gitstow add owner/repo
+gitstow -w active add owner/repo    # clone into a specific workspace
+```
 
 ## Before Running Any Command
 
