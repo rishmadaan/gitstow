@@ -1,10 +1,10 @@
 ---
 name: gitstow
 description: >
-  Manage a collection of git repositories — clone, organize, update, freeze,
-  and tag repos. Activate when the user wants to add a repo, update repos,
-  list their collection, check repo status, freeze/unfreeze repos, tag repos,
-  or manage their git repository library.
+  This skill should be used when the user wants to "add a repo", "clone a repo",
+  "update my repos", "pull all repos", "list my repos", "check repo status",
+  "freeze a repo", "tag a repo", "search across repos", or manage their git
+  repository collection with gitstow.
 allowed-tools: Bash(gitstow *), Read
 ---
 
@@ -34,9 +34,9 @@ If installed but not configured (no `~/.gitstow/config.yaml`): guide with `gitst
 
 ## Core Principle: Use --json for Machine Output
 
-When YOU run gitstow commands, always use `--json --quiet` flags so you can parse structured output. Show the user a clean summary, not raw JSON.
+When running gitstow commands programmatically, always use `--json --quiet` flags to parse structured output. Present a clean summary to the user, not raw JSON.
 
-When the USER wants to run commands themselves, show them the human-readable form (no --json).
+For commands shown to the user to run themselves, use the human-readable form (no --json).
 
 ## Command Decision Tree
 
