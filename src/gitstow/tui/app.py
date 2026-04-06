@@ -9,7 +9,7 @@ from textual.widgets import DataTable, Footer, Header, Static, Input
 from textual.screen import ModalScreen
 from textual import work
 
-from gitstow.core.config import load_config
+from gitstow.core.config import load_config, Workspace
 from gitstow.core.git import get_status, is_git_repo, pull as git_pull, RepoStatus
 from gitstow.core.repo import Repo, RepoStore
 
@@ -22,11 +22,11 @@ class RepoDetailScreen(ModalScreen):
         Binding("f", "toggle_freeze", "Freeze/Unfreeze"),
     ]
 
-    def __init__(self, repo: Repo, status: RepoStatus | None, root):
+    def __init__(self, repo: Repo, status: RepoStatus | None, ws: Workspace):
         super().__init__()
         self.repo = repo
         self.repo_status = status
-        self.root = root
+        self.ws = ws
 
     def compose(self) -> ComposeResult:
         frozen_str = "YES" if self.repo.frozen else "no"
@@ -35,13 +35,14 @@ class RepoDetailScreen(ModalScreen):
         status_str = self.repo_status.status_symbol if self.repo_status else "?"
 
         info = (
-            f"[bold]{self.repo.key}[/bold]\n\n"
+            f"[bold]{self.repo.key}[/bold]  [dim]({self.repo.workspace})[/dim]\n\n"
             f"  Remote:      {self.repo.remote_url}\n"
-            f"  Path:        {self.repo.get_path(self.root)}\n"
+            f"  Path:        {self.repo.get_path(self.ws.get_path())}\n"
             f"  Branch:      {branch}\n"
             f"  Status:      {status_str}\n"
             f"  Frozen:      {frozen_str}\n"
             f"  Tags:        {tags_str}\n"
+            f"  Workspace:   {self.repo.workspace}\n"
             f"  Added:       {self.repo.added or 'unknown'}\n"
             f"  Last pulled: {self.repo.last_pulled or 'never'}\n\n"
             f"  [dim]Press [bold]f[/bold] to toggle freeze, [bold]Escape[/bold] to close[/dim]"
@@ -53,7 +54,7 @@ class RepoDetailScreen(ModalScreen):
 
     def action_toggle_freeze(self) -> None:
         store = RepoStore()
-        store.update(self.repo.key, frozen=not self.repo.frozen)
+        store.update(self.repo.key, workspace=self.repo.workspace, frozen=not self.repo.frozen)
         self.repo.frozen = not self.repo.frozen
         self.dismiss(True)  # Signal refresh needed
 
@@ -114,7 +115,7 @@ class GitstowApp(App):
         super().__init__()
         self.settings = load_config()
         self.store = RepoStore()
-        self.root = self.settings.get_root()
+        self._ws_map: dict[str, Workspace] = {}  # global_key -> workspace
         self._repos: list[Repo] = []
         self._statuses: dict[str, RepoStatus] = {}
         self._filter = ""
@@ -160,10 +161,20 @@ class GitstowApp(App):
         self.store.load()
         self._repos = self.store.list_all()
 
+        # Build workspace map
+        self._ws_map = {}
         for repo in self._repos:
-            path = repo.get_path(self.root)
+            ws = self.settings.get_workspace(repo.workspace)
+            if ws:
+                self._ws_map[repo.global_key] = ws
+
+        for repo in self._repos:
+            ws = self._ws_map.get(repo.global_key)
+            if not ws:
+                continue
+            path = repo.get_path(ws.get_path())
             if path.exists() and is_git_repo(path):
-                self._statuses[repo.key] = get_status(path)
+                self._statuses[repo.global_key] = get_status(path)
 
         self.call_from_thread(self._refresh_table)
 
@@ -181,7 +192,7 @@ class GitstowApp(App):
             ]
 
         for repo in filtered:
-            status = self._statuses.get(repo.key)
+            status = self._statuses.get(repo.global_key)
 
             branch = status.branch if status else "?"
             status_str = status.status_symbol if status else "?"
@@ -193,12 +204,12 @@ class GitstowApp(App):
             table.add_row(
                 repo.key, branch, status_str, ab,
                 frozen, tags, pulled,
-                key=repo.key,
+                key=repo.global_key,
             )
 
         # Summary
         total = len(filtered)
-        clean = sum(1 for r in filtered if self._statuses.get(r.key, None) and self._statuses[r.key].clean)
+        clean = sum(1 for r in filtered if self._statuses.get(r.global_key, None) and self._statuses[r.global_key].clean)
         frozen = sum(1 for r in filtered if r.frozen)
         dirty = total - clean - frozen
         summary = f" {total} repos | {clean} clean | {dirty} dirty | {frozen} frozen"
@@ -222,47 +233,55 @@ class GitstowApp(App):
         for repo in self._repos:
             if repo.frozen:
                 continue
-            path = repo.get_path(self.root)
+            ws = self._ws_map.get(repo.global_key)
+            if not ws:
+                continue
+            path = repo.get_path(ws.get_path())
             if not path.exists() or not is_git_repo(path):
                 continue
-            status = self._statuses.get(repo.key)
+            status = self._statuses.get(repo.global_key)
             if status and not status.clean:
                 continue
 
             result = git_pull(path)
             if result.success:
                 pulled += 1
-                self.store.update(repo.key, last_pulled=datetime.now().isoformat())
+                self.store.update(repo.key, workspace=repo.workspace, last_pulled=datetime.now().isoformat())
 
         self.call_from_thread(self.load_repos)
         self.call_from_thread(
             lambda: self.notify(f"Pulled {pulled} repos")
         )
 
-    def action_toggle_freeze(self) -> None:
+    def _get_selected_repo(self) -> tuple[Repo | None, Workspace | None]:
+        """Get the repo and workspace for the currently selected table row."""
         table = self.query_one("#repo-table", DataTable)
         if table.cursor_row is None:
-            return
+            return None, None
         row_key = table.get_row_at(table.cursor_row)
-        # Get the key from the first column
-        repo_key = str(table.get_cell_at((table.cursor_row, 0)))
+        global_key = str(row_key.value) if row_key else None
+        if not global_key:
+            return None, None
+        # Find repo by global_key
+        for repo in self._repos:
+            if repo.global_key == global_key:
+                ws = self._ws_map.get(global_key)
+                return repo, ws
+        return None, None
 
-        repo = self.store.get(repo_key)
+    def action_toggle_freeze(self) -> None:
+        repo, ws = self._get_selected_repo()
         if repo:
-            self.store.update(repo_key, frozen=not repo.frozen)
+            self.store.update(repo.key, workspace=repo.workspace, frozen=not repo.frozen)
             repo.frozen = not repo.frozen
             self._refresh_table()
             action = "Froze" if repo.frozen else "Unfroze"
-            self.notify(f"{action} {repo_key}")
+            self.notify(f"{action} {repo.key}")
 
     def action_show_detail(self) -> None:
-        table = self.query_one("#repo-table", DataTable)
-        if table.cursor_row is None:
-            return
-        repo_key = str(table.get_cell_at((table.cursor_row, 0)))
-        repo = self.store.get(repo_key)
-        if repo:
-            status = self._statuses.get(repo_key)
+        repo, ws = self._get_selected_repo()
+        if repo and ws:
+            status = self._statuses.get(repo.global_key)
 
             def on_dismiss(refresh_needed: bool) -> None:
                 if refresh_needed:
@@ -271,7 +290,7 @@ class GitstowApp(App):
                     self._refresh_table()
 
             self.push_screen(
-                RepoDetailScreen(repo, status, self.root),
+                RepoDetailScreen(repo, status, ws),
                 callback=on_dismiss,
             )
 
