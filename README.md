@@ -10,7 +10,7 @@ Existing tools solve parts of this:
 - **[ghq](https://github.com/x-motemen/ghq)** (3.5k stars) auto-organizes repos by `host/owner/repo` — but can't pull, status-check, or run commands across them.
 - **[gita](https://github.com/nosarthur/gita)** (1.8k stars) runs bulk git operations — but doesn't organize or auto-structure anything.
 
-`gitstow` combines the best of both: **paste a URL → auto-organized into `owner/repo/` → bulk pull, freeze, tag, and manage your entire collection.**
+`gitstow` combines the best of both: **paste a URL → auto-organized → bulk pull, freeze, tag, and manage your entire collection.** Works across multiple workspaces — open-source collections, active projects, and more.
 
 ## Quick Start
 
@@ -36,11 +36,23 @@ gitstow status
 
 ## Features
 
+### Workspaces
+```bash
+# Track open-source repos (structured: owner/repo layout)
+gitstow workspace add ~/opensource --label oss --layout structured
+
+# Track your active projects (flat: repos directly in folder)
+gitstow workspace add ~/labs/projects --label active --layout flat --auto-tag active
+
+# Scan to discover existing repos
+gitstow workspace scan active
+```
+
 ### Auto-Organization
 ```bash
 gitstow add anthropic/claude-code facebook/react torvalds/linux
 ```
-Creates:
+Creates (in a structured workspace):
 ```
 ~/opensource/
 ├── anthropic/
@@ -53,11 +65,12 @@ Creates:
 
 ### Bulk Operations
 ```bash
-gitstow pull                    # Update all repos
+gitstow pull                    # Update all repos across all workspaces
+gitstow -w oss pull             # Only update oss workspace
 gitstow pull --tag ai           # Only repos tagged 'ai'
 gitstow pull --exclude-tag stale # Everything except stale repos
 gitstow status                  # Git status dashboard
-gitstow status --dirty          # Only dirty repos
+gitstow -w active status --dirty # Dirty repos in active workspace
 ```
 
 ### Freeze & Tags
@@ -140,21 +153,26 @@ gitstow status --json
 | **Core** | |
 | `gitstow add <url> [urls...]` | Clone repos into organized structure |
 | `gitstow pull` | Bulk update all (or filtered) repos |
-| `gitstow list` | List repos grouped by owner |
+| `gitstow list` | List repos grouped by owner/workspace |
 | `gitstow status` | Git status dashboard |
-| `gitstow remove <owner/repo>` | Remove a repo from tracking |
+| `gitstow remove <repo>` | Remove a repo from tracking |
 | `gitstow migrate <path>` | Adopt existing repos into structure |
+| **Workspaces** | |
+| `gitstow workspace list` | List all configured workspaces |
+| `gitstow workspace add <path>` | Add a new workspace |
+| `gitstow workspace remove <label>` | Remove a workspace |
+| `gitstow workspace scan <label>` | Discover and register repos on disk |
 | **Repo Management** | |
-| `gitstow repo freeze <owner/repo>` | Skip repo during pull |
-| `gitstow repo unfreeze <owner/repo>` | Re-enable pulling |
-| `gitstow repo tag <owner/repo> <tags...>` | Add tags to a repo |
-| `gitstow repo untag <owner/repo> <tag>` | Remove a tag |
+| `gitstow repo freeze <repo>` | Skip repo during pull |
+| `gitstow repo unfreeze <repo>` | Re-enable pulling |
+| `gitstow repo tag <repo> <tags...>` | Add tags to a repo |
+| `gitstow repo untag <repo> <tag>` | Remove a tag |
 | `gitstow repo tags` | List all tags with counts |
-| `gitstow repo info <owner/repo>` | Detailed repo info |
+| `gitstow repo info <repo>` | Detailed repo info |
 | **Power** | |
 | `gitstow exec <command>` | Run a command in every repo |
 | `gitstow search <pattern>` | Grep across all repos (uses ripgrep) |
-| `gitstow open <owner/repo>` | Open in editor, browser, or Finder |
+| `gitstow open <repo>` | Open in editor, browser, or Finder |
 | `gitstow stats` | Collection statistics and disk usage |
 | **Sharing** | |
 | `gitstow collection export` | Export collection as YAML, JSON, or URLs |
@@ -164,58 +182,61 @@ gitstow status --json
 | `gitstow shell pick` | fzf-powered repo picker |
 | `gitstow tui` | Interactive terminal dashboard |
 | **Config** | |
-| `gitstow config show` | Show current config |
+| `gitstow config show` | Show current config and workspaces |
 | `gitstow config set <key> <value>` | Change a setting |
-| `gitstow config migrate-root <path>` | Move all repos to a new root |
 | `gitstow onboard` | First-run setup wizard |
 | `gitstow doctor` | Health check |
 | `gitstow install-skill` | Install Claude Code skill |
 
-## Changing Your Root Directory
-
-To move your entire collection to a new location:
-
-```bash
-gitstow config migrate-root ~/new-location        # Move all repos
-gitstow config migrate-root ~/new-location --copy  # Copy instead (keeps original)
-```
-
-This moves every repo, preserves the `owner/repo/` structure, and updates the config automatically. Don't use `config set root_path` — that only changes the pointer without moving files.
+All commands accept `-w <label>` to filter to a specific workspace.
 
 ## Configuration
 
 Config lives at `~/.gitstow/config.yaml`:
 
 ```yaml
-root_path: ~/opensource       # Where repos are cloned
-default_host: github.com      # For shorthand URLs (owner/repo)
-prefer_ssh: false             # SSH vs HTTPS for cloning
-parallel_limit: 6             # Max concurrent git operations
+workspaces:
+  - path: ~/opensource
+    label: oss
+    layout: structured
+  - path: ~/labs/projects
+    label: active
+    layout: flat
+    auto_tags: [active]
+default_host: github.com
+prefer_ssh: false
+parallel_limit: 6
 ```
 
-Repo metadata at `~/.gitstow/repos.yaml`:
+Repo metadata at `~/.gitstow/repos.yaml` (nested by workspace):
 
 ```yaml
-anthropic/claude-code:
-  remote_url: https://github.com/anthropic/claude-code.git
-  frozen: false
-  tags: [ai, tools]
-  added: 2026-04-05
-  last_pulled: 2026-04-05T15:30:00
+oss:
+  anthropic/claude-code:
+    remote_url: https://github.com/anthropic/claude-code.git
+    frozen: false
+    tags: [ai, tools]
+    added: '2026-04-05'
+active:
+  gitstow:
+    remote_url: https://github.com/rishmadaan/gitstow.git
+    tags: [active]
+    added: '2026-04-05'
 ```
 
 ## How It Works
 
-1. **Folder-as-state** — The directory structure (`root/owner/repo/`) is the primary source of truth. `repos.yaml` supplements with metadata (frozen, tags, timestamps).
-2. **Error isolation** — One bad repo never stops operations on others. Failures are collected and reported in a summary.
-3. **Parallel execution** — Bulk operations use `asyncio` with a semaphore (default 6 concurrent) to prevent SSH connection storms.
-4. **Zero-config start** — `gitstow add owner/repo` works immediately with sensible defaults.
+1. **Workspaces** — Each workspace is a directory with a layout mode (`structured` = owner/repo, `flat` = just repo). Repos are organized across workspaces, tagged, and managed as a unified collection.
+2. **Folder-as-state** — The directory structure is the primary source of truth. `repos.yaml` supplements with metadata (frozen, tags, timestamps).
+3. **Error isolation** — One bad repo never stops operations on others. Failures are collected and reported in a summary.
+4. **Parallel execution** — Bulk operations use `asyncio` with a semaphore (default 6 concurrent) to prevent SSH connection storms.
+5. **Zero-config start** — `gitstow add owner/repo` works immediately with sensible defaults.
 
 ### A note on folder structure
 
-gitstow organizes repos as `root/owner/repo/` (e.g., `~/opensource/anthropic/claude-code/`). Unlike [ghq](https://github.com/x-motemen/ghq) which includes the host (`root/github.com/owner/repo/`), we omit it for simplicity — most repos are on GitHub, and shorter paths are nicer to work with.
+Structured workspaces organize repos as `owner/repo/` (e.g., `~/opensource/anthropic/claude-code/`). Unlike [ghq](https://github.com/x-motemen/ghq) which includes the host (`root/github.com/owner/repo/`), we omit it for simplicity.
 
-The tradeoff: if you have two repos with the same `owner/repo` on different hosts (e.g., GitHub and GitLab), they'd conflict. In practice this is extremely rare. If you hit it, use the full URL and gitstow will warn about the conflict.
+Flat workspaces skip the owner directory entirely — repos are just `workspace/repo-name/`. Use flat layout for directories where you already have projects organized your own way.
 
 ## Development
 

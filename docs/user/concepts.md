@@ -1,9 +1,9 @@
 ---
-summary: How gitstow organizes repos, the folder-as-state model, tags, freeze, and design decisions.
+summary: How gitstow organizes repos, workspaces, the folder-as-state model, tags, freeze, and design decisions.
 read_when:
   - Understanding how repos are organized on disk
   - Want to know why gitstow works the way it does
-  - Learning about tags, freeze, and discovery
+  - Learning about workspaces, tags, freeze, and discovery
   - Comparing with ghq or gita
 ---
 
@@ -22,12 +22,49 @@ gitstow treats your repo collection like a **library**, not a workspace. The key
 
 You can still make changes inside gitstow-managed repos — it doesn't prevent that. But the tool is optimized for the "keep a curated collection updated" workflow.
 
+## Workspaces
+
+A workspace is a directory that gitstow manages repos in. You can have multiple workspaces, each with its own path, layout mode, and auto-tags. This is useful when you want to separate different kinds of repos — for example, open-source references in one directory and active projects in another.
+
+Each workspace has:
+- **label** — a unique short name (e.g., `oss`, `work`, `active`)
+- **path** — the directory on disk (e.g., `~/opensource`, `~/projects`)
+- **layout** — how repos are organized: `structured` (owner/repo) or `flat` (just repo name)
+- **auto_tags** — tags automatically applied to repos discovered in this workspace
+
+```yaml
+# Example: two workspaces in config.yaml
+workspaces:
+  - path: ~/opensource
+    label: oss
+    layout: structured
+  - path: ~/projects
+    label: active
+    layout: flat
+    auto_tags: [mine]
+```
+
+The first workspace is the default — used when you run commands without specifying `-w/--workspace`.
+
+If the same repo name exists in multiple workspaces (e.g., `anthropic/claude-code` in both `oss` and `work`), gitstow will prompt you to choose or you can disambiguate with `--workspace`:
+
+```bash
+gitstow pull --workspace oss
+gitstow repo info anthropic/claude-code -w work
+```
+
+> **Migration from single root:** If you have a pre-workspace config with `root_path`, gitstow auto-migrates it to a single workspace labeled `oss` on first use. No action needed.
+
 ## Folder Structure
 
-When you add a repo, gitstow creates:
+When you add a repo, gitstow places it in the default workspace (or the one you specify with `-w`).
+
+### Structured layout (default)
+
+Repos are organized by `owner/repo`:
 
 ```
-~/opensource/              # Your root (configurable)
+~/opensource/              # Workspace path (structured layout)
 ├── anthropic/             # Owner (from the URL)
 │   ├── claude-code/       # Repo
 │   └── sdk-python/        # Another repo by the same owner
@@ -37,7 +74,20 @@ When you add a repo, gitstow creates:
     └── linux/
 ```
 
-The path is derived from the URL: `https://github.com/anthropic/claude-code` becomes `root/anthropic/claude-code/`.
+The path is derived from the URL: `https://github.com/anthropic/claude-code` becomes `workspace_path/anthropic/claude-code/`.
+
+### Flat layout
+
+Repos are placed directly in the workspace directory by name, without the owner prefix:
+
+```
+~/projects/                # Workspace path (flat layout)
+├── claude-code/
+├── react/
+└── my-app/
+```
+
+Flat layout is useful for workspaces where you own the repos and don't need the owner-based grouping.
 
 ### Why no host in the path?
 
@@ -47,12 +97,13 @@ Tools like [ghq](https://github.com/x-motemen/ghq) include the host: `root/githu
 
 ## Folder-as-State
 
-The directory tree is the primary source of truth. `repos.yaml` is supplemental metadata (frozen, tags, timestamps) that enriches what's on disk.
+The directory tree is the primary source of truth. `repos.yaml` is supplemental metadata (frozen, tags, timestamps, workspace membership) that enriches what's on disk.
 
 This means:
 - If you `git clone` something manually into the right place, `gitstow doctor` will notice it as "untracked" and suggest registering it
 - If you delete a repo from disk, `gitstow doctor` will flag it as "missing"
 - If `repos.yaml` gets corrupted, your repos are still fine — just re-register them
+- You can scan a workspace to auto-discover repos: `gitstow workspace scan <label>`
 
 ## Tags
 
@@ -73,6 +124,8 @@ gitstow repo freeze --tag archived # Freeze all archived repos at once
 ```
 
 Tags are stored in `repos.yaml`, not on disk. They're lowercase by convention.
+
+Workspaces can also have **auto-tags** — tags automatically applied to any repo discovered or added in that workspace. This is useful for categorizing repos by workspace without manual tagging.
 
 Use `gitstow repo tags` to see all tags with repo counts.
 
@@ -108,7 +161,9 @@ gitstow keeps its registry (`repos.yaml`) in sync with what's actually on disk. 
 - **Orphaned** — exists on disk but NOT in `repos.yaml` (untracked). Suggestion: `gitstow add <path>` to register
 - **Missing** — tracked in `repos.yaml` but NOT on disk (deleted externally). Suggestion: `gitstow remove <key>` to clean up
 
-This two-level walk only checks `root/owner/repo/.git` — it doesn't descend deeper.
+Discovery respects each workspace's layout mode — in structured workspaces it checks `path/owner/repo/.git`, in flat workspaces it checks `path/repo/.git`.
+
+You can also explicitly scan a workspace to discover and register repos on disk: `gitstow workspace scan <label>`.
 
 ## Error Isolation
 
@@ -147,6 +202,8 @@ This is the core thesis: developers increasingly maintain local repo clones that
 | Feature | gitstow | ghq | gita |
 |---------|---------|-----|------|
 | Auto-organize by owner/repo | ✅ | ✅ (with host prefix) | ❌ |
+| Multiple workspaces | ✅ | ❌ | ❌ |
+| Flat + structured layouts | ✅ | ❌ | ❌ |
 | Bulk pull | ✅ | ❌ | ✅ |
 | Status dashboard | ✅ | ❌ | ✅ |
 | Freeze/skip repos | ✅ | ❌ | Via groups |
