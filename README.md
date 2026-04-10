@@ -2,6 +2,8 @@
 
 A git repository library manager — clone, organize, and maintain collections of repos you learn from.
 
+![gitstow demo](demo.gif)
+
 ## Why?
 
 AI-assisted development has created a new relationship with open source. Developers increasingly maintain local clones of repositories they study and reference, not just repos they contribute to. `gitstow` manages this collection as a first-class concern.
