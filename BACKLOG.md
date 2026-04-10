@@ -13,4 +13,4 @@ Post-v0.1.0 improvements tracked here. See [GitHub Issues](https://github.com/ri
 
 ## Documentation
 
-- [ ] **Record demo GIF for README** (#7) — VHS tape script created (`demo.tape`); run `vhs demo.tape` to record
+- [x] **Record demo GIF for README** (#7) — Recorded with VHS, embedded in README
