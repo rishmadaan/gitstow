@@ -119,7 +119,7 @@ def clone(
     Returns:
         (success, error_message)
     """
-    args = ["clone"]
+    args = ["clone", "--progress"]
     if shallow:
         args.extend(["--depth", "1"])
     if branch:

@@ -23,14 +23,22 @@ err_console = Console(stderr=True)
 
 
 @workspace_app.command("list")
-def workspace_list() -> None:
+def workspace_list(
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="One label per line."),
+) -> None:
     """[bold]List[/bold] all configured workspaces."""
     settings = load_config()
     workspaces = settings.get_workspaces()
     store = RepoStore()
 
     if not workspaces:
-        console.print("[dim]No workspaces configured. Run [bold]gitstow onboard[/bold].[/dim]")
+        if not quiet:
+            console.print("[dim]No workspaces configured. Run [bold]gitstow onboard[/bold].[/dim]")
+        return
+
+    if quiet:
+        for ws in workspaces:
+            print(ws.label)
         return
 
     table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))

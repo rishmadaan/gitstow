@@ -18,8 +18,8 @@ env/
 *.swp
 *.swo
 
-# Claude Code
-.claude/
+# Claude Code (local settings only — .claude/settings.json is meant to be shared)
+.claude/settings.local.json
 
 # macOS
 .DS_Store

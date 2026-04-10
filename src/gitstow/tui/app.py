@@ -105,7 +105,10 @@ class GitstowApp(App):
         Binding("q", "quit", "Quit"),
         Binding("r", "refresh", "Refresh"),
         Binding("p", "pull_all", "Pull All"),
+        Binding("P", "pull_selected", "Pull Selected", show=False),
         Binding("f", "toggle_freeze", "Freeze/Unfreeze"),
+        Binding("w", "cycle_workspace", "Workspace"),
+        Binding("t", "cycle_tag", "Tag"),
         Binding("enter", "show_detail", "Details"),
         Binding("/", "focus_filter", "Filter"),
         Binding("escape", "clear_filter", "Clear Filter"),
@@ -119,6 +122,8 @@ class GitstowApp(App):
         self._repos: list[Repo] = []
         self._statuses: dict[str, RepoStatus] = {}
         self._filter = ""
+        self._ws_filter: str = ""  # "" = all workspaces
+        self._tag_filter: str = ""  # "" = all tags
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -183,9 +188,13 @@ class GitstowApp(App):
         table.clear()
 
         filtered = self._repos
+        if self._ws_filter:
+            filtered = [r for r in filtered if r.workspace == self._ws_filter]
+        if self._tag_filter:
+            filtered = [r for r in filtered if self._tag_filter in r.tags]
         if self._filter:
             filtered = [
-                r for r in self._repos
+                r for r in filtered
                 if self._filter in r.key.lower()
                 or any(self._filter in t for t in r.tags)
                 or self._filter in r.owner.lower()
@@ -213,6 +222,10 @@ class GitstowApp(App):
         frozen = sum(1 for r in filtered if r.frozen)
         dirty = total - clean - frozen
         summary = f" {total} repos | {clean} clean | {dirty} dirty | {frozen} frozen"
+        if self._ws_filter:
+            summary += f" | ws: {self._ws_filter}"
+        if self._tag_filter:
+            summary += f" | tag: {self._tag_filter}"
         if self._filter:
             summary += f" | filter: '{self._filter}'"
         self.query_one("#summary-bar", Static).update(summary)
@@ -252,6 +265,65 @@ class GitstowApp(App):
         self.call_from_thread(
             lambda: self.notify(f"Pulled {pulled} repos")
         )
+
+    def action_cycle_workspace(self) -> None:
+        """Cycle workspace filter: all → ws1 → ws2 → ... → all."""
+        labels = [ws.label for ws in self.settings.get_workspaces()]
+        if not labels:
+            return
+        if not self._ws_filter:
+            self._ws_filter = labels[0]
+        else:
+            try:
+                idx = labels.index(self._ws_filter)
+                self._ws_filter = labels[idx + 1] if idx + 1 < len(labels) else ""
+            except ValueError:
+                self._ws_filter = ""
+        self._refresh_table()
+        label = self._ws_filter or "all"
+        self.notify(f"Workspace: {label}")
+
+    def action_cycle_tag(self) -> None:
+        """Cycle tag filter: all → tag1 → tag2 → ... → all."""
+        all_tags = sorted(self.store.all_tags())
+        if not all_tags:
+            return
+        if not self._tag_filter:
+            self._tag_filter = all_tags[0]
+        else:
+            try:
+                idx = all_tags.index(self._tag_filter)
+                self._tag_filter = all_tags[idx + 1] if idx + 1 < len(all_tags) else ""
+            except ValueError:
+                self._tag_filter = ""
+        self._refresh_table()
+        label = self._tag_filter or "all"
+        self.notify(f"Tag: {label}")
+
+    @work(thread=True)
+    def action_pull_selected(self) -> None:
+        """Pull only the selected repo."""
+        repo, ws = self.call_from_thread(self._get_selected_repo)
+        if not repo or not ws:
+            return
+        if repo.frozen:
+            self.call_from_thread(lambda: self.notify(f"{repo.key} is frozen", severity="warning"))
+            return
+        path = repo.get_path(ws.get_path())
+        if not path.exists() or not is_git_repo(path):
+            self.call_from_thread(lambda: self.notify(f"{repo.key} not on disk", severity="error"))
+            return
+        self.call_from_thread(
+            lambda: self.query_one("#summary-bar", Static).update(f" Pulling {repo.key}...")
+        )
+        result = git_pull(path)
+        if result.success:
+            from datetime import datetime
+            self.store.update(repo.key, workspace=repo.workspace, last_pulled=datetime.now().isoformat())
+            self.call_from_thread(lambda: self.notify(f"Pulled {repo.key}"))
+        else:
+            self.call_from_thread(lambda: self.notify(f"Failed: {result.error}", severity="error"))
+        self.call_from_thread(self.load_repos)
 
     def _get_selected_repo(self) -> tuple[Repo | None, Workspace | None]:
         """Get the repo and workspace for the currently selected table row."""

@@ -70,6 +70,9 @@ def pull(
     output_json: bool = typer.Option(
         False, "--json", "-j", help="JSON output.",
     ),
+    retry: int = typer.Option(
+        0, "--retry", help="Retry failed repos N times.",
+    ),
     quiet: bool = typer.Option(
         False, "--quiet", "-q", help="Suppress per-repo progress.",
     ),
@@ -130,36 +133,70 @@ def pull(
             print()
         return
 
+    total_count = len(targets)
     if not quiet:
-        console.print(f"\n  Pulling {len(targets)} repo{'s' if len(targets) != 1 else ''}...\n")
+        console.print(f"\n  Pulling {total_count} repo{'s' if total_count != 1 else ''}...\n")
 
-    # Run pulls in parallel
-    tasks = [
-        (repo.global_key, lambda r=repo, w=ws: _pull_one_repo(r, w))
-        for repo, ws in targets
-    ]
+    # Run pulls in parallel (with retry)
+    remaining_targets = list(targets)
+    result_dicts: list[dict] = []
 
-    results = run_parallel_sync(
-        tasks,
-        max_concurrent=settings.parallel_limit,
-    )
+    for attempt in range(1 + retry):
+        if attempt > 0 and not quiet:
+            console.print(f"\n  [dim]Retry {attempt}/{retry} — {len(remaining_targets)} failed repos...[/dim]\n")
 
-    # Process results and update timestamps
-    result_dicts = []
-    for task_result in results:
-        if task_result.success and task_result.data:
-            result_dicts.append(task_result.data)
-            if task_result.data["status"] in ("pulled", "up_to_date"):
-                # task_result.key is global_key (ws:key), parse out workspace and key
-                parts = task_result.key.split(":", 1)
-                if len(parts) == 2:
-                    store.update(parts[1], workspace=parts[0], last_pulled=datetime.now().isoformat())
-        else:
-            result_dicts.append({
-                "repo": task_result.key,
-                "status": "error",
-                "detail": task_result.error,
-            })
+        tasks = [
+            (repo.global_key, lambda r=repo, w=ws: _pull_one_repo(r, w))
+            for repo, ws in remaining_targets
+        ]
+
+        progress_count = [0]
+
+        def _on_progress(key: str, success: bool, message: str) -> None:
+            progress_count[0] += 1
+            if not quiet:
+                console.print(
+                    f"  [{progress_count[0]}/{len(tasks)}] {key.split(':', 1)[-1]}",
+                    end="\r",
+                    highlight=False,
+                )
+
+        results = run_parallel_sync(
+            tasks,
+            max_concurrent=settings.parallel_limit,
+            on_progress=None if quiet else _on_progress,
+        )
+
+        # Process results and update timestamps
+        failed_keys: set[str] = set()
+        for task_result in results:
+            if task_result.success and task_result.data:
+                data = task_result.data
+                if data["status"] in ("pulled", "up_to_date", "skipped"):
+                    result_dicts.append(data)
+                    if data["status"] in ("pulled", "up_to_date"):
+                        parts = task_result.key.split(":", 1)
+                        if len(parts) == 2:
+                            store.update(parts[1], workspace=parts[0], last_pulled=datetime.now().isoformat())
+                else:
+                    # error or missing — candidate for retry
+                    if attempt < retry:
+                        failed_keys.add(task_result.key)
+                    else:
+                        result_dicts.append(data)
+            else:
+                if attempt < retry:
+                    failed_keys.add(task_result.key)
+                else:
+                    result_dicts.append({
+                        "repo": task_result.key,
+                        "status": "error",
+                        "detail": task_result.error,
+                    })
+
+        if not failed_keys:
+            break
+        remaining_targets = [(r, ws) for r, ws in remaining_targets if r.global_key in failed_keys]
 
     # Add frozen repos to results for completeness
     if not include_frozen and frozen_keys:

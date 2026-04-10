@@ -81,6 +81,12 @@ def list_repos(
             print()
         return
 
+    # Quiet mode: one key per line (for shell completions and scripting)
+    if quiet:
+        for r, _ in repo_ws_pairs:
+            print(r.key)
+        return
+
     if output_json:
         json.dump(
             [

@@ -71,19 +71,22 @@ def export_collection(
         lines = [r.remote_url for r in repos]
         content = "\n".join(lines) + "\n"
     elif format_type == "json":
-        data = [
-            {
-                "key": r.key,
-                "workspace": r.workspace,
-                "remote_url": r.remote_url,
-                "tags": r.tags,
-                "frozen": r.frozen,
-            }
-            for r in repos
-        ]
+        data = {
+            "version": 1,
+            "repos": [
+                {
+                    "key": r.key,
+                    "workspace": r.workspace,
+                    "remote_url": r.remote_url,
+                    "tags": r.tags,
+                    "frozen": r.frozen,
+                }
+                for r in repos
+            ],
+        }
         content = json.dumps(data, indent=2) + "\n"
     else:  # yaml
-        data = {}
+        repos_data = {}
         for r in repos:
             entry = {"remote_url": r.remote_url}
             if r.workspace:
@@ -92,7 +95,8 @@ def export_collection(
                 entry["tags"] = r.tags
             if r.frozen:
                 entry["frozen"] = True
-            data[r.key] = entry
+            repos_data[r.key] = entry
+        data = {"version": 1, "repos": repos_data}
         content = yaml.dump(data, default_flow_style=False, sort_keys=False)
 
     if output:
@@ -235,12 +239,31 @@ def import_collection(
     console.print("\n")
 
 
+EXPORT_FORMAT_VERSION = 1
+
+
 def _parse_import_file(content: str, suffix: str) -> list[dict]:
-    """Parse an import file into a list of repo dicts."""
+    """Parse an import file into a list of repo dicts.
+
+    Supports versioned format (version: 1) and legacy unversioned format.
+    """
     # Try YAML first
     if suffix in (".yaml", ".yml"):
         data = yaml.safe_load(content)
         if isinstance(data, dict):
+            # Versioned format: {"version": 1, "repos": {...}}
+            if "version" in data and "repos" in data:
+                version = data["version"]
+                if version > EXPORT_FORMAT_VERSION:
+                    raise typer.Exit(code=1)  # Caller should print error
+                repos_data = data["repos"]
+                if isinstance(repos_data, dict):
+                    return [
+                        {"key": k, "url": v.get("remote_url", ""), "tags": v.get("tags", []), "frozen": v.get("frozen", False)}
+                        for k, v in repos_data.items()
+                        if isinstance(v, dict)
+                    ]
+            # Legacy unversioned format: {key: {remote_url: ...}}
             return [
                 {"key": k, "url": v.get("remote_url", ""), "tags": v.get("tags", []), "frozen": v.get("frozen", False)}
                 for k, v in data.items()
@@ -252,6 +275,12 @@ def _parse_import_file(content: str, suffix: str) -> list[dict]:
     # Try JSON
     if suffix == ".json":
         data = json.loads(content)
+        # Versioned format: {"version": 1, "repos": [...]}
+        if isinstance(data, dict) and "version" in data and "repos" in data:
+            version = data["version"]
+            if version > EXPORT_FORMAT_VERSION:
+                raise typer.Exit(code=1)
+            data = data["repos"]
         if isinstance(data, list):
             return [
                 {"key": item.get("key", ""), "url": item.get("remote_url", item.get("url", "")), "tags": item.get("tags", []), "frozen": item.get("frozen", False)}

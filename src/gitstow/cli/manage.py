@@ -171,13 +171,21 @@ def remove_tags(
 
 
 @manage_app.command("tags")
-def list_tags() -> None:
+def list_tags(
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="One tag per line."),
+) -> None:
     """List all tags with repo counts."""
     store = RepoStore()
     tags = store.all_tags()
 
     if not tags:
-        console.print("[dim]No tags defined.[/dim]")
+        if not quiet:
+            console.print("[dim]No tags defined.[/dim]")
+        return
+
+    if quiet:
+        for tag in sorted(tags):
+            print(tag)
         return
 
     console.print("\n  [bold]Tags[/bold]\n")

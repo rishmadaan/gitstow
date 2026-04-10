@@ -43,6 +43,9 @@ def add(
     ssh: bool = typer.Option(
         False, "--ssh", help="Force SSH clone URL."
     ),
+    retry: int = typer.Option(
+        0, "--retry", help="Retry failed clones N times."
+    ),
     output_json: bool = typer.Option(
         False, "--json", "-j", help="JSON output."
     ),
@@ -158,19 +161,30 @@ def add(
                 err_console.print(f"  [red]✗[/red] {repo_key}: path exists but is not a git repo")
             continue
 
-        # Clone
+        # Clone (with retry)
         if not quiet:
             console.print(f"  [dim]Cloning[/dim] {repo_key} → {ws.label}...")
 
         target.parent.mkdir(parents=True, exist_ok=True)
 
-        success, error = git_clone(
-            url=parsed.clone_url,
-            target=target,
-            shallow=shallow,
-            branch=branch,
-            recursive=recursive,
-        )
+        success, error = False, ""
+        for attempt in range(1 + retry):
+            if attempt > 0:
+                # Clean up partial clone before retrying
+                import shutil
+                if target.exists():
+                    shutil.rmtree(target, ignore_errors=True)
+                if not quiet:
+                    err_console.print(f"    [dim]Retry {attempt}/{retry}...[/dim]")
+            success, error = git_clone(
+                url=parsed.clone_url,
+                target=target,
+                shallow=shallow,
+                branch=branch,
+                recursive=recursive,
+            )
+            if success:
+                break
 
         if success:
             from datetime import datetime
