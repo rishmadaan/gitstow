@@ -58,8 +58,11 @@ For commands shown to the user to run themselves, use the human-readable form (n
 |---|---|
 | Add/clone a repo | `gitstow add "owner/repo"` or `gitstow add "url"` |
 | Add to specific workspace | `gitstow -w active add "owner/repo"` |
+| Add with submodules | `gitstow add "owner/repo" --recursive` |
 | Add multiple repos | `gitstow add repo1 repo2 repo3` |
+| Add with retry on failure | `gitstow add "owner/repo" --retry 3` |
 | Update all repos | `gitstow pull` |
+| Update with retry | `gitstow pull --retry 3` |
 | Update one workspace | `gitstow -w oss pull` |
 | Update repos by tag | `gitstow pull --tag ai` |
 | List all repos | `gitstow list` |
@@ -91,6 +94,7 @@ For commands shown to the user to run themselves, use the human-readable form (n
 | Scan workspace for repos | `gitstow workspace scan name` |
 | Run setup wizard | `gitstow onboard` |
 | Health check | `gitstow doctor` |
+| Shell completions | `gitstow shell completions` |
 
 ## URL Shorthand
 

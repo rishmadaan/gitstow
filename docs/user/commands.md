@@ -48,7 +48,9 @@ gitstow add <url> [urls...]
 | `--branch` | `-b` | Clone a specific branch. |
 | `--update` | `-u` | Pull if repo already exists (instead of skipping). |
 | `--tag` | `-t` | Apply tag(s) immediately. Repeatable. |
+| `--recursive` | `-r` | Initialize submodules after clone. |
 | `--ssh` | | Force SSH clone URL (overrides config). |
+| `--retry` | | Retry failed clones N times (e.g., `--retry 3`). |
 | `--json` | `-j` | JSON output. |
 | `--quiet` | `-q` | Suppress progress messages. |
 
@@ -105,6 +107,7 @@ gitstow pull [repos...] [flags]
 | `--exclude-tag` | | Skip repos with this tag. Repeatable. |
 | `--owner` | | Only pull repos from this owner. |
 | `--include-frozen` | | Include frozen repos (normally skipped). |
+| `--retry` | | Retry failed repos N times (e.g., `--retry 3`). |
 | `--json` | `-j` | JSON output. |
 | `--quiet` | `-q` | Suppress per-repo progress. |
 
@@ -267,6 +270,7 @@ List all tags with repo counts.
 
 ```bash
 gitstow repo tags
+gitstow repo tags --quiet   # One tag per line (for scripting/completions)
 ```
 
 ### `gitstow repo info`
@@ -452,6 +456,23 @@ cd "$(gitstow shell pick)"
 code "$(gitstow shell pick)"
 ```
 
+### `gitstow shell completions [bash|zsh|fish]`
+
+Print shell completion script for tab-completing repo names, workspace labels, and tag names.
+
+```bash
+# Add to your ~/.zshrc or ~/.bashrc (after shell init):
+eval "$(gitstow shell completions)"
+
+# Or for fish:
+gitstow shell completions fish | source
+```
+
+Completes:
+- Repo keys for `remove`, `open`, `repo freeze/unfreeze/tag/untag/info`
+- Workspace labels for `-w/--workspace`
+- Tag names for `-t/--tag`
+
 ### `gitstow tui`
 
 Interactive terminal dashboard built with [Textual](https://github.com/Textualize/textual). Requires `pip install gitstow[tui]`.
@@ -459,7 +480,10 @@ Interactive terminal dashboard built with [Textual](https://github.com/Textualiz
 Keyboard shortcuts:
 - `r` — Refresh
 - `p` — Pull all unfrozen repos
+- `P` — Pull selected repo only
 - `f` — Toggle freeze on selected repo
+- `w` — Cycle workspace filter
+- `t` — Cycle tag filter
 - `Enter` — Show repo details
 - `/` — Focus filter input
 - `q` — Quit
@@ -545,6 +569,7 @@ Show all configured workspaces with their path, layout, auto-tags, and repo coun
 
 ```bash
 gitstow workspace list
+gitstow workspace list --quiet   # One label per line (for scripting/completions)
 ```
 
 ### `gitstow workspace add`

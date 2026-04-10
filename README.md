@@ -180,7 +180,9 @@ gitstow status --json
 | `gitstow collection import <file>` | Import a collection from file |
 | **Shell** | |
 | `gitstow shell setup` | Show shell integration instructions |
+| `gitstow shell init` | Print shell functions to source in rc file |
 | `gitstow shell pick` | fzf-powered repo picker |
+| `gitstow shell completions` | Tab completion for repo names, workspaces, tags |
 | `gitstow tui` | Interactive terminal dashboard |
 | **Config** | |
 | `gitstow config show` | Show current config and workspaces |
@@ -188,6 +190,7 @@ gitstow status --json
 | `gitstow onboard` | First-run setup wizard |
 | `gitstow doctor` | Health check |
 | `gitstow install-skill` | Install Claude Code skill |
+| `gitstow setup-ai` | Auto-detect AI tools and configure integration |
 
 All commands accept `-w <label>` to filter to a specific workspace.
 

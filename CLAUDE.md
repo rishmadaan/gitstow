@@ -80,15 +80,15 @@ active:
     tags: [active]
 ```
 
-## All Commands (26)
+## All Commands (29)
 
 **Core:** `add`, `pull`, `list`, `status`, `remove`, `migrate`
 **Workspace:** `workspace list`, `workspace add`, `workspace remove`, `workspace scan`
 **Repo management:** `repo freeze`, `repo unfreeze`, `repo tag`, `repo untag`, `repo tags`, `repo info`
 **Power:** `exec`, `search`, `open`, `stats`
 **Sharing:** `collection export`, `collection import`
-**Shell:** `shell pick`, `shell init`, `shell setup`, `tui`
-**Setup:** `onboard`, `config show/set/path/migrate-root`, `doctor`, `install-skill`
+**Shell:** `shell pick`, `shell init`, `shell completions`, `shell setup`, `tui`
+**Setup:** `onboard`, `config show/set/path/migrate-root`, `doctor`, `install-skill`, `setup-ai`
 
 ## Development
 
