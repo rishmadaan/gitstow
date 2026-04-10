@@ -15,7 +15,8 @@ Existing tools solve parts of this:
 ## Quick Start
 
 ```bash
-pip install gitstow
+pipx install gitstow   # recommended
+# or: pip install gitstow
 
 # First-run setup (optional — works without it)
 gitstow onboard
@@ -39,7 +40,7 @@ gitstow status
 ### Workspaces
 ```bash
 # Track open-source repos (structured: owner/repo layout)
-gitstow workspace add ~/opensource --label oss --layout structured
+gitstow workspace add ~/oss --label oss --layout structured
 
 # Track your active projects (flat: repos directly in folder)
 gitstow workspace add ~/labs/projects --label active --layout flat --auto-tag active
@@ -54,7 +55,7 @@ gitstow add anthropic/claude-code facebook/react torvalds/linux
 ```
 Creates (in a structured workspace):
 ```
-~/opensource/
+~/oss/
 ├── anthropic/
 │   └── claude-code/
 ├── facebook/
@@ -196,7 +197,7 @@ Config lives at `~/.gitstow/config.yaml`:
 
 ```yaml
 workspaces:
-  - path: ~/opensource
+  - path: ~/oss
     label: oss
     layout: structured
   - path: ~/labs/projects
@@ -234,9 +235,19 @@ active:
 
 ### A note on folder structure
 
-Structured workspaces organize repos as `owner/repo/` (e.g., `~/opensource/anthropic/claude-code/`). Unlike [ghq](https://github.com/x-motemen/ghq) which includes the host (`root/github.com/owner/repo/`), we omit it for simplicity.
+Structured workspaces organize repos as `owner/repo/` (e.g., `~/oss/anthropic/claude-code/`). Unlike [ghq](https://github.com/x-motemen/ghq) which includes the host (`root/github.com/owner/repo/`), we omit it for simplicity.
 
 Flat workspaces skip the owner directory entirely — repos are just `workspace/repo-name/`. Use flat layout for directories where you already have projects organized your own way.
+
+## Troubleshooting
+
+**`gitstow: command not found`** — Make sure the install location is on your PATH. With pipx this is automatic. With pip, you may need `python3 -m gitstow` or add `~/.local/bin` to your PATH.
+
+**SSH clone fails with "Permission denied (publickey)"** — Your SSH key isn't configured for the git host. Either add your key (`ssh-add`) or use HTTPS: `gitstow config set prefer_ssh false`.
+
+**Workspace directory doesn't exist** — Run `gitstow doctor` to check workspace health. Create missing directories or update the path with `gitstow workspace add`.
+
+**`gitstow doctor`** — Run this first when something isn't working. It checks git installation, config files, and workspace integrity.
 
 ## Development
 
@@ -247,6 +258,8 @@ pip install -e ".[dev]"
 pytest
 ruff check src/
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
 
 ## License
 

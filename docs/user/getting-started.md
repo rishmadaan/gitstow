@@ -45,10 +45,10 @@ gitstow add anthropic/claude-code
 
 That's it. gitstow:
 1. Recognizes `anthropic/claude-code` as GitHub shorthand
-2. Clones to `~/opensource/anthropic/claude-code/` (your default workspace)
+2. Clones to `~/oss/anthropic/claude-code/` (your default workspace)
 3. Registers it in your collection
 
-> **Default workspace:** Repos go to `~/opensource/` by default (in a workspace labeled `oss`). Change it with `gitstow onboard` for the interactive setup wizard, or add additional workspaces with `gitstow workspace add`.
+> **Default workspace:** Repos go to `~/oss/` by default (in a workspace labeled `oss`). Change it with `gitstow onboard` for the interactive setup wizard, or add additional workspaces with `gitstow workspace add`.
 
 ## 3. Add More Repos
 

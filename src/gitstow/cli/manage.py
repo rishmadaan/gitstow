@@ -8,7 +8,6 @@ from typing import Optional
 
 import typer
 from rich.console import Console
-from rich.panel import Panel
 
 from gitstow.core.config import load_config
 from gitstow.core.git import (
@@ -141,7 +140,7 @@ def add_tags(
     if added:
         console.print(f"  [green]✓[/green] {repo_key} tagged: {', '.join(added)}")
     else:
-        console.print(f"  [dim]No new tags added (already tagged).[/dim]")
+        console.print("  [dim]No new tags added (already tagged).[/dim]")
 
 
 @manage_app.command("untag")

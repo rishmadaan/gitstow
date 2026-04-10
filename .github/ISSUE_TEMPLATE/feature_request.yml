@@ -1,0 +1,42 @@
+name: Feature Request
+description: Suggest a new feature or improvement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the use case or frustration that motivates this request.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How do you think this should work? Include example commands if applicable.
+      placeholder: |
+        gitstow add --recursive owner/repo
+        # This would also initialize git submodules during clone
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any other approaches you've thought about or workarounds you're using.
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Which area does this affect?
+      options:
+        - Core commands (add, pull, list, status)
+        - Workspace management
+        - Repo management (freeze, tags)
+        - Shell integration
+        - TUI dashboard
+        - Export/import
+        - AI integration (skill, MCP)
+        - Other

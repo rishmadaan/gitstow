@@ -5,9 +5,8 @@ All git interaction goes through this module. Nothing else shells out to git.
 
 from __future__ import annotations
 
-import shutil
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -113,6 +112,7 @@ def clone(
     target: Path,
     shallow: bool = False,
     branch: str | None = None,
+    recursive: bool = False,
 ) -> tuple[bool, str]:
     """Clone a repository.
 
@@ -124,6 +124,8 @@ def clone(
         args.extend(["--depth", "1"])
     if branch:
         args.extend(["--branch", branch, "--single-branch"])
+    if recursive:
+        args.append("--recurse-submodules")
     args.extend(["--", url, str(target)])
 
     try:

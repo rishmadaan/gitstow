@@ -28,14 +28,14 @@ A workspace is a directory that gitstow manages repos in. You can have multiple 
 
 Each workspace has:
 - **label** — a unique short name (e.g., `oss`, `work`, `active`)
-- **path** — the directory on disk (e.g., `~/opensource`, `~/projects`)
+- **path** — the directory on disk (e.g., `~/oss`, `~/projects`)
 - **layout** — how repos are organized: `structured` (owner/repo) or `flat` (just repo name)
 - **auto_tags** — tags automatically applied to repos discovered in this workspace
 
 ```yaml
 # Example: two workspaces in config.yaml
 workspaces:
-  - path: ~/opensource
+  - path: ~/oss
     label: oss
     layout: structured
   - path: ~/projects
@@ -64,7 +64,7 @@ When you add a repo, gitstow places it in the default workspace (or the one you 
 Repos are organized by `owner/repo`:
 
 ```
-~/opensource/              # Workspace path (structured layout)
+~/oss/              # Workspace path (structured layout)
 ├── anthropic/             # Owner (from the URL)
 │   ├── claude-code/       # Repo
 │   └── sdk-python/        # Another repo by the same owner

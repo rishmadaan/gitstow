@@ -127,7 +127,33 @@ def doctor(
     if not total_orphaned and not total_missing:
         console.print(f"\n     [green]✓ All repos in sync across {len(workspaces)} workspace(s)[/green]")
 
+    # 4. SSH connectivity hint
+    ssh_repos = [r for r in store.list_all() if r.remote_url and r.remote_url.startswith("git@")]
+    if ssh_repos:
+        console.print("\n  [bold]4. SSH Connectivity[/bold]\n")
+        ssh_ok = _check_ssh_connectivity()
+        if ssh_ok:
+            console.print("     [green]✓[/green] SSH connection to github.com works")
+        else:
+            console.print("     [yellow]⚠ SSH connection to github.com failed[/yellow]")
+            console.print("       [dim]You have SSH repos but ssh-agent may not be running.[/dim]")
+            console.print("       [dim]Check: ssh -T git@github.com[/dim]")
+
     console.print()
+
+
+def _check_ssh_connectivity() -> bool:
+    """Quick check if SSH to github.com works (exit code 1 = auth ok, 255 = failure)."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["ssh", "-T", "-o", "ConnectTimeout=5", "git@github.com"],
+            capture_output=True, text=True, timeout=10,
+        )
+        # GitHub returns exit code 1 with "successfully authenticated" on success
+        return result.returncode == 1 and "successfully authenticated" in result.stderr
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
 
 
 def _check(label: str, ok: bool, detail: str = "") -> None:

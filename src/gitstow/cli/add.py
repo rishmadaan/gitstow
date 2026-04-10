@@ -37,6 +37,9 @@ def add(
     tag: Optional[list[str]] = typer.Option(
         None, "--tag", "-t", help="Tag(s) to apply to added repos."
     ),
+    recursive: bool = typer.Option(
+        False, "--recursive", "-r", help="Initialize submodules after clone."
+    ),
     ssh: bool = typer.Option(
         False, "--ssh", help="Force SSH clone URL."
     ),
@@ -166,6 +169,7 @@ def add(
             target=target,
             shallow=shallow,
             branch=branch,
+            recursive=recursive,
         )
 
         if success:
@@ -186,6 +190,9 @@ def add(
             results.append({"repo": repo_key, "status": "error", "error": error})
             if not quiet:
                 err_console.print(f"  [red]✗[/red] {repo_key}: {error}")
+                hint = _clone_error_hint(error)
+                if hint:
+                    err_console.print(f"      [dim]{hint}[/dim]")
 
     # Summary
     if output_json:
@@ -223,3 +230,19 @@ def add(
 
     if any(r["status"] == "error" for r in results):
         raise typer.Exit(code=1)
+
+
+def _clone_error_hint(error: str) -> str:
+    """Return a user-friendly hint based on common clone error patterns."""
+    err = error.lower()
+    if "permission denied (publickey)" in err:
+        return "Hint: SSH key not configured. Try --ssh=false or check ssh-add -l"
+    if "repository not found" in err or "does not exist" in err:
+        return "Hint: Check the URL. If this is a private repo, ensure you have access."
+    if "timed out" in err:
+        return "Hint: Try --shallow for large repos, or check your network connection."
+    if "could not resolve host" in err:
+        return "Hint: DNS resolution failed. Check your network connection."
+    if "already exists and is not an empty directory" in err:
+        return "Hint: Target directory already exists. Use --update to pull instead."
+    return ""

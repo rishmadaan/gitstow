@@ -164,8 +164,8 @@ def _setup_mcp_config(config_path: str, tool_name: str, auto: bool = False, quie
     mcp_bin = shutil.which("gitstow-mcp")
     if not mcp_bin:
         if not quiet:
-            console.print(f"  [yellow]⚠[/yellow] gitstow-mcp not found on PATH.")
-            console.print(f"    Install with: [bold]pip install gitstow[mcp][/bold]")
+            console.print("  [yellow]⚠[/yellow] gitstow-mcp not found on PATH.")
+            console.print("    Install with: [bold]pip install gitstow[mcp][/bold]")
         return
 
     # Check if already configured

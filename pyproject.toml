@@ -37,8 +37,11 @@ dependencies = [
 ]
 
 [project.urls]
+Homepage = "https://github.com/rishmadaan/gitstow"
 Repository = "https://github.com/rishmadaan/gitstow"
+Documentation = "https://github.com/rishmadaan/gitstow#readme"
 Issues = "https://github.com/rishmadaan/gitstow/issues"
+Changelog = "https://github.com/rishmadaan/gitstow/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [

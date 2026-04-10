@@ -91,7 +91,7 @@ gitstow (CLI)
 ├── config.yaml                  # Settings (root_path, default_host, etc.)
 └── repos.yaml                   # Per-repo metadata (frozen, tags, timestamps)
 
-~/opensource/                     # Default repo root (configurable)
+~/oss/                     # Default repo root (configurable)
 ├── anthropic/
 │   ├── claude-code/
 │   └── anthropic-sdk-python/
@@ -109,7 +109,7 @@ gitstow (CLI)
 
 ```yaml
 # ~/.gitstow/config.yaml
-root_path: ~/opensource           # Where repos are cloned
+root_path: ~/oss           # Where repos are cloned
 default_host: github.com          # Assumed when URL has no host
 prefer_ssh: false                 # true = clone via SSH, false = HTTPS
 parallel_limit: 6                 # Max concurrent git operations
@@ -160,7 +160,7 @@ class Repo:
 ```python
 @dataclass
 class Settings:
-    root_path: str = "~/opensource"
+    root_path: str = "~/oss"
     default_host: str = "github.com"
     prefer_ssh: bool = False
     parallel_limit: int = 6
@@ -378,7 +378,7 @@ gitstow status — 4 repos
 anthropic/claude-code
 
   Remote:       https://github.com/anthropic/claude-code.git
-  Path:         /Users/rish/labs/OSS/anthropic/claude-code
+  Path:         ~/oss/anthropic/claude-code
   Branch:       main
   Status:       clean
   Frozen:       no
@@ -432,7 +432,7 @@ gitstow config
 
 **Flow:**
 1. Welcome message + what gitstow does
-2. Set root path (beaupy input, default `~/opensource`)
+2. Set root path (beaupy input, default `~/oss`)
 3. Set default host (selector: github.com, gitlab.com, custom)
 4. Set protocol preference (HTTPS vs SSH)
 5. Offer to scan for existing repos in root path

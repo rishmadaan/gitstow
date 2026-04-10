@@ -17,7 +17,7 @@ from gitstow.core.paths import CONFIG_FILE, DEFAULT_ROOT, ensure_app_dirs
 class Workspace:
     """A configured workspace — a directory that gitstow manages repos in."""
 
-    path: str                              # e.g., "~/opensource"
+    path: str                              # e.g., "~/oss"
     label: str                             # e.g., "oss" (unique identifier)
     layout: str = "structured"             # "structured" (owner/repo) or "flat"
     auto_tags: list[str] = field(default_factory=list)

@@ -161,7 +161,7 @@ def import_collection(
     if dry_run:
         for entry in new_repos:
             console.print(f"    [dim]Would add:[/dim] {entry.get('key', entry.get('url', 'unknown'))}")
-        console.print(f"\n  [dim]Dry run — nothing was changed.[/dim]\n")
+        console.print("\n  [dim]Dry run — nothing was changed.[/dim]\n")
         return
 
     if not new_repos:

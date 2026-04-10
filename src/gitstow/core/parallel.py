@@ -7,7 +7,7 @@ Uses asyncio with a semaphore to prevent SSH connection storms
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, TypeVar
 
 T = TypeVar("T")
@@ -49,7 +49,6 @@ async def run_parallel(
         List of TaskResult in the same order as input tasks.
     """
     semaphore = asyncio.Semaphore(max_concurrent)
-    results: list[TaskResult] = []
 
     async def bounded_task(key: str, func: Callable) -> TaskResult:
         async with semaphore:

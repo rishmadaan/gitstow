@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Optional
 
 import typer
 from rich.console import Console
 
-from gitstow.core.config import load_config, save_config, Settings
+from gitstow.core.config import load_config, save_config
 from gitstow.core.paths import CONFIG_FILE, REPOS_FILE
 from gitstow.core.repo import RepoStore
 

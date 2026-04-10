@@ -2,7 +2,7 @@
 
 import pytest
 
-from gitstow.core.url_parser import parse_git_url, ParsedURL
+from gitstow.core.url_parser import parse_git_url
 
 
 class TestGitHubShorthand:

@@ -207,4 +207,4 @@ An optional MCP server exists (`pip install gitstow[mcp]`, run `gitstow-mcp`) fo
 
 - Config: `~/.gitstow/config.yaml`
 - Repo metadata: `~/.gitstow/repos.yaml` (central, nested by workspace)
-- Repos: across configured workspaces (default first workspace: `~/opensource/`)
+- Repos: across configured workspaces (default first workspace: `~/oss/`)

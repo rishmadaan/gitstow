@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import sys
 from collections import defaultdict
-from typing import Optional
 
 import typer
 from rich.console import Console
@@ -60,7 +59,6 @@ def stats(
     newest = max(added_dates) if added_dates else "unknown"
 
     # Pull activity
-    pulled_dates = [r.last_pulled for r in repos if r.last_pulled]
     never_pulled = sum(1 for r in repos if not r.last_pulled)
 
     data = {
@@ -84,7 +82,7 @@ def stats(
         return
 
     # Human display
-    console.print(f"\n  [bold]gitstow stats[/bold]\n")
+    console.print("\n  [bold]gitstow stats[/bold]\n")
 
     # Overview
     console.print(f"    Repos:       {len(repos)}")
@@ -99,7 +97,7 @@ def stats(
 
     # Repos by owner
     if owners:
-        console.print(f"\n  [bold]By Owner[/bold]\n")
+        console.print("\n  [bold]By Owner[/bold]\n")
         table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
         table.add_column("Owner")
         table.add_column("Repos", justify="right")
@@ -115,13 +113,13 @@ def stats(
 
     # Tags
     if tags:
-        console.print(f"\n  [bold]Tags[/bold]\n")
+        console.print("\n  [bold]Tags[/bold]\n")
         for tag_name, count in sorted(tags.items()):
             console.print(f"    {tag_name}  [dim]({count})[/dim]")
 
     # Largest repos
     if largest_repos:
-        console.print(f"\n  [bold]Largest Repos[/bold]\n")
+        console.print("\n  [bold]Largest Repos[/bold]\n")
         for repo_key, size in largest_repos[:5]:
             console.print(f"    {repo_key.ljust(30)} {format_size(size)}")
 

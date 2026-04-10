@@ -568,7 +568,7 @@ gitstow workspace add <path> --label <label> [flags]
 
 ```bash
 # Add a structured workspace for open-source repos
-gitstow workspace add ~/opensource --label oss
+gitstow workspace add ~/oss --label oss
 
 # Add a flat workspace for your own projects, auto-tagged
 gitstow workspace add ~/projects --label active --layout flat --auto-tag mine

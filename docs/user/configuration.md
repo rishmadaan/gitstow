@@ -36,7 +36,7 @@ gitstow onboard
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `workspaces` | Single workspace at `~/opensource` | List of workspace directories. Each has a path, label, layout, and optional auto-tags. |
+| `workspaces` | Single workspace at `~/oss` | List of workspace directories. Each has a path, label, layout, and optional auto-tags. |
 | `default_host` | `github.com` | Assumed host when you type shorthand like `owner/repo`. |
 | `prefer_ssh` | `false` | If `true`, clones via SSH (`git@host:owner/repo.git`) instead of HTTPS. |
 | `parallel_limit` | `6` | Maximum concurrent git operations during `pull` and `status`. |
@@ -51,7 +51,7 @@ Your settings. Created on first use or by `gitstow onboard`.
 
 ```yaml
 workspaces:
-  - path: ~/opensource
+  - path: ~/oss
     label: oss
     layout: structured
   - path: ~/projects
@@ -101,7 +101,7 @@ Workspaces replace the old single `root_path` setting. See [Concepts — Workspa
 gitstow workspace list
 
 # Add a new workspace
-gitstow workspace add ~/opensource --label oss
+gitstow workspace add ~/oss --label oss
 gitstow workspace add ~/projects --label active --layout flat --auto-tag mine
 
 # Remove a workspace (files stay on disk)
