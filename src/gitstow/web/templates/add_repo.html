@@ -11,20 +11,27 @@
     <p class="lede">Clone a remote into one of your workspaces and catalog it. Any git URL or <code>owner/repo</code> shorthand works.</p>
   </section>
 
-  <form onsubmit="event.preventDefault(); alert('Add-repo wiring lands in Phase B-3');">
+  {% if error %}
+  <article class="error-banner">
+    <strong>Could not add repo</strong>
+    <p>{{ error }}</p>
+  </article>
+  {% endif %}
+
+  <form method="POST" action="/repos/add">
 
     <div class="form-row">
       <label for="url">Repository URL</label>
-      <input type="text" id="url" name="url" placeholder="https://github.com/owner/repo.git" required>
+      <input type="text" id="url" name="url" value="{{ form.url if form else '' }}" placeholder="https://github.com/owner/repo.git" required>
       <span class="form-hint">Supports full git URLs (https / ssh) and <code>owner/repo</code> shorthand defaulting to GitHub.</span>
     </div>
 
     <div class="form-row">
       <label for="workspace">Workspace</label>
       <select id="workspace" name="workspace" required>
-        <option value="" disabled selected>Choose where to clone…</option>
+        <option value="" disabled{% if not form or not form.workspace %} selected{% endif %}>Choose where to clone…</option>
         {% for ws in workspaces %}
-          <option value="{{ ws.label }}">{{ ws.label }} — {{ ws.path }} ({{ ws.layout }})</option>
+          <option value="{{ ws.label }}"{% if form and form.workspace == ws.label %} selected{% endif %}>{{ ws.label }} — {{ ws.path }} ({{ ws.layout }})</option>
         {% endfor %}
       </select>
       <span class="form-hint">Structured workspaces nest under <code>owner/</code>; flat workspaces skip the owner directory.</span>
@@ -32,16 +39,9 @@
 
     <div class="form-row">
       <label for="tags">Tags <span style="color: var(--muted-soft); font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 0.78rem; margin-left: 0.35rem;">optional</span></label>
-      <input type="text" id="tags" name="tags" placeholder="ai, rust, active">
+      <input type="text" id="tags" name="tags" value="{{ form.tags if form else '' }}" placeholder="ai, rust, active">
       <span class="form-hint">Comma-separated. Workspace auto-tags are merged in automatically at clone time.</span>
     </div>
-
-    <article class="preview">
-      <strong>Preview</strong>
-      <span class="k">clone</span>  <span class="v">https://github.com/anthropic/claude-code.git</span><br>
-      <span class="k">into</span>   <span class="v">~/labs/oss/anthropic/claude-code</span><br>
-      <span class="k">tags</span>   <span class="v">ai, active</span>
-    </article>
 
     <div style="display: flex; gap: 0.5rem; margin-top: 1.75rem;">
       <button type="submit" class="btn btn-primary">Clone & catalog</button>

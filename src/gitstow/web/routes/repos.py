@@ -9,13 +9,14 @@ import asyncio
 import functools
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from gitstow.core.config import load_config
-from gitstow.core.git import get_status, is_git_repo, pull as git_pull
+from gitstow.core.git import clone as git_clone, get_status, is_git_repo, pull as git_pull
 from gitstow.core.parallel import run_parallel
-from gitstow.core.repo import RepoStore
+from gitstow.core.repo import Repo, RepoStore
+from gitstow.core.url_parser import parse_git_url
 from gitstow.web.routes.dashboard import _classify, _delta, _relative_time, _workspace_slot
 from gitstow.web.server import render
 
@@ -140,3 +141,90 @@ async def pull_all(request: Request):
         "skipped_missing": skipped_missing,
     }
     return render(request, "partials/pull_summary.html", summary=summary)
+
+
+def _render_add_form(request, settings, form_values, error):
+    return render(
+        request,
+        "add_repo.html",
+        page="add",
+        workspaces=settings.get_workspaces(),
+        error=error,
+        form=form_values,
+    )
+
+
+@router.post("/repos/add")
+async def add_repo(
+    request: Request,
+    url: str = Form(...),
+    workspace: str = Form(...),
+    tags: str = Form(""),
+):
+    settings = load_config()
+    store = RepoStore()
+    form_values = {"url": url, "workspace": workspace, "tags": tags}
+
+    ws = settings.get_workspace(workspace)
+    if ws is None:
+        return _render_add_form(
+            request, settings, form_values,
+            f"Workspace '{workspace}' not found.",
+        )
+
+    # Parse the URL (any shape — full, SCP, shorthand)
+    try:
+        parsed = parse_git_url(
+            url.strip(),
+            default_host=settings.default_host,
+            prefer_ssh=settings.prefer_ssh,
+        )
+    except Exception as exc:
+        return _render_add_form(
+            request, settings, form_values,
+            f"Could not parse URL: {exc}",
+        )
+
+    # Compute on-disk target based on workspace layout
+    ws_path = ws.get_path()
+    if ws.layout == "flat":
+        target = ws_path / parsed.repo
+        repo_owner = ""
+    else:
+        target = ws_path / parsed.owner / parsed.repo
+        repo_owner = parsed.owner
+
+    # Check for collision
+    if target.exists():
+        if is_git_repo(target):
+            # Already a git repo — register without cloning
+            pass
+        else:
+            return _render_add_form(
+                request, settings, form_values,
+                f"Target path already exists and is not a git repo: {target}",
+            )
+    else:
+        # Clone
+        target.parent.mkdir(parents=True, exist_ok=True)
+        success, err = await asyncio.to_thread(git_clone, parsed.clone_url, target)
+        if not success:
+            return _render_add_form(
+                request, settings, form_values,
+                f"Clone failed: {err}",
+            )
+
+    # Register in store — merge workspace auto-tags with user tags (dedupe, preserve order)
+    user_tags = [t.strip() for t in tags.split(",") if t.strip()]
+    merged_tags = list(dict.fromkeys(user_tags + list(ws.auto_tags)))
+
+    repo = Repo(
+        owner=repo_owner,
+        name=parsed.repo,
+        remote_url=parsed.clone_url,
+        workspace=ws.label,
+        tags=merged_tags,
+    )
+    store.add(repo)
+
+    return RedirectResponse(url="/", status_code=303)
