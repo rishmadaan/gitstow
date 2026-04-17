@@ -4,9 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>gitstow — Add repo</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../static/app.css">
   <script src="https://unpkg.com/htmx.org@1.9.10"></script>
 </head>
@@ -15,11 +12,12 @@
     <div class="container">
       <nav class="primary">
         <div class="brand">
-          <strong>gitstow</strong>
-          <span class="version">v0.2.0</span>
+          <span class="live-pulse" title="Connected"></span>
+          <span class="mark">gitstow</span>
+          <span class="tagline">library.mgr · v0.2.0</span>
         </div>
         <ul class="links">
-          <li><a href="dashboard.html">Dashboard</a></li>
+          <li><a href="dashboard.html">Library</a></li>
           <li><a href="workspaces.html">Workspaces</a></li>
           <li><a href="settings.html">Settings</a></li>
         </ul>
@@ -28,48 +26,49 @@
   </header>
 
   <main>
-    <div class="container" style="max-width: 640px;">
+    <div class="container" style="max-width: 720px;">
 
-      <p class="breadcrumb"><a href="dashboard.html">← Dashboard</a></p>
+      <p class="breadcrumb"><a href="dashboard.html">← Library</a> / New entry</p>
 
-      <hgroup>
-        <h1>Add a repo</h1>
-        <p class="page-sub">Clone a remote into one of your workspaces and register it with gitstow.</p>
-      </hgroup>
+      <section class="hero" style="border-bottom: 1px solid var(--border); padding-bottom: 1.75rem; margin-bottom: 1.75rem; display: block;">
+        <div class="eyebrow"><span class="bar"></span>Acquisition</div>
+        <h1>Add a <span class="ember">repo</span>.</h1>
+        <p class="lede">Clone a remote into one of your workspaces and catalog it. Any git URL or <code>owner/repo</code> shorthand works.</p>
+      </section>
 
       <form onsubmit="event.preventDefault(); alert('Phase A mock — backend lands in Phase B');">
 
         <div class="form-row">
           <label for="url">Repository URL</label>
-          <input type="text" id="url" name="url" placeholder="https://github.com/owner/repo.git  ·  git@github.com:owner/repo  ·  owner/repo" required>
-          <span class="form-hint">Any git URL or <code>owner/repo</code> shorthand (defaults to GitHub). Parsed via <code>core/url_parser</code>.</span>
+          <input type="text" id="url" name="url" placeholder="https://github.com/owner/repo.git" required>
+          <span class="form-hint">Supports full git URLs (https / ssh) and <code>owner/repo</code> shorthand defaulting to GitHub.</span>
         </div>
 
         <div class="form-row">
           <label for="workspace">Workspace</label>
           <select id="workspace" name="workspace" required>
             <option value="" disabled selected>Choose where to clone…</option>
-            <option value="oss">oss — ~/labs/oss (structured, owner/repo)</option>
+            <option value="oss">oss — ~/labs/oss (structured)</option>
             <option value="active">active — ~/labs/projects (flat)</option>
           </select>
-          <span class="form-hint">Structured workspaces nest under <code>owner/</code>; flat workspaces skip the owner dir.</span>
+          <span class="form-hint">Structured workspaces nest under <code>owner/</code>; flat workspaces skip the owner directory.</span>
         </div>
 
         <div class="form-row">
-          <label for="tags">Tags <small style="color: #9ca3af; font-weight: 400;">optional</small></label>
+          <label for="tags">Tags <span style="color: var(--muted-soft); font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 0.78rem; margin-left: 0.35rem;">optional</span></label>
           <input type="text" id="tags" name="tags" placeholder="ai, rust, active">
-          <span class="form-hint">Comma-separated. Workspace auto-tags are merged in automatically.</span>
+          <span class="form-hint">Comma-separated. Workspace auto-tags are merged in automatically at clone time.</span>
         </div>
 
         <article class="preview">
           <strong>Preview</strong>
-          Clone <span style="color: #0a0c10;">https://github.com/anthropic/claude-code.git</span><br>
-          Into  <span style="color: #0a0c10;">~/labs/oss/anthropic/claude-code</span><br>
-          Tags  <span style="color: #0a0c10;">ai, active</span>
+          <span class="k">clone</span>  <span class="v">https://github.com/anthropic/claude-code.git</span><br>
+          <span class="k">into</span>   <span class="v">~/labs/oss/anthropic/claude-code</span><br>
+          <span class="k">tags</span>   <span class="v">ai, active</span>
         </article>
 
-        <div class="btn-group" style="margin-top: 1.5rem;">
-          <button type="submit" class="btn btn-primary">Clone & register</button>
+        <div style="display: flex; gap: 0.5rem; margin-top: 1.75rem;">
+          <button type="submit" class="btn btn-primary">Clone & catalog</button>
           <a href="dashboard.html" class="btn btn-ghost">Cancel</a>
         </div>
       </form>
@@ -78,12 +77,13 @@
   </main>
 
   <footer class="site">
-    <div class="container" style="display: flex; justify-content: space-between; align-items: center;">
+    <div class="container footer-inner">
       <div>
         <span class="dot green"></span>
-        Connected · <code>http://127.0.0.1:7853</code>
+        <span class="live-label">live</span>
+        <code style="margin-left: 0.6rem;">127.0.0.1:7853</code>
       </div>
-      <button class="btn btn-ghost btn-sm" onclick="alert('Phase A mock — Shutdown wires up in Phase B')">Shutdown</button>
+      <button class="btn btn-ghost btn-sm" onclick="alert('Phase A mock — wires up in Phase B')">Shutdown</button>
     </div>
   </footer>
 </body>

@@ -4,9 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>gitstow — Settings</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../static/app.css">
   <script src="https://unpkg.com/htmx.org@1.9.10"></script>
 </head>
@@ -15,11 +12,12 @@
     <div class="container">
       <nav class="primary">
         <div class="brand">
-          <strong>gitstow</strong>
-          <span class="version">v0.2.0</span>
+          <span class="live-pulse" title="Connected"></span>
+          <span class="mark">gitstow</span>
+          <span class="tagline">library.mgr · v0.2.0</span>
         </div>
         <ul class="links">
-          <li><a href="dashboard.html">Dashboard</a></li>
+          <li><a href="dashboard.html">Library</a></li>
           <li><a href="workspaces.html">Workspaces</a></li>
           <li><a href="settings.html" class="active">Settings</a></li>
         </ul>
@@ -28,32 +26,35 @@
   </header>
 
   <main>
-    <div class="container" style="max-width: 820px;">
+    <div class="container" style="max-width: 880px;">
 
-      <hgroup>
-        <h1>Settings</h1>
-        <p class="page-sub">Mirrors <code>gitstow config show</code>. Saved to <code>~/.gitstow/config.yaml</code>.</p>
-      </hgroup>
+      <section class="hero">
+        <div class="hero-left">
+          <div class="eyebrow"><span class="bar"></span>Preferences</div>
+          <h1>Your <span class="ember">settings</span>.</h1>
+          <p class="lede">Mirrors <code>gitstow config show</code>. All values persist to <code>~/.gitstow/config.yaml</code>.</p>
+        </div>
+      </section>
 
       <form onsubmit="event.preventDefault(); alert('Phase A mock — backend lands in Phase B');">
 
         <section>
           <h4>Defaults</h4>
           <dl class="settings-grid">
-            <dt><label for="default-host" style="margin: 0;">Default host</label></dt>
+            <dt>Default host</dt>
             <dd>
-              <select id="default-host" style="max-width: 280px;">
+              <select style="max-width: 320px;">
                 <option value="github.com" selected>github.com</option>
                 <option value="gitlab.com">gitlab.com</option>
                 <option value="bitbucket.org">bitbucket.org</option>
               </select>
-              <span class="form-hint">Used for <code>owner/repo</code> shorthand without a full URL.</span>
+              <span class="form-hint">Used when you provide <code>owner/repo</code> shorthand without a full URL.</span>
             </dd>
 
-            <dt><label for="ssh-pref" style="margin: 0;">SSH preference</label></dt>
+            <dt>SSH preference</dt>
             <dd>
-              <label style="display: inline-flex; align-items: center; margin: 0.5rem 0 0; font-weight: 400; color: #1f2937;">
-                <input type="checkbox" id="ssh-pref">
+              <label style="display: inline-flex; align-items: center; margin: 0.55rem 0 0; font-family: 'Bricolage Grotesque', sans-serif; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--text-soft); font-size: 0.9rem;">
+                <input type="checkbox">
                 Convert https:// URLs to SSH on clone
               </label>
               <span class="form-hint">Applies when cloning via the add-repo form. Direct git URLs are never rewritten.</span>
@@ -69,7 +70,9 @@
             <dt>Registry</dt>
             <dd><span class="path-display">~/.gitstow/repos.yaml</span></dd>
           </dl>
-          <small style="display: block; margin-top: 0.75rem; color: #9ca3af;">Read-only here — edit YAML directly or run <code>gitstow config path</code> to locate the files.</small>
+          <small style="display: block; margin-top: 1rem; color: var(--muted); font-size: 0.84rem;">
+            Read-only here — edit YAML directly, or run <code>gitstow config path</code> to locate the files.
+          </small>
         </section>
 
         <section class="section">
@@ -82,8 +85,8 @@
             </dd>
             <dt>MCP server</dt>
             <dd>
-              <code>gitstow-mcp</code>  <span style="color: #9ca3af;">— install with</span>  <code>pip install gitstow[mcp]</code>
-              <span class="form-hint">Optional. For non-Claude-Code AI tools (Claude Desktop, Cursor, Windsurf).</span>
+              <code>gitstow-mcp</code> <span style="color: var(--muted);">— install with</span> <code>pip install gitstow[mcp]</code>
+              <span class="form-hint">Optional. For non-Claude-Code AI tools like Claude Desktop, Cursor, Windsurf.</span>
             </dd>
           </dl>
         </section>
@@ -91,11 +94,11 @@
         <article class="version-card">
           <strong>gitstow v0.2.0</strong><br>
           Python 3.12.3 · macOS arm64<br>
-          <small>Run <code>gitstow doctor</code> from the CLI for a full environment report.</small>
+          <small style="color: var(--muted); font-size: 0.82rem;">Run <code>gitstow doctor</code> from the CLI for a full environment report.</small>
         </article>
 
-        <div class="btn-group" style="margin-top: 1.75rem;">
-          <button type="submit" class="btn btn-primary">Save</button>
+        <div style="display: flex; gap: 0.5rem; margin-top: 2rem;">
+          <button type="submit" class="btn btn-primary">Save preferences</button>
           <a href="dashboard.html" class="btn btn-ghost">Cancel</a>
         </div>
       </form>
@@ -104,12 +107,13 @@
   </main>
 
   <footer class="site">
-    <div class="container" style="display: flex; justify-content: space-between; align-items: center;">
+    <div class="container footer-inner">
       <div>
         <span class="dot green"></span>
-        Connected · <code>http://127.0.0.1:7853</code>
+        <span class="live-label">live</span>
+        <code style="margin-left: 0.6rem;">127.0.0.1:7853</code>
       </div>
-      <button class="btn btn-ghost btn-sm" onclick="alert('Phase A mock — Shutdown wires up in Phase B')">Shutdown</button>
+      <button class="btn btn-ghost btn-sm" onclick="alert('Phase A mock — wires up in Phase B')">Shutdown</button>
     </div>
   </footer>
 </body>

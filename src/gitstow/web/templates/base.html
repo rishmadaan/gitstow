@@ -4,9 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>gitstow</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../static/app.css">
   <script src="https://unpkg.com/htmx.org@1.9.10"></script>
 </head>
@@ -15,11 +12,12 @@
     <div class="container">
       <nav class="primary">
         <div class="brand">
-          <strong>gitstow</strong>
-          <span class="version">v0.2.0</span>
+          <span class="live-pulse" title="Connected"></span>
+          <span class="mark">gitstow</span>
+          <span class="tagline">library.mgr · v0.2.0</span>
         </div>
         <ul class="links">
-          <li><a href="dashboard.html">Dashboard</a></li>
+          <li><a href="dashboard.html">Library</a></li>
           <li><a href="workspaces.html">Workspaces</a></li>
           <li><a href="settings.html">Settings</a></li>
         </ul>
@@ -29,23 +27,27 @@
 
   <main>
     <div class="container">
-      <hgroup>
-        <h1>Layout shell</h1>
-        <p class="page-sub">This is <code>base.html</code> — the chrome used by every page. Open <a href="dashboard.html">dashboard.html</a> to see the main view.</p>
-      </hgroup>
+      <section class="hero">
+        <div class="hero-left">
+          <div class="eyebrow"><span class="bar"></span>Layout shell</div>
+          <h1>The <span class="ember">chrome</span>.</h1>
+          <p class="lede">Common header and footer used by every page. Open <a href="dashboard.html">Library</a> to see the main view.</p>
+        </div>
+      </section>
     </div>
   </main>
 
   <footer class="site">
-    <div class="container" style="display: flex; justify-content: space-between; align-items: center;">
+    <div class="container footer-inner">
       <div>
         <span class="dot green"></span>
-        Connected · <code>http://127.0.0.1:7853</code>
+        <span class="live-label">live</span>
+        <code style="margin-left: 0.6rem;">127.0.0.1:7853</code>
       </div>
       <button class="btn btn-ghost btn-sm"
               hx-post="/shutdown"
               hx-confirm="Shut down the gitstow server?"
-              onclick="alert('Phase A mock — Shutdown wires up in Phase B')">Shutdown</button>
+              onclick="alert('Phase A mock — wires up in Phase B')">Shutdown</button>
     </div>
   </footer>
 </body>
