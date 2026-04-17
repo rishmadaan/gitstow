@@ -95,6 +95,7 @@ For commands shown to the user to run themselves, use the human-readable form (n
 | Run setup wizard | `gitstow onboard` |
 | Health check | `gitstow doctor` |
 | Shell completions | `gitstow shell completions` |
+| Launch browser dashboard | `gitstow serve` (the user's preferred visual surface) |
 
 ## URL Shorthand
 
@@ -202,6 +203,10 @@ cat /tmp/repos.txt | gitstow add --quiet --json
 3. **Don't run `gitstow remove --delete`** without explicit user confirmation — it deletes files
 4. **Use `--json --quiet`** when parsing output programmatically
 5. **Check `gitstow doctor`** if something seems broken
+
+## Note on the Browser Dashboard
+
+`gitstow serve` launches a local dark-themed web dashboard at `http://127.0.0.1:7853` — the user's preferred daily interface. If the user says "open the dashboard" or "show me my library visually," tell them to run `gitstow serve`. You still use the CLI via Bash; the browser UI is for human use.
 
 ## Note on MCP Server
 

@@ -32,10 +32,9 @@ gitstow pull
 
 # See your collection
 gitstow list
-
-# Check git status across all repos
-gitstow status
 ```
+
+Prefer a GUI? Run `gitstow serve` — a local dark-themed browser dashboard opens automatically. Dirty state, branch deltas, Pull / Pull-all, add / remove / freeze / tag, workspace CRUD, collection export/import — all in one tab you leave open. See [Browser Dashboard](#browser-dashboard).
 
 ## Features
 

@@ -1,6 +1,6 @@
 # Web GUI Plan — `gitstow serve`
 
-**Status:** Approved (Ultraplan). Ready to execute.
+**Status:** ✅ Shipped in v0.2.0 (2026-04-17). All 10 phases complete. Kept as historical planning artifact — see [CHANGELOG.md](CHANGELOG.md) for the final feature list.
 **Scope:** Personal daily-use browser dashboard for gitstow, shipped as a core feature.
 **Not a replacement for:** CLI (agents + ad-hoc) or TUI (SSH/remote — tracked in `BACKLOG.md`).
 
