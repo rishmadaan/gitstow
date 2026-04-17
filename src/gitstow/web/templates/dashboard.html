@@ -34,19 +34,15 @@
             hx-target="main"
             hx-swap="outerHTML">↻ Refresh</button>
     <a href="/add" class="btn btn-outline btn-sm">+ Add repo</a>
-    <button class="btn btn-primary btn-sm" onclick="document.getElementById('pull-summary').style.display='block'">↓ Pull all</button>
+    <button class="btn btn-primary btn-sm"
+            hx-post="/repos/pull-all"
+            hx-target="#pull-summary"
+            hx-swap="outerHTML"
+            hx-disabled-elt="this"
+            hx-confirm="Pull every non-frozen repo?">↓ Pull all</button>
   </div>
 
-  <article id="pull-summary" class="summary-panel" style="display: none;">
-    <header class="panel-head">
-      <div>
-        <strong>Pull all — not wired yet</strong>
-        <small style="margin-left: 0.6rem; font-family: 'JetBrains Mono', monospace; color: var(--muted);">Phase B-2</small>
-      </div>
-      <button class="btn btn-ghost btn-sm" onclick="this.closest('article').style.display='none'">Dismiss</button>
-    </header>
-    <p style="margin: 0; color: var(--text-soft); font-size: 0.86rem;">Bulk pull ships in the next commit. For now, use <code>gitstow pull</code> from the CLI.</p>
-  </article>
+  <article id="pull-summary" hidden></article>
 
   {% if repos %}
   <div class="table-wrap">
@@ -65,43 +61,7 @@
         </tr>
       </thead>
       <tbody>
-        {% for repo in repos %}
-        <tr{% if repo.frozen %} class="frozen"{% endif %}>
-          <td class="row-num">{{ repo.num }}</td>
-          <td>
-            <span class="status status-{{ repo.status_class }}"><span class="dot"></span>{{ repo.status_label }}</span>
-            {% if repo.frozen %}<svg class="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>{% endif %}
-          </td>
-          <td><a href="/repo/{{ repo.workspace }}/{{ repo.key }}" class="repo-link">{{ repo.display_name }}</a></td>
-          <td><span class="ws ws-{{ repo.ws_slot }}">{{ repo.workspace }}</span></td>
-          <td><span class="branch-name">{{ repo.branch }}</span></td>
-          <td><span class="delta {{ repo.delta_class }}">{{ repo.delta_text }}</span></td>
-          <td>{% for tag in repo.tags %}<span class="tag">{{ tag }}</span>{% endfor %}</td>
-          <td><span class="last-pull">{{ repo.last_pull }}</span></td>
-          <td><div class="row-actions">
-            {% if repo.pull_variant == "primary" %}
-              <button class="btn btn-primary btn-sm">Pull</button>
-            {% elif repo.pull_variant == "disabled" %}
-              <button class="btn btn-ghost btn-sm" disabled>Pull</button>
-            {% else %}
-              <button class="btn btn-ghost btn-sm">Pull</button>
-            {% endif %}
-            <details class="menu">
-              <summary title="More actions">⋯</summary>
-              <div class="menu-pop">
-                <a href="/repo/{{ repo.workspace }}/{{ repo.key }}">View details</a>
-                <button type="button">Open folder</button>
-                <button type="button">Copy URL</button>
-                <hr>
-                <button type="button">{% if repo.frozen %}Unfreeze{% else %}Freeze{% endif %}</button>
-                <button type="button">Edit tags</button>
-                <hr>
-                <button type="button" class="danger">Remove</button>
-              </div>
-            </details>
-          </div></td>
-        </tr>
-        {% endfor %}
+        {% for repo in repos %}{% include "partials/repo_row.html" %}{% endfor %}
       </tbody>
     </table>
   </div>

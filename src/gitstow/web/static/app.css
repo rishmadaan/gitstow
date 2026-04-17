@@ -766,6 +766,21 @@ details:not(.menu)[open] summary::before { transform: rotate(90deg); }
 .ledger tbody tr:nth-child(5) { animation-delay: 0.34s; }
 .ledger tbody tr:nth-child(6) { animation-delay: 0.38s; }
 
+/* ---------- HTMX request states ---------- */
+.htmx-request.btn, .htmx-request .btn { opacity: 0.6; pointer-events: none; }
+tr.htmx-request td { opacity: 0.5; }
+button.htmx-request::after, .btn.htmx-request::after {
+  content: '';
+  display: inline-block;
+  width: 10px; height: 10px; margin-left: 0.45rem;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  vertical-align: -1px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
 /* ---------- Scrollbar (webkit) ---------- */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
