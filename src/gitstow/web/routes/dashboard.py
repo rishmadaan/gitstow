@@ -79,7 +79,11 @@ def _delta(ahead: int, behind: int) -> tuple[str, str]:
 
 
 @router.get("/", response_class=HTMLResponse)
-async def dashboard(request: Request):
+async def dashboard(
+    request: Request,
+    imported: int | None = None,
+    failed: int | None = None,
+):
     settings = load_config()
     store = RepoStore()
     workspaces = settings.get_workspaces()
@@ -143,6 +147,14 @@ async def dashboard(request: Request):
     # Eyebrow: today's date in 2026·04·17 — Dashboard format
     eyebrow_date = datetime.now().strftime("%Y·%m·%d")
 
+    # Flash banner after /collection/import redirect
+    flash = None
+    if imported is not None:
+        bits_f = [f"imported {imported} repo{'s' if imported != 1 else ''}"]
+        if failed:
+            bits_f.append(f"{failed} failed")
+        flash = " · ".join(bits_f)
+
     return render(
         request,
         "dashboard.html",
@@ -153,4 +165,5 @@ async def dashboard(request: Request):
         total_repos=total,
         subtitle=" · ".join(bits),
         eyebrow_date=eyebrow_date,
+        flash=flash,
     )

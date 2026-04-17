@@ -2,6 +2,13 @@
 {% block title_suffix %} — Library{% endblock %}
 {% block content %}
 
+  {% if flash %}
+  <article class="notice-banner" style="margin-bottom: 1.5rem;">
+    <strong>Import complete</strong>
+    <p>{{ flash }}</p>
+  </article>
+  {% endif %}
+
   <section class="hero">
     <div class="hero-left">
       <div class="eyebrow"><span class="bar"></span>{{ eyebrow_date }} — Dashboard</div>

@@ -51,6 +51,29 @@
     </section>
 
     <section class="section">
+      <h4>Collection</h4>
+      <dl class="settings-grid">
+        <dt>Export</dt>
+        <dd>
+          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <a href="/collection/export?fmt=yaml" class="btn btn-outline btn-sm">↓ YAML</a>
+            <a href="/collection/export?fmt=json" class="btn btn-outline btn-sm">↓ JSON</a>
+            <a href="/collection/export?fmt=urls" class="btn btn-outline btn-sm">↓ URLs</a>
+          </div>
+          <span class="form-hint">Download your collection. YAML is the canonical format — fully round-trippable via Import.</span>
+        </dd>
+        <dt>Import</dt>
+        <dd>
+          <form method="POST" action="/collection/import" enctype="multipart/form-data" style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <input type="file" name="file" accept=".yaml,.yml,.json,.txt" required style="flex: 1; min-width: 200px; padding: 0.4rem;">
+            <button type="submit" class="btn btn-primary btn-sm">Upload & clone</button>
+          </form>
+          <span class="form-hint">Upload YAML / JSON / plain URLs. New repos clone into the first workspace; already-tracked repos are skipped.</span>
+        </dd>
+      </dl>
+    </section>
+
+    <section class="section">
       <h4>Integrations</h4>
       <dl class="settings-grid">
         <dt>Claude Code skill</dt>
