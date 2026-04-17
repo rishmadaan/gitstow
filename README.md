@@ -136,9 +136,17 @@ gse                              # Open repo in editor (fzf picker)
 gsp                              # gitstow pull shorthand
 ```
 
-### Interactive Dashboard
+### Browser Dashboard
 ```bash
-gitstow tui    # Keyboard-driven dashboard with filter, pull, freeze
+gitstow serve          # opens http://127.0.0.1:7853 in your browser
+gitstow serve --port 8080
+gitstow serve --no-browser
+```
+Persistent local web dashboard for daily repo management — a tab you leave open. Shows dirty state across your library, pulls single repos or all-of-them with a parallel summary panel, adds/removes repos, edits tags, freezes stale ones. Auto-refreshes row status every 30 seconds. Binds `127.0.0.1` only (arbitrary git execution must not be LAN-reachable). Click **Shutdown** in the footer — or Ctrl+C — to stop.
+
+### Interactive Dashboard (TUI)
+```bash
+gitstow tui    # Keyboard-driven terminal dashboard (SSH-friendly)
 ```
 
 ### JSON Output
@@ -186,6 +194,7 @@ gitstow status --json
 | `gitstow shell pick` | fzf-powered repo picker |
 | `gitstow shell completions` | Tab completion for repo names, workspaces, tags |
 | `gitstow tui` | Interactive terminal dashboard |
+| `gitstow serve` | Launch local browser dashboard (http://127.0.0.1:7853) |
 | **Config** | |
 | `gitstow config show` | Show current config and workspaces |
 | `gitstow config set <key> <value>` | Change a setting |

@@ -26,6 +26,7 @@ src/gitstow/
 │   ├── export_cmd.py    # export/import collection
 │   ├── shell.py         # Shell integration (fzf, aliases)
 │   ├── tui.py           # TUI launcher
+│   ├── serve.py         # Web dashboard launcher
 │   ├── migrate.py, config_cmd.py, onboard.py, doctor.py, skill_cmd.py
 │   └── __init__.py
 ├── core/         # Business logic (git ops, URL parsing, state)
@@ -40,6 +41,11 @@ src/gitstow/
 ├── tui/          # Textual interactive dashboard
 │   ├── app.py         # Main TUI application
 │   └── __init__.py
+├── web/          # FastAPI browser dashboard (gitstow serve)
+│   ├── server.py          # FastAPI app, uvicorn runner, app.state.server stash
+│   ├── static/app.css     # Dark theme, Bricolage Grotesque + JetBrains Mono
+│   ├── templates/         # Jinja2 — base.html + page templates + partials/
+│   └── routes/            # dashboard.py, repos.py, workspaces.py, collection.py, pages.py, system.py
 └── skill/        # Claude Code skill (SKILL.md)
     └── SKILL.md
 ```
@@ -80,14 +86,14 @@ active:
     tags: [active]
 ```
 
-## All Commands (29)
+## All Commands (30)
 
 **Core:** `add`, `pull`, `list`, `status`, `remove`, `migrate`
 **Workspace:** `workspace list`, `workspace add`, `workspace remove`, `workspace scan`
 **Repo management:** `repo freeze`, `repo unfreeze`, `repo tag`, `repo untag`, `repo tags`, `repo info`
 **Power:** `exec`, `search`, `open`, `stats`
 **Sharing:** `collection export`, `collection import`
-**Shell:** `shell pick`, `shell init`, `shell completions`, `shell setup`, `tui`
+**Shell:** `shell pick`, `shell init`, `shell completions`, `shell setup`, `tui`, `serve`
 **Setup:** `onboard`, `config show/set/path/migrate-root`, `doctor`, `install-skill`, `setup-ai`
 
 ## Development

@@ -10,6 +10,7 @@ Post-v0.1.0 improvements tracked here. See [GitHub Issues](https://github.com/ri
 - [x] **Export format versioning and checksums** (#4) — Added `version: 1` to YAML/JSON exports; validates on import; backward-compatible with unversioned files
 - [x] **Progress indication during long clones** (#5) — `git clone --progress`; pull shows live counter `[5/47]`
 - [x] **Publish to PyPI** (#6) — Release workflow created (`.github/workflows/release.yml`); publish on GitHub release
+- [x] **Web dashboard (`gitstow serve`)** — Dark local browser UI wrapping core/ for daily repo management. FastAPI + Jinja2 + HTMX, dark + ember accent aesthetic. See `WEB_GUI_PLAN.md`.
 - [ ] **Fix TUI breakage** — Multiple issues across the Textual TUI; currently unusable in daily flow. Keep around for SSH/remote use case but triage and repair when time allows.
 
 ## Documentation
