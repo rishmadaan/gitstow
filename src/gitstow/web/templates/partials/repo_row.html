@@ -33,8 +33,11 @@
         <button type="button">Open folder</button>
         <button type="button">Copy URL</button>
         <hr>
-        <button type="button">{% if repo.frozen %}Unfreeze{% else %}Freeze{% endif %}</button>
-        <button type="button">Edit tags</button>
+        <button type="button"
+                hx-post="/repos/{{ repo.workspace }}/{{ repo.key }}/freeze"
+                hx-target="closest tr"
+                hx-swap="outerHTML">{% if repo.frozen %}Unfreeze{% else %}Freeze{% endif %}</button>
+        <a href="/repo/{{ repo.workspace }}/{{ repo.key }}#tags">Edit tags</a>
         <hr>
         <button type="button" class="danger"
                 hx-post="/repos/{{ repo.workspace }}/{{ repo.key }}/remove"

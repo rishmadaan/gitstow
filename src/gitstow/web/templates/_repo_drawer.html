@@ -49,21 +49,31 @@
     </dl>
   </section>
 
-  <section class="section">
+  <section class="section" id="tags">
     <h4>Tags</h4>
-    <div class="tag-editor">
-      {% for tag in repo.tags %}<span class="tag-pill">{{ tag }} <button title="Remove">×</button></span>{% endfor %}
-      <input type="text" placeholder="Add tag…">
-    </div>
+    <form method="POST" action="/repos/{{ repo.workspace }}/{{ repo.key }}/tag">
+      {% if repo.tags %}
+      <div class="tag-editor" style="margin-bottom: 0.6rem;">
+        {% for tag in repo.tags %}<span class="tag-pill">{{ tag }}</span>{% endfor %}
+      </div>
+      {% endif %}
+      <input type="text" name="tags" value="{{ repo.tags | join(', ') }}" placeholder="comma, separated, tags">
+      <div style="margin-top: 0.75rem;">
+        <button type="submit" class="btn btn-primary btn-sm">Save tags</button>
+      </div>
+    </form>
     <small style="display: block; margin-top: 0.65rem; color: var(--muted-soft); font-size: 0.84rem;">
-      Workspace auto-tags (<code>{{ repo.workspace }}</code>) merge automatically and can't be removed here.
+      Comma-separated. Replaces the existing tag list. Workspace auto-tags merge back in on the next sync.
     </small>
   </section>
 
   <section class="section">
     <h4>Freeze</h4>
     <div class="freeze-row">
-      <input type="checkbox" id="freeze"{% if repo.frozen %} checked{% endif %}>
+      <input type="checkbox" id="freeze"{% if repo.frozen %} checked{% endif %}
+             hx-post="/repos/{{ repo.workspace }}/{{ repo.key }}/freeze"
+             hx-trigger="change"
+             hx-swap="none">
       <label for="freeze">Freeze this repo — it stays visible with a lock icon, and "Pull all" skips it.</label>
     </div>
   </section>

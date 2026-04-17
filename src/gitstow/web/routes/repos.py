@@ -281,3 +281,55 @@ async def delete_repo(workspace: str, key: str, request: Request):
     if _is_htmx(request):
         return Response(status_code=200)
     return RedirectResponse(url="/", status_code=303)
+
+
+def _render_row_for(key: str, workspace: str, request: Request):
+    """Re-render a single row partial after state change (for HTMX swap)."""
+    settings = load_config()
+    store = RepoStore()
+    repo = store.get(key, workspace=workspace)
+    if repo is None:
+        raise HTTPException(status_code=404, detail="repo not found")
+    all_repos = store.list_all()
+    num = next(
+        (i + 1 for i, r in enumerate(all_repos) if r.global_key == repo.global_key),
+        0,
+    )
+    sorted_labels = sorted(w.label for w in settings.get_workspaces())
+    ctx = _row_context(repo, settings, sorted_labels, num)
+    return render(request, "partials/repo_row.html", repo=ctx)
+
+
+@router.post("/repos/{workspace}/{key:path}/freeze")
+async def toggle_freeze(workspace: str, key: str, request: Request):
+    """Toggle the frozen flag on a repo."""
+    store = RepoStore()
+    repo = store.get(key, workspace=workspace)
+    if repo is None:
+        raise HTTPException(status_code=404, detail="repo not found")
+    store.update(key, workspace=workspace, frozen=not repo.frozen)
+
+    if _is_htmx(request):
+        return _render_row_for(key, workspace, request)
+    referer = request.headers.get("referer") or "/"
+    return RedirectResponse(url=referer, status_code=303)
+
+
+@router.post("/repos/{workspace}/{key:path}/tag")
+async def update_tags(
+    workspace: str, key: str, request: Request, tags: str = Form(""),
+):
+    """Replace a repo's tag list with a comma-separated input."""
+    store = RepoStore()
+    repo = store.get(key, workspace=workspace)
+    if repo is None:
+        raise HTTPException(status_code=404, detail="repo not found")
+
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+    deduped = list(dict.fromkeys(tag_list))
+    store.update(key, workspace=workspace, tags=deduped)
+
+    if _is_htmx(request):
+        return _render_row_for(key, workspace, request)
+    referer = request.headers.get("referer") or f"/repo/{workspace}/{key}"
+    return RedirectResponse(url=referer, status_code=303)
