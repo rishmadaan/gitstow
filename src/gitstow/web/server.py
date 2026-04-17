@@ -57,9 +57,10 @@ def create_app() -> FastAPI:
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
     # Late imports to avoid circular imports at module load
-    from gitstow.web.routes import dashboard, pages, repos, system
+    from gitstow.web.routes import dashboard, pages, repos, system, workspaces
 
     app.include_router(dashboard.router)
+    app.include_router(workspaces.router)
     app.include_router(pages.router)
     app.include_router(repos.router)
     app.include_router(system.router)

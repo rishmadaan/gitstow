@@ -30,27 +30,6 @@ async def add_repo_form(request: Request):
     return render(request, "add_repo.html", page="add", workspaces=workspaces)
 
 
-@router.get("/workspaces", response_class=HTMLResponse)
-async def workspaces_page(request: Request):
-    settings = load_config()
-    store = RepoStore()
-    workspaces = settings.get_workspaces()
-    sorted_labels = sorted(w.label for w in workspaces)
-
-    ws_rows = []
-    for ws in workspaces:
-        ws_rows.append({
-            "label": ws.label,
-            "path": ws.path,
-            "layout": ws.layout,
-            "auto_tags": ws.auto_tags,
-            "count": len(store.list_by_workspace(ws.label)),
-            "slot": _ws_slot(ws.label, sorted_labels),
-        })
-
-    return render(request, "workspaces.html", page="workspaces", workspaces=ws_rows)
-
-
 @router.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
     from gitstow.core.paths import CONFIG_FILE, REPOS_FILE, SKILL_TARGET

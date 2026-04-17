@@ -10,6 +10,19 @@
     </div>
   </section>
 
+  {% if error %}
+  <article class="error-banner">
+    <strong>Problem</strong>
+    <p>{{ error }}</p>
+  </article>
+  {% endif %}
+  {% if notice %}
+  <article class="notice-banner">
+    <strong>Done</strong>
+    <p>{{ notice }}</p>
+  </article>
+  {% endif %}
+
   {% if workspaces %}
   <div class="table-wrap" style="margin-bottom: 2rem;">
     <table class="ledger">
@@ -32,9 +45,12 @@
           <td>{% for t in ws.auto_tags %}<span class="tag">{{ t }}</span>{% else %}<span style="color: var(--muted-soft);">—</span>{% endfor %}</td>
           <td style="text-align: right; font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; color: var(--text);">{{ ws.count }}</td>
           <td><div class="row-actions">
-            <button class="btn btn-ghost btn-sm">Scan</button>
-            <button class="btn btn-ghost btn-sm">Edit</button>
-            <button class="btn btn-danger btn-sm">Remove</button>
+            <form method="POST" action="/workspaces/{{ ws.label }}/scan" style="margin: 0;">
+              <button type="submit" class="btn btn-ghost btn-sm">Scan</button>
+            </form>
+            <form method="POST" action="/workspaces/{{ ws.label }}/remove" style="margin: 0;" onsubmit="return confirm('Remove workspace {{ ws.label }}? Files on disk are untouched.');">
+              <button type="submit" class="btn btn-danger btn-sm">Remove</button>
+            </form>
           </div></td>
         </tr>
         {% endfor %}
@@ -45,25 +61,24 @@
   <small style="display: block; margin-bottom: 2rem; color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; max-width: 640px; line-height: 1.7;">
     <span style="color: var(--text-soft);">scan</span> discovers new repos in the workspace and catalogs them.
     <span style="color: var(--text-soft);">remove</span> unregisters the workspace from gitstow but leaves files untouched on disk.
-    <em style="color: var(--muted-soft);"> — wires up in Phase B-6.</em>
   </small>
   {% endif %}
 
   <article class="card">
     <h4>Add a workspace</h4>
-    <form onsubmit="event.preventDefault(); alert('Workspace CRUD lands in Phase B-6');">
+    <form method="POST" action="/workspaces/add">
       <div class="form-grid">
         <div>
           <label for="ws-label">Label</label>
-          <input type="text" id="ws-label" placeholder="learning" required>
+          <input type="text" id="ws-label" name="label" placeholder="learning" required>
         </div>
         <div>
           <label for="ws-path">Path</label>
-          <input type="text" id="ws-path" placeholder="~/labs/learning" required>
+          <input type="text" id="ws-path" name="path" placeholder="~/labs/learning" required>
         </div>
         <div>
           <label for="ws-layout">Layout</label>
-          <select id="ws-layout">
+          <select id="ws-layout" name="layout">
             <option value="structured">structured — owner/repo/</option>
             <option value="flat">flat — repo/</option>
           </select>
@@ -71,7 +86,7 @@
       </div>
       <div style="margin-top: 1.1rem;">
         <label for="ws-tags">Auto-tags <span style="color: var(--muted-soft); font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 0.78rem; margin-left: 0.35rem;">optional</span></label>
-        <input type="text" id="ws-tags" placeholder="learning, oss">
+        <input type="text" id="ws-tags" name="auto_tags" placeholder="learning, oss">
       </div>
       <div style="margin-top: 1.5rem;">
         <button type="submit" class="btn btn-primary btn-sm">Add workspace</button>
