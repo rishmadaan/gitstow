@@ -67,7 +67,9 @@
           <th style="text-align: right;">Actions</th>
         </tr>
       </thead>
-      <tbody>
+      <tbody hx-get="/dashboard/rows"
+             hx-trigger="every 30s"
+             hx-swap="innerHTML">
         {% for repo in repos %}{% include "partials/repo_row.html" %}{% endfor %}
       </tbody>
     </table>

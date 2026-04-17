@@ -78,14 +78,12 @@ def _delta(ahead: int, behind: int) -> tuple[str, str]:
     return "even", "—"
 
 
-@router.get("/", response_class=HTMLResponse)
-async def dashboard(
-    request: Request,
-    imported: int | None = None,
-    failed: int | None = None,
-):
-    settings = load_config()
-    store = RepoStore()
+def _build_repos_data(settings, store) -> tuple[list, dict]:
+    """Gather the rendered row data + aggregate counts.
+
+    Shared by the full dashboard render and the /dashboard/rows auto-refresh
+    fragment so the display logic stays in one place.
+    """
     workspaces = settings.get_workspaces()
     ws_by_label = {w.label: w for w in workspaces}
     ws_sorted = sorted(ws_by_label.keys())
@@ -103,7 +101,6 @@ async def dashboard(
 
         status_class, status_label, pull_variant = _classify(repo.frozen, status, exists)
 
-        # Metrics: status wins priority for counting (frozen -> frozen bucket, else classified)
         if repo.frozen:
             counts["frozen"] += 1
         elif status_class in counts:
@@ -130,6 +127,20 @@ async def dashboard(
             "frozen": repo.frozen,
             "pull_variant": pull_variant,
         })
+
+    return repos_data, counts
+
+
+@router.get("/", response_class=HTMLResponse)
+async def dashboard(
+    request: Request,
+    imported: int | None = None,
+    failed: int | None = None,
+):
+    settings = load_config()
+    store = RepoStore()
+    workspaces = settings.get_workspaces()
+    repos_data, counts = _build_repos_data(settings, store)
 
     # Subtitle line
     total = len(repos_data)
@@ -167,3 +178,12 @@ async def dashboard(
         eyebrow_date=eyebrow_date,
         flash=flash,
     )
+
+
+@router.get("/dashboard/rows", response_class=HTMLResponse)
+async def dashboard_rows(request: Request):
+    """Fragment endpoint — just the row `<tr>` elements, for HTMX auto-refresh."""
+    settings = load_config()
+    store = RepoStore()
+    repos_data, _ = _build_repos_data(settings, store)
+    return render(request, "partials/dashboard_rows.html", repos=repos_data)
