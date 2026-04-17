@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>gitstow — Repo details</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../static/app.css">
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+</head>
+<body>
+  <header class="site">
+    <div class="container">
+      <nav class="primary">
+        <div class="brand">
+          <strong>gitstow</strong>
+          <span class="version">v0.2.0</span>
+        </div>
+        <ul class="links">
+          <li><a href="dashboard.html">Dashboard</a></li>
+          <li><a href="workspaces.html">Workspaces</a></li>
+          <li><a href="settings.html">Settings</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="container" style="max-width: 820px;">
+
+      <p class="breadcrumb"><a href="dashboard.html">← Dashboard</a> · Repo details</p>
+
+      <div class="drawer-head">
+        <hgroup style="margin-bottom: 0.5rem;">
+          <h2 class="repo-name" style="font-size: 1.3rem;">anthropic/claude-code</h2>
+          <p class="page-sub">in workspace <code>oss</code></p>
+        </hgroup>
+        <div class="btn-group">
+          <button class="btn btn-primary btn-sm">↓ Pull now</button>
+          <button class="btn btn-outline btn-sm">Open folder</button>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 1.25rem; margin-bottom: 1.5rem;">
+        <span class="status status-clean"><span class="dot"></span>clean</span>
+        <span class="status status-behind"><span class="dot"></span>↓ 5 behind</span>
+      </div>
+
+      <section>
+        <h4>Metadata</h4>
+        <dl class="meta-grid">
+          <dt>Remote</dt>      <dd>https://github.com/anthropic/claude-code.git</dd>
+          <dt>Local path</dt>   <dd>~/labs/oss/anthropic/claude-code</dd>
+          <dt>Branch</dt>       <dd>main</dd>
+          <dt>Last commit</dt>  <dd>b4f9c1a · 6h ago · "fix: handle empty workspace list"</dd>
+          <dt>Disk size</dt>    <dd>42.1 MB</dd>
+          <dt>Last pull</dt>    <dd>6h ago</dd>
+        </dl>
+      </section>
+
+      <section class="section">
+        <h4>Tags</h4>
+        <div class="tag-editor">
+          <span class="tag-pill">ai <button title="Remove">×</button></span>
+          <span class="tag-pill">active <button title="Remove">×</button></span>
+          <input type="text" placeholder="Add tag…">
+        </div>
+        <small style="display: block; margin-top: 0.5rem; color: #9ca3af;">Workspace auto-tags (<code>oss</code>) are merged automatically and can't be removed here.</small>
+      </section>
+
+      <section class="section">
+        <h4>Freeze</h4>
+        <div class="freeze-row">
+          <input type="checkbox" id="freeze">
+          <label for="freeze">Freeze this repo — stays visible with a lock icon; "Pull all" skips it.</label>
+        </div>
+      </section>
+
+      <div class="danger-zone">
+        <h4>Danger zone</h4>
+        <p>Remove this repo from gitstow. Choose whether to also delete it from disk.</p>
+        <div class="btn-group">
+          <button class="btn btn-danger">Remove from registry only</button>
+          <button class="btn btn-danger-solid">Remove + delete folder</button>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <footer class="site">
+    <div class="container" style="display: flex; justify-content: space-between; align-items: center;">
+      <div>
+        <span class="dot green"></span>
+        Connected · <code>http://127.0.0.1:7853</code>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="alert('Phase A mock — Shutdown wires up in Phase B')">Shutdown</button>
+    </div>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>gitstow</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../static/app.css">
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+</head>
+<body>
+  <header class="site">
+    <div class="container">
+      <nav class="primary">
+        <div class="brand">
+          <strong>gitstow</strong>
+          <span class="version">v0.2.0</span>
+        </div>
+        <ul class="links">
+          <li><a href="dashboard.html">Dashboard</a></li>
+          <li><a href="workspaces.html">Workspaces</a></li>
+          <li><a href="settings.html">Settings</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="container">
+      <hgroup>
+        <h1>Layout shell</h1>
+        <p class="page-sub">This is <code>base.html</code> — the chrome used by every page. Open <a href="dashboard.html">dashboard.html</a> to see the main view.</p>
+      </hgroup>
+    </div>
+  </main>
+
+  <footer class="site">
+    <div class="container" style="display: flex; justify-content: space-between; align-items: center;">
+      <div>
+        <span class="dot green"></span>
+        Connected · <code>http://127.0.0.1:7853</code>
+      </div>
+      <button class="btn btn-ghost btn-sm"
+              hx-post="/shutdown"
+              hx-confirm="Shut down the gitstow server?"
+              onclick="alert('Phase A mock — Shutdown wires up in Phase B')">Shutdown</button>
+    </div>
+  </footer>
+</body>
+</html>

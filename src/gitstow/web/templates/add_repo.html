@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>gitstow — Add repo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../static/app.css">
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+</head>
+<body>
+  <header class="site">
+    <div class="container">
+      <nav class="primary">
+        <div class="brand">
+          <strong>gitstow</strong>
+          <span class="version">v0.2.0</span>
+        </div>
+        <ul class="links">
+          <li><a href="dashboard.html">Dashboard</a></li>
+          <li><a href="workspaces.html">Workspaces</a></li>
+          <li><a href="settings.html">Settings</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="container" style="max-width: 640px;">
+
+      <p class="breadcrumb"><a href="dashboard.html">← Dashboard</a></p>
+
+      <hgroup>
+        <h1>Add a repo</h1>
+        <p class="page-sub">Clone a remote into one of your workspaces and register it with gitstow.</p>
+      </hgroup>
+
+      <form onsubmit="event.preventDefault(); alert('Phase A mock — backend lands in Phase B');">
+
+        <div class="form-row">
+          <label for="url">Repository URL</label>
+          <input type="text" id="url" name="url" placeholder="https://github.com/owner/repo.git  ·  git@github.com:owner/repo  ·  owner/repo" required>
+          <span class="form-hint">Any git URL or <code>owner/repo</code> shorthand (defaults to GitHub). Parsed via <code>core/url_parser</code>.</span>
+        </div>
+
+        <div class="form-row">
+          <label for="workspace">Workspace</label>
+          <select id="workspace" name="workspace" required>
+            <option value="" disabled selected>Choose where to clone…</option>
+            <option value="oss">oss — ~/labs/oss (structured, owner/repo)</option>
+            <option value="active">active — ~/labs/projects (flat)</option>
+          </select>
+          <span class="form-hint">Structured workspaces nest under <code>owner/</code>; flat workspaces skip the owner dir.</span>
+        </div>
+
+        <div class="form-row">
+          <label for="tags">Tags <small style="color: #9ca3af; font-weight: 400;">optional</small></label>
+          <input type="text" id="tags" name="tags" placeholder="ai, rust, active">
+          <span class="form-hint">Comma-separated. Workspace auto-tags are merged in automatically.</span>
+        </div>
+
+        <article class="preview">
+          <strong>Preview</strong>
+          Clone <span style="color: #0a0c10;">https://github.com/anthropic/claude-code.git</span><br>
+          Into  <span style="color: #0a0c10;">~/labs/oss/anthropic/claude-code</span><br>
+          Tags  <span style="color: #0a0c10;">ai, active</span>
+        </article>
+
+        <div class="btn-group" style="margin-top: 1.5rem;">
+          <button type="submit" class="btn btn-primary">Clone & register</button>
+          <a href="dashboard.html" class="btn btn-ghost">Cancel</a>
+        </div>
+      </form>
+
+    </div>
+  </main>
+
+  <footer class="site">
+    <div class="container" style="display: flex; justify-content: space-between; align-items: center;">
+      <div>
+        <span class="dot green"></span>
+        Connected · <code>http://127.0.0.1:7853</code>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="alert('Phase A mock — Shutdown wires up in Phase B')">Shutdown</button>
+    </div>
+  </footer>
+</body>
+</html>

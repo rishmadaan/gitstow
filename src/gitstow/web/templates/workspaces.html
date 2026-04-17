@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>gitstow — Workspaces</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../static/app.css">
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+</head>
+<body>
+  <header class="site">
+    <div class="container">
+      <nav class="primary">
+        <div class="brand">
+          <strong>gitstow</strong>
+          <span class="version">v0.2.0</span>
+        </div>
+        <ul class="links">
+          <li><a href="dashboard.html">Dashboard</a></li>
+          <li><a href="workspaces.html" class="active">Workspaces</a></li>
+          <li><a href="settings.html">Settings</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="container">
+
+      <hgroup>
+        <h1>Workspaces</h1>
+        <p class="page-sub">Directories where gitstow organizes repos. Each has a layout and optional auto-tags.</p>
+      </hgroup>
+
+      <div class="table-wrap" style="margin-bottom: 1.25rem;">
+      <table>
+        <thead>
+          <tr>
+            <th>Label</th>
+            <th>Path</th>
+            <th>Layout</th>
+            <th>Auto-tags</th>
+            <th style="text-align: right;">Repos</th>
+            <th style="text-align: right;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="ws ws-indigo">oss</span></td>
+            <td><span class="path-display">~/labs/oss</span></td>
+            <td><span class="layout-badge layout-structured">structured</span></td>
+            <td><span class="tag">ai</span></td>
+            <td style="text-align: right; font-variant-numeric: tabular-nums;">4</td>
+            <td><div class="row-actions">
+              <button class="btn btn-ghost btn-sm">Scan</button>
+              <button class="btn btn-ghost btn-sm">Edit</button>
+              <button class="btn btn-danger btn-sm">Remove</button>
+            </div></td>
+          </tr>
+          <tr>
+            <td><span class="ws ws-emerald">active</span></td>
+            <td><span class="path-display">~/labs/projects</span></td>
+            <td><span class="layout-badge layout-flat">flat</span></td>
+            <td><span class="tag">active</span></td>
+            <td style="text-align: right; font-variant-numeric: tabular-nums;">2</td>
+            <td><div class="row-actions">
+              <button class="btn btn-ghost btn-sm">Scan</button>
+              <button class="btn btn-ghost btn-sm">Edit</button>
+              <button class="btn btn-danger btn-sm">Remove</button>
+            </div></td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+
+      <small style="display: block; margin-bottom: 1.75rem; color: #9ca3af; line-height: 1.7;">
+        <strong style="color: #4b5563;">Scan</strong> discovers new repos in the workspace and adds them to the registry.
+        <strong style="color: #4b5563;">Remove</strong> unregisters the workspace from gitstow but leaves files untouched on disk.
+      </small>
+
+      <article class="card">
+        <h4>Add a workspace</h4>
+        <form onsubmit="event.preventDefault(); alert('Phase A mock — backend lands in Phase B');">
+          <div class="form-grid">
+            <div>
+              <label for="ws-label">Label</label>
+              <input type="text" id="ws-label" placeholder="learning" required>
+            </div>
+            <div>
+              <label for="ws-path">Path</label>
+              <input type="text" id="ws-path" placeholder="~/labs/learning" required>
+            </div>
+            <div>
+              <label for="ws-layout">Layout</label>
+              <select id="ws-layout">
+                <option value="structured">structured — owner/repo/</option>
+                <option value="flat">flat — repo/</option>
+              </select>
+            </div>
+          </div>
+          <div style="margin-top: 0.85rem;">
+            <label for="ws-tags">Auto-tags <small style="color: #9ca3af; font-weight: 400;">optional</small></label>
+            <input type="text" id="ws-tags" placeholder="learning, oss">
+          </div>
+          <div class="btn-group" style="margin-top: 1.25rem;">
+            <button type="submit" class="btn btn-primary btn-sm">Add workspace</button>
+          </div>
+        </form>
+      </article>
+
+    </div>
+  </main>
+
+  <footer class="site">
+    <div class="container" style="display: flex; justify-content: space-between; align-items: center;">
+      <div>
+        <span class="dot green"></span>
+        Connected · <code>http://127.0.0.1:7853</code>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="alert('Phase A mock — Shutdown wires up in Phase B')">Shutdown</button>
+    </div>
+  </footer>
+</body>
+</html>

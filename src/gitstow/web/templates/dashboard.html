@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>gitstow — Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../static/app.css">
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+  <script>
+    // Phase A: close any open row menu when clicking outside
+    document.addEventListener('click', (e) => {
+      document.querySelectorAll('details.menu[open]').forEach(d => {
+        if (!d.contains(e.target)) d.removeAttribute('open');
+      });
+    });
+  </script>
+</head>
+<body>
+  <header class="site">
+    <div class="container">
+      <nav class="primary">
+        <div class="brand">
+          <strong>gitstow</strong>
+          <span class="version">v0.2.0</span>
+        </div>
+        <ul class="links">
+          <li><a href="dashboard.html" class="active">Dashboard</a></li>
+          <li><a href="workspaces.html">Workspaces</a></li>
+          <li><a href="settings.html">Settings</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="container">
+
+      <hgroup>
+        <h1>Dashboard</h1>
+        <p class="page-sub">6 repos across 2 workspaces · 1 dirty · 1 with conflicts · 2 behind remote</p>
+      </hgroup>
+
+      <div class="action-bar">
+        <select>
+          <option>All workspaces</option>
+          <option>oss</option>
+          <option>active</option>
+        </select>
+        <input type="search" placeholder="Search repos, tags…">
+        <label style="display: inline-flex; align-items: center; margin: 0; font-weight: 400; color: var(--muted);">
+          <input type="checkbox"> Hide frozen
+        </label>
+        <div class="spacer"></div>
+        <button class="btn btn-ghost btn-sm">↻ Refresh</button>
+        <a href="add_repo.html" class="btn btn-outline btn-sm">+ Add repo</a>
+        <button class="btn btn-primary btn-sm" onclick="document.getElementById('pull-summary').style.display='block'">↓ Pull all</button>
+      </div>
+
+      <!-- Pull-all summary panel — hidden by default -->
+      <article id="pull-summary" class="summary-panel" style="display: none;">
+        <header class="panel-head">
+          <div>
+            <strong>Pull all — complete</strong>
+            <small style="margin-left: 0.5rem; color: var(--muted-soft);">in 12.4s</small>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="this.closest('article').style.display='none'">Dismiss</button>
+        </header>
+        <div class="stats">
+          <span class="status status-clean"><span class="dot"></span>4 ok</span>
+          <span class="status status-conflict"><span class="dot"></span>1 failed</span>
+          <span class="status status-muted"><span class="dot"></span>1 skipped</span>
+        </div>
+        <details style="margin-top: 0.7rem;">
+          <summary>View failures (1)</summary>
+          <ul style="margin: 0.5rem 0 0; padding-left: 1.2rem; color: var(--neutral-fg); font-size: 0.85rem;">
+            <li><code>my-repo/broken-thing</code> — merge conflict in <code>src/main.rs</code></li>
+          </ul>
+        </details>
+      </article>
+
+      <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 7.5rem;">Status</th>
+            <th>Repo</th>
+            <th>Workspace</th>
+            <th>Branch</th>
+            <th>Remote Δ</th>
+            <th>Tags</th>
+            <th>Last pull</th>
+            <th style="text-align: right;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+
+          <!-- Clean, up-to-date -->
+          <tr>
+            <td><span class="status status-clean"><span class="dot"></span>clean</span></td>
+            <td><a href="_repo_drawer.html" class="repo-link">rust-lang/rust</a></td>
+            <td><span class="ws ws-indigo">oss</span></td>
+            <td><span class="branch-name">master</span></td>
+            <td><span class="delta even">—</span></td>
+            <td><span class="tag">lang</span></td>
+            <td><span class="last-pull">2h ago</span></td>
+            <td><div class="row-actions">
+              <button class="btn btn-ghost btn-sm">Pull</button>
+              <details class="menu">
+                <summary title="More actions">⋯</summary>
+                <div class="menu-pop">
+                  <a href="_repo_drawer.html">View details</a>
+                  <button type="button">Open folder</button>
+                  <button type="button">Copy URL</button>
+                  <hr>
+                  <button type="button">Freeze</button>
+                  <button type="button">Edit tags</button>
+                  <hr>
+                  <button type="button" class="danger">Remove</button>
+                </div>
+              </details>
+            </div></td>
+          </tr>
+
+          <!-- Dirty, ahead of remote -->
+          <tr>
+            <td><span class="status status-dirty"><span class="dot"></span>dirty</span></td>
+            <td><a href="_repo_drawer.html" class="repo-link">rishmadaan/gitstow</a></td>
+            <td><span class="ws ws-emerald">active</span></td>
+            <td><span class="branch-name">main</span></td>
+            <td><span class="delta up">↑ 2</span></td>
+            <td><span class="tag">active</span></td>
+            <td><span class="last-pull">1d ago</span></td>
+            <td><div class="row-actions">
+              <button class="btn btn-ghost btn-sm">Pull</button>
+              <details class="menu">
+                <summary title="More actions">⋯</summary>
+                <div class="menu-pop">
+                  <a href="_repo_drawer.html">View details</a>
+                  <button type="button">Open folder</button>
+                  <button type="button">Copy URL</button>
+                  <hr>
+                  <button type="button">Freeze</button>
+                  <button type="button">Edit tags</button>
+                  <hr>
+                  <button type="button" class="danger">Remove</button>
+                </div>
+              </details>
+            </div></td>
+          </tr>
+
+          <!-- Clean, behind remote -->
+          <tr>
+            <td><span class="status status-clean"><span class="dot"></span>clean</span></td>
+            <td><a href="_repo_drawer.html" class="repo-link">anthropic/claude-code</a></td>
+            <td><span class="ws ws-indigo">oss</span></td>
+            <td><span class="branch-name">main</span></td>
+            <td><span class="delta down">↓ 5</span></td>
+            <td><span class="tag">ai</span><span class="tag">active</span></td>
+            <td><span class="last-pull">6h ago</span></td>
+            <td><div class="row-actions">
+              <button class="btn btn-primary btn-sm">Pull</button>
+              <details class="menu">
+                <summary title="More actions">⋯</summary>
+                <div class="menu-pop">
+                  <a href="_repo_drawer.html">View details</a>
+                  <button type="button">Open folder</button>
+                  <button type="button">Copy URL</button>
+                  <hr>
+                  <button type="button">Freeze</button>
+                  <button type="button">Edit tags</button>
+                  <hr>
+                  <button type="button" class="danger">Remove</button>
+                </div>
+              </details>
+            </div></td>
+          </tr>
+
+          <!-- Conflict (dirty + behind) -->
+          <tr>
+            <td><span class="status status-conflict"><span class="dot"></span>conflict</span></td>
+            <td><a href="_repo_drawer.html" class="repo-link">my-repo/broken-thing</a></td>
+            <td><span class="ws ws-emerald">active</span></td>
+            <td><span class="branch-name">feature/experiment</span></td>
+            <td><span class="delta down">↓ 3</span></td>
+            <td><span class="tag">wip</span></td>
+            <td><span class="last-pull">3d ago</span></td>
+            <td><div class="row-actions">
+              <button class="btn btn-ghost btn-sm" disabled>Pull</button>
+              <details class="menu">
+                <summary title="More actions">⋯</summary>
+                <div class="menu-pop">
+                  <a href="_repo_drawer.html">View details</a>
+                  <button type="button">Open folder</button>
+                  <button type="button">Copy URL</button>
+                  <hr>
+                  <button type="button">Freeze</button>
+                  <button type="button">Edit tags</button>
+                  <hr>
+                  <button type="button" class="danger">Remove</button>
+                </div>
+              </details>
+            </div></td>
+          </tr>
+
+          <!-- Frozen -->
+          <tr class="frozen">
+            <td>
+              <span class="status status-muted"><span class="dot"></span>clean</span>
+              <svg class="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+            </td>
+            <td><a href="_repo_drawer.html" class="repo-link">openai/whisper</a></td>
+            <td><span class="ws ws-indigo">oss</span></td>
+            <td><span class="branch-name">main</span></td>
+            <td><span class="delta even">—</span></td>
+            <td><span class="tag">ai</span><span class="tag">frozen</span></td>
+            <td><span class="last-pull">2w ago</span></td>
+            <td><div class="row-actions">
+              <button class="btn btn-ghost btn-sm" disabled>Pull</button>
+              <details class="menu">
+                <summary title="More actions">⋯</summary>
+                <div class="menu-pop">
+                  <a href="_repo_drawer.html">View details</a>
+                  <button type="button">Open folder</button>
+                  <button type="button">Copy URL</button>
+                  <hr>
+                  <button type="button">Unfreeze</button>
+                  <button type="button">Edit tags</button>
+                  <hr>
+                  <button type="button" class="danger">Remove</button>
+                </div>
+              </details>
+            </div></td>
+          </tr>
+
+          <!-- Way behind -->
+          <tr>
+            <td><span class="status status-clean"><span class="dot"></span>clean</span></td>
+            <td><a href="_repo_drawer.html" class="repo-link">torvalds/linux</a></td>
+            <td><span class="ws ws-indigo">oss</span></td>
+            <td><span class="branch-name">master</span></td>
+            <td><span class="delta down">↓ 203</span></td>
+            <td><span class="tag">kernel</span></td>
+            <td><span class="last-pull">5d ago</span></td>
+            <td><div class="row-actions">
+              <button class="btn btn-primary btn-sm">Pull</button>
+              <details class="menu">
+                <summary title="More actions">⋯</summary>
+                <div class="menu-pop">
+                  <a href="_repo_drawer.html">View details</a>
+                  <button type="button">Open folder</button>
+                  <button type="button">Copy URL</button>
+                  <hr>
+                  <button type="button">Freeze</button>
+                  <button type="button">Edit tags</button>
+                  <hr>
+                  <button type="button" class="danger">Remove</button>
+                </div>
+              </details>
+            </div></td>
+          </tr>
+
+        </tbody>
+      </table>
+      </div>
+
+      <small style="display: block; margin-top: 0.9rem; color: var(--muted-soft);">
+        Auto-refresh every 30s · Click a repo name to open details · Pull updates immediately
+      </small>
+
+    </div>
+  </main>
+
+  <footer class="site">
+    <div class="container" style="display: flex; justify-content: space-between; align-items: center;">
+      <div>
+        <span class="dot green"></span>
+        Connected · <code>http://127.0.0.1:7853</code>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="alert('Phase A mock — Shutdown wires up in Phase B')">Shutdown</button>
+    </div>
+  </footer>
+</body>
+</html>
