@@ -36,7 +36,11 @@
         <button type="button">{% if repo.frozen %}Unfreeze{% else %}Freeze{% endif %}</button>
         <button type="button">Edit tags</button>
         <hr>
-        <button type="button" class="danger">Remove</button>
+        <button type="button" class="danger"
+                hx-post="/repos/{{ repo.workspace }}/{{ repo.key }}/remove"
+                hx-target="closest tr"
+                hx-swap="delete swap:200ms"
+                hx-confirm="Remove {{ repo.key }} from the registry? Files on disk will NOT be deleted.">Remove</button>
       </div>
     </details>
   </div></td>

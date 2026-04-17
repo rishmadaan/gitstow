@@ -7,10 +7,11 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import shutil
 from datetime import datetime
 
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from gitstow.core.config import load_config
 from gitstow.core.git import clone as git_clone, get_status, is_git_repo, pull as git_pull
@@ -227,4 +228,56 @@ async def add_repo(
     )
     store.add(repo)
 
+    return RedirectResponse(url="/", status_code=303)
+
+
+def _is_htmx(request: Request) -> bool:
+    return request.headers.get("HX-Request", "").lower() == "true"
+
+
+@router.post("/repos/{workspace}/{key:path}/remove")
+async def remove_repo(workspace: str, key: str, request: Request):
+    """Unregister a repo. Leaves files on disk untouched."""
+    store = RepoStore()
+    if store.get(key, workspace=workspace) is None:
+        raise HTTPException(status_code=404, detail="repo not found")
+    store.remove(key, workspace=workspace)
+
+    if _is_htmx(request):
+        return Response(status_code=200)  # row disappears via hx-swap="delete"
+    return RedirectResponse(url="/", status_code=303)
+
+
+@router.post("/repos/{workspace}/{key:path}/delete")
+async def delete_repo(workspace: str, key: str, request: Request):
+    """Unregister AND delete the folder from disk. Irreversible."""
+    settings = load_config()
+    store = RepoStore()
+
+    ws = settings.get_workspace(workspace)
+    if ws is None:
+        raise HTTPException(status_code=404, detail="workspace not found")
+    repo = store.get(key, workspace=workspace)
+    if repo is None:
+        raise HTTPException(status_code=404, detail="repo not found")
+
+    repo_path = repo.get_path(ws.get_path())
+    # Defensive check — don't rmtree anything weird
+    ws_root = ws.get_path().resolve()
+    resolved = repo_path.resolve()
+    try:
+        resolved.relative_to(ws_root)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"refusing to delete path outside workspace: {resolved}",
+        )
+
+    if repo_path.exists():
+        await asyncio.to_thread(shutil.rmtree, repo_path, ignore_errors=False)
+
+    store.remove(key, workspace=workspace)
+
+    if _is_htmx(request):
+        return Response(status_code=200)
     return RedirectResponse(url="/", status_code=303)
