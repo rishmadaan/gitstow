@@ -4,6 +4,17 @@ All notable changes to gitstow will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] - 2026-04-17
+
+### Added
+
+- **`gitstow update`** — self-upgrade from PyPI. Detects the install method (pipx, pip, or editable) and runs the matching upgrade command. Use `--check` / `-c` to query PyPI without installing — shows newer-version-available or up-to-date. Editable installs get a friendly note pointing at `git pull` instead of trying to pip-upgrade.
+- Smoke tests for `serve` and `update` command help.
+
+### Fixed
+
+- **CI**: added `httpx` to `[dev]` extras. `fastapi.testclient.TestClient` re-exports Starlette's version, which imports `httpx` at module load. Fresh CI installs were failing at test collection; local envs passed because `httpx` was already present from other packages.
+
 ## [0.2.0] - 2026-04-17
 
 ### Added

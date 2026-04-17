@@ -46,6 +46,24 @@ class TestHelp:
         result = runner.invoke(app, ["repo", "--help"])
         assert result.exit_code == 0
 
+    def test_serve_help(self):
+        result = runner.invoke(app, ["serve", "--help"])
+        assert result.exit_code == 0
+        assert "browser" in result.stdout.lower() or "dashboard" in result.stdout.lower()
+
+    def test_update_help(self):
+        result = runner.invoke(app, ["update", "--help"])
+        assert result.exit_code == 0
+        assert "pypi" in result.stdout.lower() or "upgrade" in result.stdout.lower()
+
+
+class TestUpdateCommand:
+    def test_update_check_editable_install(self):
+        """Current install is editable — --check should exit 0 with the editable message."""
+        result = runner.invoke(app, ["update", "--check"])
+        assert result.exit_code == 0
+        assert "editable" in result.stdout.lower()
+
 
 class TestDoctorCommand:
     def test_doctor_json(self):

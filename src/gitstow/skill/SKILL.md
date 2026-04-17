@@ -96,6 +96,7 @@ For commands shown to the user to run themselves, use the human-readable form (n
 | Health check | `gitstow doctor` |
 | Shell completions | `gitstow shell completions` |
 | Launch browser dashboard | `gitstow serve` (the user's preferred visual surface) |
+| Upgrade gitstow itself | `gitstow update` (or `gitstow update --check` to just query PyPI) |
 
 ## URL Shorthand
 

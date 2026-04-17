@@ -194,6 +194,8 @@ gitstow status --json
 | `gitstow shell completions` | Tab completion for repo names, workspaces, tags |
 | `gitstow tui` | Interactive terminal dashboard |
 | `gitstow serve` | Launch local browser dashboard (http://127.0.0.1:7853) |
+| `gitstow update` | Upgrade gitstow itself from PyPI (detects pipx / pip / editable) |
+| `gitstow update --check` | Check PyPI for a newer version without installing |
 | **Config** | |
 | `gitstow config show` | Show current config and workspaces |
 | `gitstow config set <key> <value>` | Change a setting |

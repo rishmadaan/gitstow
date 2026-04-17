@@ -86,7 +86,7 @@ active:
     tags: [active]
 ```
 
-## All Commands (30)
+## All Commands (31)
 
 **Core:** `add`, `pull`, `list`, `status`, `remove`, `migrate`
 **Workspace:** `workspace list`, `workspace add`, `workspace remove`, `workspace scan`
@@ -94,7 +94,7 @@ active:
 **Power:** `exec`, `search`, `open`, `stats`
 **Sharing:** `collection export`, `collection import`
 **Shell:** `shell pick`, `shell init`, `shell completions`, `shell setup`, `tui`, `serve`
-**Setup:** `onboard`, `config show/set/path/migrate-root`, `doctor`, `install-skill`, `setup-ai`
+**Setup:** `onboard`, `config show/set/path/migrate-root`, `doctor`, `install-skill`, `setup-ai`, `update`
 
 ## Development
 
