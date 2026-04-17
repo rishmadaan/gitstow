@@ -1,90 +1,52 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>gitstow — Add repo</title>
-  <link rel="stylesheet" href="../static/app.css">
-  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-</head>
-<body>
-  <header class="site">
-    <div class="container">
-      <nav class="primary">
-        <div class="brand">
-          <span class="live-pulse" title="Connected"></span>
-          <span class="mark">gitstow</span>
-          <span class="tagline">library.mgr · v0.2.0</span>
-        </div>
-        <ul class="links">
-          <li><a href="dashboard.html">Library</a></li>
-          <li><a href="workspaces.html">Workspaces</a></li>
-          <li><a href="settings.html">Settings</a></li>
-        </ul>
-      </nav>
+{% extends "base.html" %}
+{% block title_suffix %} — Add repo{% endblock %}
+{% block container_style %} style="max-width: 720px;"{% endblock %}
+{% block content %}
+
+  <p class="breadcrumb"><a href="/">← Library</a> / New entry</p>
+
+  <section class="hero" style="border-bottom: 1px solid var(--border); padding-bottom: 1.75rem; margin-bottom: 1.75rem; display: block;">
+    <div class="eyebrow"><span class="bar"></span>Acquisition</div>
+    <h1>Add a <span class="ember">repo</span>.</h1>
+    <p class="lede">Clone a remote into one of your workspaces and catalog it. Any git URL or <code>owner/repo</code> shorthand works.</p>
+  </section>
+
+  <form onsubmit="event.preventDefault(); alert('Add-repo wiring lands in Phase B-3');">
+
+    <div class="form-row">
+      <label for="url">Repository URL</label>
+      <input type="text" id="url" name="url" placeholder="https://github.com/owner/repo.git" required>
+      <span class="form-hint">Supports full git URLs (https / ssh) and <code>owner/repo</code> shorthand defaulting to GitHub.</span>
     </div>
-  </header>
 
-  <main>
-    <div class="container" style="max-width: 720px;">
-
-      <p class="breadcrumb"><a href="dashboard.html">← Library</a> / New entry</p>
-
-      <section class="hero" style="border-bottom: 1px solid var(--border); padding-bottom: 1.75rem; margin-bottom: 1.75rem; display: block;">
-        <div class="eyebrow"><span class="bar"></span>Acquisition</div>
-        <h1>Add a <span class="ember">repo</span>.</h1>
-        <p class="lede">Clone a remote into one of your workspaces and catalog it. Any git URL or <code>owner/repo</code> shorthand works.</p>
-      </section>
-
-      <form onsubmit="event.preventDefault(); alert('Phase A mock — backend lands in Phase B');">
-
-        <div class="form-row">
-          <label for="url">Repository URL</label>
-          <input type="text" id="url" name="url" placeholder="https://github.com/owner/repo.git" required>
-          <span class="form-hint">Supports full git URLs (https / ssh) and <code>owner/repo</code> shorthand defaulting to GitHub.</span>
-        </div>
-
-        <div class="form-row">
-          <label for="workspace">Workspace</label>
-          <select id="workspace" name="workspace" required>
-            <option value="" disabled selected>Choose where to clone…</option>
-            <option value="oss">oss — ~/labs/oss (structured)</option>
-            <option value="active">active — ~/labs/projects (flat)</option>
-          </select>
-          <span class="form-hint">Structured workspaces nest under <code>owner/</code>; flat workspaces skip the owner directory.</span>
-        </div>
-
-        <div class="form-row">
-          <label for="tags">Tags <span style="color: var(--muted-soft); font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 0.78rem; margin-left: 0.35rem;">optional</span></label>
-          <input type="text" id="tags" name="tags" placeholder="ai, rust, active">
-          <span class="form-hint">Comma-separated. Workspace auto-tags are merged in automatically at clone time.</span>
-        </div>
-
-        <article class="preview">
-          <strong>Preview</strong>
-          <span class="k">clone</span>  <span class="v">https://github.com/anthropic/claude-code.git</span><br>
-          <span class="k">into</span>   <span class="v">~/labs/oss/anthropic/claude-code</span><br>
-          <span class="k">tags</span>   <span class="v">ai, active</span>
-        </article>
-
-        <div style="display: flex; gap: 0.5rem; margin-top: 1.75rem;">
-          <button type="submit" class="btn btn-primary">Clone & catalog</button>
-          <a href="dashboard.html" class="btn btn-ghost">Cancel</a>
-        </div>
-      </form>
-
+    <div class="form-row">
+      <label for="workspace">Workspace</label>
+      <select id="workspace" name="workspace" required>
+        <option value="" disabled selected>Choose where to clone…</option>
+        {% for ws in workspaces %}
+          <option value="{{ ws.label }}">{{ ws.label }} — {{ ws.path }} ({{ ws.layout }})</option>
+        {% endfor %}
+      </select>
+      <span class="form-hint">Structured workspaces nest under <code>owner/</code>; flat workspaces skip the owner directory.</span>
     </div>
-  </main>
 
-  <footer class="site">
-    <div class="container footer-inner">
-      <div>
-        <span class="dot green"></span>
-        <span class="live-label">live</span>
-        <code style="margin-left: 0.6rem;">127.0.0.1:7853</code>
-      </div>
-      <button class="btn btn-ghost btn-sm" onclick="alert('Phase A mock — wires up in Phase B')">Shutdown</button>
+    <div class="form-row">
+      <label for="tags">Tags <span style="color: var(--muted-soft); font-weight: 400; text-transform: none; letter-spacing: 0; font-size: 0.78rem; margin-left: 0.35rem;">optional</span></label>
+      <input type="text" id="tags" name="tags" placeholder="ai, rust, active">
+      <span class="form-hint">Comma-separated. Workspace auto-tags are merged in automatically at clone time.</span>
     </div>
-  </footer>
-</body>
-</html>
+
+    <article class="preview">
+      <strong>Preview</strong>
+      <span class="k">clone</span>  <span class="v">https://github.com/anthropic/claude-code.git</span><br>
+      <span class="k">into</span>   <span class="v">~/labs/oss/anthropic/claude-code</span><br>
+      <span class="k">tags</span>   <span class="v">ai, active</span>
+    </article>
+
+    <div style="display: flex; gap: 0.5rem; margin-top: 1.75rem;">
+      <button type="submit" class="btn btn-primary">Clone & catalog</button>
+      <a href="/" class="btn btn-ghost">Cancel</a>
+    </div>
+  </form>
+
+{% endblock %}

@@ -3,37 +3,32 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>gitstow</title>
-  <link rel="stylesheet" href="../static/app.css">
+  <title>gitstow{% block title_suffix %}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
   <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+  {% block head_extra %}{% endblock %}
 </head>
-<body>
+<body{% block body_attrs %}{% endblock %}>
   <header class="site">
     <div class="container">
       <nav class="primary">
         <div class="brand">
           <span class="live-pulse" title="Connected"></span>
           <span class="mark">gitstow</span>
-          <span class="tagline">library.mgr · v0.2.0</span>
+          <span class="tagline">library.mgr · v{{ version }}</span>
         </div>
         <ul class="links">
-          <li><a href="dashboard.html">Library</a></li>
-          <li><a href="workspaces.html">Workspaces</a></li>
-          <li><a href="settings.html">Settings</a></li>
+          <li><a href="/"{% if page == "dashboard" %} class="active"{% endif %}>Library</a></li>
+          <li><a href="/workspaces"{% if page == "workspaces" %} class="active"{% endif %}>Workspaces</a></li>
+          <li><a href="/settings"{% if page == "settings" %} class="active"{% endif %}>Settings</a></li>
         </ul>
       </nav>
     </div>
   </header>
 
   <main>
-    <div class="container">
-      <section class="hero">
-        <div class="hero-left">
-          <div class="eyebrow"><span class="bar"></span>Layout shell</div>
-          <h1>The <span class="ember">chrome</span>.</h1>
-          <p class="lede">Common header and footer used by every page. Open <a href="dashboard.html">Library</a> to see the main view.</p>
-        </div>
-      </section>
+    <div class="container"{% block container_style %}{% endblock %}>
+      {% block content %}{% endblock %}
     </div>
   </main>
 
@@ -42,13 +37,15 @@
       <div>
         <span class="dot green"></span>
         <span class="live-label">live</span>
-        <code style="margin-left: 0.6rem;">127.0.0.1:7853</code>
+        <code style="margin-left: 0.6rem;">{{ server_addr }}</code>
       </div>
       <button class="btn btn-ghost btn-sm"
               hx-post="/shutdown"
-              hx-confirm="Shut down the gitstow server?"
-              onclick="alert('Phase A mock — wires up in Phase B')">Shutdown</button>
+              hx-swap="outerHTML"
+              hx-confirm="Shut down the gitstow server?">Shutdown</button>
     </div>
   </footer>
+
+  {% block body_extra %}{% endblock %}
 </body>
 </html>

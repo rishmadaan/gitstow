@@ -1,120 +1,80 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>gitstow — Settings</title>
-  <link rel="stylesheet" href="../static/app.css">
-  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-</head>
-<body>
-  <header class="site">
-    <div class="container">
-      <nav class="primary">
-        <div class="brand">
-          <span class="live-pulse" title="Connected"></span>
-          <span class="mark">gitstow</span>
-          <span class="tagline">library.mgr · v0.2.0</span>
-        </div>
-        <ul class="links">
-          <li><a href="dashboard.html">Library</a></li>
-          <li><a href="workspaces.html">Workspaces</a></li>
-          <li><a href="settings.html" class="active">Settings</a></li>
-        </ul>
-      </nav>
+{% extends "base.html" %}
+{% block title_suffix %} — Settings{% endblock %}
+{% block container_style %} style="max-width: 880px;"{% endblock %}
+{% block content %}
+
+  <section class="hero">
+    <div class="hero-left">
+      <div class="eyebrow"><span class="bar"></span>Preferences</div>
+      <h1>Your <span class="ember">settings</span>.</h1>
+      <p class="lede">Mirrors <code>gitstow config show</code>. All values persist to <code>{{ settings.config_path }}</code>.</p>
     </div>
-  </header>
+  </section>
 
-  <main>
-    <div class="container" style="max-width: 880px;">
+  <form onsubmit="event.preventDefault(); alert('Settings save lands later');">
 
-      <section class="hero">
-        <div class="hero-left">
-          <div class="eyebrow"><span class="bar"></span>Preferences</div>
-          <h1>Your <span class="ember">settings</span>.</h1>
-          <p class="lede">Mirrors <code>gitstow config show</code>. All values persist to <code>~/.gitstow/config.yaml</code>.</p>
-        </div>
-      </section>
+    <section>
+      <h4>Defaults</h4>
+      <dl class="settings-grid">
+        <dt>Default host</dt>
+        <dd>
+          <select style="max-width: 320px;">
+            <option value="github.com"{% if settings.default_host == "github.com" %} selected{% endif %}>github.com</option>
+            <option value="gitlab.com"{% if settings.default_host == "gitlab.com" %} selected{% endif %}>gitlab.com</option>
+            <option value="bitbucket.org"{% if settings.default_host == "bitbucket.org" %} selected{% endif %}>bitbucket.org</option>
+          </select>
+          <span class="form-hint">Used when you provide <code>owner/repo</code> shorthand without a full URL.</span>
+        </dd>
 
-      <form onsubmit="event.preventDefault(); alert('Phase A mock — backend lands in Phase B');">
+        <dt>SSH preference</dt>
+        <dd>
+          <label style="display: inline-flex; align-items: center; margin: 0.55rem 0 0; font-family: 'Bricolage Grotesque', sans-serif; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--text-soft); font-size: 0.9rem;">
+            <input type="checkbox"{% if settings.prefer_ssh %} checked{% endif %}>
+            Convert https:// URLs to SSH on clone
+          </label>
+          <span class="form-hint">Applies when cloning via the add-repo form. Direct git URLs are never rewritten.</span>
+        </dd>
+      </dl>
+    </section>
 
-        <section>
-          <h4>Defaults</h4>
-          <dl class="settings-grid">
-            <dt>Default host</dt>
-            <dd>
-              <select style="max-width: 320px;">
-                <option value="github.com" selected>github.com</option>
-                <option value="gitlab.com">gitlab.com</option>
-                <option value="bitbucket.org">bitbucket.org</option>
-              </select>
-              <span class="form-hint">Used when you provide <code>owner/repo</code> shorthand without a full URL.</span>
-            </dd>
+    <section class="section">
+      <h4>Paths</h4>
+      <dl class="settings-grid">
+        <dt>Config file</dt>
+        <dd><span class="path-display">{{ settings.config_path }}</span></dd>
+        <dt>Registry</dt>
+        <dd><span class="path-display">{{ settings.repos_path }}</span></dd>
+      </dl>
+      <small style="display: block; margin-top: 1rem; color: var(--muted); font-size: 0.84rem;">
+        Read-only here — edit YAML directly, or run <code>gitstow config path</code> to locate the files.
+      </small>
+    </section>
 
-            <dt>SSH preference</dt>
-            <dd>
-              <label style="display: inline-flex; align-items: center; margin: 0.55rem 0 0; font-family: 'Bricolage Grotesque', sans-serif; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--text-soft); font-size: 0.9rem;">
-                <input type="checkbox">
-                Convert https:// URLs to SSH on clone
-              </label>
-              <span class="form-hint">Applies when cloning via the add-repo form. Direct git URLs are never rewritten.</span>
-            </dd>
-          </dl>
-        </section>
+    <section class="section">
+      <h4>Integrations</h4>
+      <dl class="settings-grid">
+        <dt>Claude Code skill</dt>
+        <dd>
+          <span class="path-display">{{ settings.skill_path }}</span>
+          <span class="form-hint">Auto-updates on every CLI invocation when the package version changes.</span>
+        </dd>
+        <dt>MCP server</dt>
+        <dd>
+          <code>gitstow-mcp</code> <span style="color: var(--muted);">— install with</span> <code>pip install gitstow[mcp]</code>
+          <span class="form-hint">Optional. For non-Claude-Code AI tools like Claude Desktop, Cursor, Windsurf.</span>
+        </dd>
+      </dl>
+    </section>
 
-        <section class="section">
-          <h4>Paths</h4>
-          <dl class="settings-grid">
-            <dt>Config file</dt>
-            <dd><span class="path-display">~/.gitstow/config.yaml</span></dd>
-            <dt>Registry</dt>
-            <dd><span class="path-display">~/.gitstow/repos.yaml</span></dd>
-          </dl>
-          <small style="display: block; margin-top: 1rem; color: var(--muted); font-size: 0.84rem;">
-            Read-only here — edit YAML directly, or run <code>gitstow config path</code> to locate the files.
-          </small>
-        </section>
+    <article class="version-card">
+      <strong>gitstow v{{ version }}</strong><br>
+      <small style="color: var(--muted); font-size: 0.82rem;">Run <code>gitstow doctor</code> from the CLI for a full environment report.</small>
+    </article>
 
-        <section class="section">
-          <h4>Integrations</h4>
-          <dl class="settings-grid">
-            <dt>Claude Code skill</dt>
-            <dd>
-              <span class="path-display">~/.claude/skills/gitstow/</span>
-              <span class="form-hint">Auto-updates on every CLI invocation when the package version changes.</span>
-            </dd>
-            <dt>MCP server</dt>
-            <dd>
-              <code>gitstow-mcp</code> <span style="color: var(--muted);">— install with</span> <code>pip install gitstow[mcp]</code>
-              <span class="form-hint">Optional. For non-Claude-Code AI tools like Claude Desktop, Cursor, Windsurf.</span>
-            </dd>
-          </dl>
-        </section>
-
-        <article class="version-card">
-          <strong>gitstow v0.2.0</strong><br>
-          Python 3.12.3 · macOS arm64<br>
-          <small style="color: var(--muted); font-size: 0.82rem;">Run <code>gitstow doctor</code> from the CLI for a full environment report.</small>
-        </article>
-
-        <div style="display: flex; gap: 0.5rem; margin-top: 2rem;">
-          <button type="submit" class="btn btn-primary">Save preferences</button>
-          <a href="dashboard.html" class="btn btn-ghost">Cancel</a>
-        </div>
-      </form>
-
+    <div style="display: flex; gap: 0.5rem; margin-top: 2rem;">
+      <button type="submit" class="btn btn-primary">Save preferences</button>
+      <a href="/" class="btn btn-ghost">Cancel</a>
     </div>
-  </main>
+  </form>
 
-  <footer class="site">
-    <div class="container footer-inner">
-      <div>
-        <span class="dot green"></span>
-        <span class="live-label">live</span>
-        <code style="margin-left: 0.6rem;">127.0.0.1:7853</code>
-      </div>
-      <button class="btn btn-ghost btn-sm" onclick="alert('Phase A mock — wires up in Phase B')">Shutdown</button>
-    </div>
-  </footer>
-</body>
-</html>
+{% endblock %}

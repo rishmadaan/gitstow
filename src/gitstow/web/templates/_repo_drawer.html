@@ -1,105 +1,80 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>gitstow — Repo details</title>
-  <link rel="stylesheet" href="../static/app.css">
-  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-</head>
-<body>
-  <header class="site">
-    <div class="container">
-      <nav class="primary">
-        <div class="brand">
-          <span class="live-pulse" title="Connected"></span>
-          <span class="mark">gitstow</span>
-          <span class="tagline">library.mgr · v0.2.0</span>
-        </div>
-        <ul class="links">
-          <li><a href="dashboard.html">Library</a></li>
-          <li><a href="workspaces.html">Workspaces</a></li>
-          <li><a href="settings.html">Settings</a></li>
-        </ul>
-      </nav>
-    </div>
-  </header>
+{% extends "base.html" %}
+{% block title_suffix %} — {{ repo.key }}{% endblock %}
+{% block container_style %} style="max-width: 860px;"{% endblock %}
+{% block content %}
 
-  <main>
-    <div class="container" style="max-width: 860px;">
+  <p class="breadcrumb"><a href="/">← Library</a> / {{ repo.key }}</p>
 
-      <p class="breadcrumb"><a href="dashboard.html">← Library</a> / Entry №03</p>
-
-      <div class="drawer-head">
-        <div>
-          <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.55rem;">
-            in workspace <span class="ws ws-1" style="font-size: 0.78rem;">oss</span>
-          </div>
-          <h2 class="big-name">anthropic/claude-code</h2>
-          <div style="display: flex; gap: 1.25rem; margin-top: 0.85rem;">
+  <div class="drawer-head">
+    <div>
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.55rem;">
+        in workspace <span class="ws ws-{{ repo.ws_slot }}" style="font-size: 0.78rem;">{{ repo.workspace }}</span>
+      </div>
+      <h2 class="big-name">{{ repo.key }}</h2>
+      <div style="display: flex; gap: 1.25rem; margin-top: 0.85rem; flex-wrap: wrap;">
+        {% if not repo.exists %}
+          <span class="status status-conflict"><span class="dot"></span>missing on disk</span>
+        {% else %}
+          {% if repo.frozen %}
+            <span class="status status-frozen"><span class="dot"></span>frozen</span>
+          {% elif repo.dirty > 0 and repo.behind > 0 %}
+            <span class="status status-conflict"><span class="dot"></span>conflict</span>
+          {% elif repo.dirty > 0 %}
+            <span class="status status-dirty"><span class="dot"></span>{{ repo.dirty }} dirty</span>
+          {% else %}
             <span class="status status-clean"><span class="dot"></span>clean</span>
-            <span class="status status-behind"><span class="dot"></span>5 behind remote</span>
-          </div>
-        </div>
-        <div style="display: inline-flex; gap: 0.45rem; flex-wrap: wrap;">
-          <button class="btn btn-primary btn-sm">↓ Pull now</button>
-          <button class="btn btn-outline btn-sm">Open folder</button>
-        </div>
+          {% endif %}
+          {% if repo.behind > 0 %}<span class="status status-behind"><span class="dot"></span>{{ repo.behind }} behind</span>{% endif %}
+          {% if repo.ahead > 0 %}<span class="status status-ahead"><span class="dot"></span>{{ repo.ahead }} ahead</span>{% endif %}
+        {% endif %}
       </div>
-
-      <section>
-        <h4>Metadata</h4>
-        <dl class="meta-grid">
-          <dt>Remote</dt>     <dd>https://github.com/anthropic/claude-code.git</dd>
-          <dt>Local path</dt>  <dd>~/labs/oss/anthropic/claude-code</dd>
-          <dt>Branch</dt>      <dd>main</dd>
-          <dt>Last commit</dt> <dd>b4f9c1a · 6h ago · "fix: handle empty workspace list"</dd>
-          <dt>Disk size</dt>   <dd>42.1 MB</dd>
-          <dt>Last pull</dt>   <dd>6h ago</dd>
-        </dl>
-      </section>
-
-      <section class="section">
-        <h4>Tags</h4>
-        <div class="tag-editor">
-          <span class="tag-pill">ai <button title="Remove">×</button></span>
-          <span class="tag-pill">active <button title="Remove">×</button></span>
-          <input type="text" placeholder="Add tag…">
-        </div>
-        <small style="display: block; margin-top: 0.65rem; color: var(--muted-soft); font-size: 0.84rem;">
-          Workspace auto-tags (<code>oss</code>) merge automatically and can't be removed here.
-        </small>
-      </section>
-
-      <section class="section">
-        <h4>Freeze</h4>
-        <div class="freeze-row">
-          <input type="checkbox" id="freeze">
-          <label for="freeze">Freeze this repo — it stays visible with a lock icon, and "Pull all" skips it.</label>
-        </div>
-      </section>
-
-      <div class="danger-zone">
-        <h4>Danger zone</h4>
-        <p>Remove this repo from gitstow. Choose whether to also delete it from disk.</p>
-        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-          <button class="btn btn-danger">Remove from registry only</button>
-          <button class="btn btn-danger-solid">Remove + delete folder</button>
-        </div>
-      </div>
-
     </div>
-  </main>
-
-  <footer class="site">
-    <div class="container footer-inner">
-      <div>
-        <span class="dot green"></span>
-        <span class="live-label">live</span>
-        <code style="margin-left: 0.6rem;">127.0.0.1:7853</code>
-      </div>
-      <button class="btn btn-ghost btn-sm" onclick="alert('Phase A mock — wires up in Phase B')">Shutdown</button>
+    <div style="display: inline-flex; gap: 0.45rem; flex-wrap: wrap;">
+      <button class="btn btn-primary btn-sm">↓ Pull now</button>
+      <button class="btn btn-outline btn-sm">Open folder</button>
     </div>
-  </footer>
-</body>
-</html>
+  </div>
+
+  <section>
+    <h4>Metadata</h4>
+    <dl class="meta-grid">
+      <dt>Remote</dt>     <dd>{{ repo.remote_url or '—' }}</dd>
+      <dt>Local path</dt>  <dd>{{ repo.local_path }}</dd>
+      <dt>Branch</dt>      <dd>{{ repo.branch }}</dd>
+      {% if repo.commit and repo.commit.hash %}
+      <dt>Last commit</dt> <dd>{{ repo.commit.hash }} · {{ repo.commit.date }} · "{{ repo.commit.message }}"</dd>
+      {% endif %}
+      <dt>Disk size</dt>   <dd>{{ repo.disk_size }}</dd>
+      <dt>Last pull</dt>   <dd>{{ repo.last_pulled }}</dd>
+    </dl>
+  </section>
+
+  <section class="section">
+    <h4>Tags</h4>
+    <div class="tag-editor">
+      {% for tag in repo.tags %}<span class="tag-pill">{{ tag }} <button title="Remove">×</button></span>{% endfor %}
+      <input type="text" placeholder="Add tag…">
+    </div>
+    <small style="display: block; margin-top: 0.65rem; color: var(--muted-soft); font-size: 0.84rem;">
+      Workspace auto-tags (<code>{{ repo.workspace }}</code>) merge automatically and can't be removed here.
+    </small>
+  </section>
+
+  <section class="section">
+    <h4>Freeze</h4>
+    <div class="freeze-row">
+      <input type="checkbox" id="freeze"{% if repo.frozen %} checked{% endif %}>
+      <label for="freeze">Freeze this repo — it stays visible with a lock icon, and "Pull all" skips it.</label>
+    </div>
+  </section>
+
+  <div class="danger-zone">
+    <h4>Danger zone</h4>
+    <p>Remove this repo from gitstow. Choose whether to also delete it from disk.</p>
+    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+      <button class="btn btn-danger">Remove from registry only</button>
+      <button class="btn btn-danger-solid">Remove + delete folder</button>
+    </div>
+  </div>
+
+{% endblock %}

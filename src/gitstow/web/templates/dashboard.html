@@ -1,11 +1,127 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>gitstow — Library</title>
-  <link rel="stylesheet" href="../static/app.css">
-  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+{% extends "base.html" %}
+{% block title_suffix %} — Library{% endblock %}
+{% block content %}
+
+  <section class="hero">
+    <div class="hero-left">
+      <div class="eyebrow"><span class="bar"></span>{{ eyebrow_date }} — Dashboard</div>
+      <h1>Your <span class="ember">library</span>.</h1>
+      <p class="lede">{{ subtitle }}.</p>
+    </div>
+    <div class="hero-right">
+      <div class="metrics-strip">
+        {% if counts.clean %}<span class="m"><span class="pip clean"></span><span class="count">{{ '%02d' % counts.clean }}</span> <span class="lbl">clean</span></span>{% endif %}
+        {% if counts.dirty %}<span class="m"><span class="pip dirty"></span><span class="count">{{ '%02d' % counts.dirty }}</span> <span class="lbl">dirty</span></span>{% endif %}
+        {% if counts.conflict %}<span class="m"><span class="pip conflict"></span><span class="count">{{ '%02d' % counts.conflict }}</span> <span class="lbl">conflict</span></span>{% endif %}
+        {% if counts.behind %}<span class="m"><span class="pip behind"></span><span class="count">{{ '%02d' % counts.behind }}</span> <span class="lbl">behind</span></span>{% endif %}
+        {% if counts.ahead %}<span class="m"><span class="pip ahead"></span><span class="count">{{ '%02d' % counts.ahead }}</span> <span class="lbl">ahead</span></span>{% endif %}
+        {% if counts.frozen %}<span class="m"><span class="pip frozen"></span><span class="count">{{ '%02d' % counts.frozen }}</span> <span class="lbl">frozen</span></span>{% endif %}
+      </div>
+    </div>
+  </section>
+
+  <div class="action-bar">
+    <select>
+      <option>All workspaces</option>
+      {% for ws in workspaces %}<option>{{ ws.label }}</option>{% endfor %}
+    </select>
+    <input type="search" placeholder="Search repos, tags…">
+    <label class="inline"><input type="checkbox"> Hide frozen</label>
+    <div class="spacer"></div>
+    <button class="btn btn-ghost btn-sm"
+            hx-get="/"
+            hx-select="main"
+            hx-target="main"
+            hx-swap="outerHTML">↻ Refresh</button>
+    <a href="/add" class="btn btn-outline btn-sm">+ Add repo</a>
+    <button class="btn btn-primary btn-sm" onclick="document.getElementById('pull-summary').style.display='block'">↓ Pull all</button>
+  </div>
+
+  <article id="pull-summary" class="summary-panel" style="display: none;">
+    <header class="panel-head">
+      <div>
+        <strong>Pull all — not wired yet</strong>
+        <small style="margin-left: 0.6rem; font-family: 'JetBrains Mono', monospace; color: var(--muted);">Phase B-2</small>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="this.closest('article').style.display='none'">Dismiss</button>
+    </header>
+    <p style="margin: 0; color: var(--text-soft); font-size: 0.86rem;">Bulk pull ships in the next commit. For now, use <code>gitstow pull</code> from the CLI.</p>
+  </article>
+
+  {% if repos %}
+  <div class="table-wrap">
+    <table class="ledger">
+      <thead>
+        <tr>
+          <th style="width: 2.8rem;">№</th>
+          <th style="width: 7.5rem;">Status</th>
+          <th>Repository</th>
+          <th>Workspace</th>
+          <th>Branch</th>
+          <th>Δ remote</th>
+          <th>Tags</th>
+          <th>Last pull</th>
+          <th style="text-align: right;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for repo in repos %}
+        <tr{% if repo.frozen %} class="frozen"{% endif %}>
+          <td class="row-num">{{ repo.num }}</td>
+          <td>
+            <span class="status status-{{ repo.status_class }}"><span class="dot"></span>{{ repo.status_label }}</span>
+            {% if repo.frozen %}<svg class="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>{% endif %}
+          </td>
+          <td><a href="/repo/{{ repo.workspace }}/{{ repo.key }}" class="repo-link">{{ repo.display_name }}</a></td>
+          <td><span class="ws ws-{{ repo.ws_slot }}">{{ repo.workspace }}</span></td>
+          <td><span class="branch-name">{{ repo.branch }}</span></td>
+          <td><span class="delta {{ repo.delta_class }}">{{ repo.delta_text }}</span></td>
+          <td>{% for tag in repo.tags %}<span class="tag">{{ tag }}</span>{% endfor %}</td>
+          <td><span class="last-pull">{{ repo.last_pull }}</span></td>
+          <td><div class="row-actions">
+            {% if repo.pull_variant == "primary" %}
+              <button class="btn btn-primary btn-sm">Pull</button>
+            {% elif repo.pull_variant == "disabled" %}
+              <button class="btn btn-ghost btn-sm" disabled>Pull</button>
+            {% else %}
+              <button class="btn btn-ghost btn-sm">Pull</button>
+            {% endif %}
+            <details class="menu">
+              <summary title="More actions">⋯</summary>
+              <div class="menu-pop">
+                <a href="/repo/{{ repo.workspace }}/{{ repo.key }}">View details</a>
+                <button type="button">Open folder</button>
+                <button type="button">Copy URL</button>
+                <hr>
+                <button type="button">{% if repo.frozen %}Unfreeze{% else %}Freeze{% endif %}</button>
+                <button type="button">Edit tags</button>
+                <hr>
+                <button type="button" class="danger">Remove</button>
+              </div>
+            </details>
+          </div></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <small style="display: block; margin-top: 1.2rem; color: var(--muted-soft); font-family: 'JetBrains Mono', monospace; font-size: 0.78rem;">
+    auto-refresh 30s · click repo name → details · pull runs in place
+  </small>
+
+  {% else %}
+
+  <article class="card" style="text-align: center; padding: 3rem 2rem;">
+    <h4 style="margin-bottom: 0.75rem;">Your library is empty.</h4>
+    <p style="color: var(--muted); margin-bottom: 1.25rem;">Add your first repository to get started.</p>
+    <a href="/add" class="btn btn-primary">+ Add repo</a>
+  </article>
+
+  {% endif %}
+
+{% endblock %}
+{% block body_extra %}
   <script>
     document.addEventListener('click', (e) => {
       document.querySelectorAll('details.menu[open]').forEach(d => {
@@ -13,281 +129,4 @@
       });
     });
   </script>
-</head>
-<body>
-  <header class="site">
-    <div class="container">
-      <nav class="primary">
-        <div class="brand">
-          <span class="live-pulse" title="Connected"></span>
-          <span class="mark">gitstow</span>
-          <span class="tagline">library.mgr · v0.2.0</span>
-        </div>
-        <ul class="links">
-          <li><a href="dashboard.html" class="active">Library</a></li>
-          <li><a href="workspaces.html">Workspaces</a></li>
-          <li><a href="settings.html">Settings</a></li>
-        </ul>
-      </nav>
-    </div>
-  </header>
-
-  <main>
-    <div class="container">
-
-      <section class="hero">
-        <div class="hero-left">
-          <div class="eyebrow"><span class="bar"></span>2026·04·17 — Dashboard</div>
-          <h1>Your <span class="ember">library</span>.</h1>
-          <p class="lede">Six repositories across two workspaces. One has uncommitted changes, one is in conflict, and two are behind remote.</p>
-        </div>
-        <div class="hero-right">
-          <div class="metrics-strip">
-            <span class="m"><span class="pip clean"></span><span class="count">04</span> <span class="lbl">clean</span></span>
-            <span class="m"><span class="pip dirty"></span><span class="count">01</span> <span class="lbl">dirty</span></span>
-            <span class="m"><span class="pip conflict"></span><span class="count">01</span> <span class="lbl">conflict</span></span>
-            <span class="m"><span class="pip behind"></span><span class="count">02</span> <span class="lbl">behind</span></span>
-          </div>
-        </div>
-      </section>
-
-      <div class="action-bar">
-        <select>
-          <option>All workspaces</option>
-          <option>oss</option>
-          <option>active</option>
-        </select>
-        <input type="search" placeholder="Search repos, tags…">
-        <label class="inline"><input type="checkbox"> Hide frozen</label>
-        <div class="spacer"></div>
-        <button class="btn btn-ghost btn-sm">↻ Refresh</button>
-        <a href="add_repo.html" class="btn btn-outline btn-sm">+ Add repo</a>
-        <button class="btn btn-primary btn-sm" onclick="document.getElementById('pull-summary').style.display='block'">↓ Pull all</button>
-      </div>
-
-      <article id="pull-summary" class="summary-panel" style="display: none;">
-        <header class="panel-head">
-          <div>
-            <strong>Pull all — complete</strong>
-            <small style="margin-left: 0.6rem; font-family: 'JetBrains Mono', monospace; color: var(--muted);">in 12.4s</small>
-          </div>
-          <button class="btn btn-ghost btn-sm" onclick="this.closest('article').style.display='none'">Dismiss</button>
-        </header>
-        <div class="stats">
-          <span class="status status-clean"><span class="dot"></span>4 ok</span>
-          <span class="status status-conflict"><span class="dot"></span>1 failed</span>
-          <span class="status status-frozen"><span class="dot"></span>1 skipped</span>
-        </div>
-        <details style="margin-top: 0.85rem;">
-          <summary>View failures (1)</summary>
-          <ul style="margin: 0.5rem 0 0; padding-left: 1.2rem; color: var(--text-soft); font-size: 0.86rem;">
-            <li><code>my-repo/broken-thing</code> — merge conflict in <code>src/main.rs</code></li>
-          </ul>
-        </details>
-      </article>
-
-      <div class="table-wrap">
-        <table class="ledger">
-          <thead>
-            <tr>
-              <th style="width: 2.8rem;">№</th>
-              <th style="width: 7.5rem;">Status</th>
-              <th>Repository</th>
-              <th>Workspace</th>
-              <th>Branch</th>
-              <th>Δ remote</th>
-              <th>Tags</th>
-              <th>Last pull</th>
-              <th style="text-align: right;">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-
-            <tr>
-              <td class="row-num">01</td>
-              <td><span class="status status-clean"><span class="dot"></span>clean</span></td>
-              <td><a href="_repo_drawer.html" class="repo-link">rust-lang/rust</a></td>
-              <td><span class="ws ws-1">oss</span></td>
-              <td><span class="branch-name">master</span></td>
-              <td><span class="delta even">—</span></td>
-              <td><span class="tag">lang</span></td>
-              <td><span class="last-pull">2h ago</span></td>
-              <td><div class="row-actions">
-                <button class="btn btn-ghost btn-sm">Pull</button>
-                <details class="menu">
-                  <summary title="More actions">⋯</summary>
-                  <div class="menu-pop">
-                    <a href="_repo_drawer.html">View details</a>
-                    <button type="button">Open folder</button>
-                    <button type="button">Copy URL</button>
-                    <hr>
-                    <button type="button">Freeze</button>
-                    <button type="button">Edit tags</button>
-                    <hr>
-                    <button type="button" class="danger">Remove</button>
-                  </div>
-                </details>
-              </div></td>
-            </tr>
-
-            <tr>
-              <td class="row-num">02</td>
-              <td><span class="status status-dirty"><span class="dot"></span>dirty</span></td>
-              <td><a href="_repo_drawer.html" class="repo-link">rishmadaan/gitstow</a></td>
-              <td><span class="ws ws-2">active</span></td>
-              <td><span class="branch-name">main</span></td>
-              <td><span class="delta up">↑ 2</span></td>
-              <td><span class="tag">active</span></td>
-              <td><span class="last-pull">1d ago</span></td>
-              <td><div class="row-actions">
-                <button class="btn btn-ghost btn-sm">Pull</button>
-                <details class="menu">
-                  <summary title="More actions">⋯</summary>
-                  <div class="menu-pop">
-                    <a href="_repo_drawer.html">View details</a>
-                    <button type="button">Open folder</button>
-                    <button type="button">Copy URL</button>
-                    <hr>
-                    <button type="button">Freeze</button>
-                    <button type="button">Edit tags</button>
-                    <hr>
-                    <button type="button" class="danger">Remove</button>
-                  </div>
-                </details>
-              </div></td>
-            </tr>
-
-            <tr>
-              <td class="row-num">03</td>
-              <td><span class="status status-clean"><span class="dot"></span>clean</span></td>
-              <td><a href="_repo_drawer.html" class="repo-link">anthropic/claude-code</a></td>
-              <td><span class="ws ws-1">oss</span></td>
-              <td><span class="branch-name">main</span></td>
-              <td><span class="delta down">↓ 5</span></td>
-              <td><span class="tag">ai</span><span class="tag">active</span></td>
-              <td><span class="last-pull">6h ago</span></td>
-              <td><div class="row-actions">
-                <button class="btn btn-primary btn-sm">Pull</button>
-                <details class="menu">
-                  <summary title="More actions">⋯</summary>
-                  <div class="menu-pop">
-                    <a href="_repo_drawer.html">View details</a>
-                    <button type="button">Open folder</button>
-                    <button type="button">Copy URL</button>
-                    <hr>
-                    <button type="button">Freeze</button>
-                    <button type="button">Edit tags</button>
-                    <hr>
-                    <button type="button" class="danger">Remove</button>
-                  </div>
-                </details>
-              </div></td>
-            </tr>
-
-            <tr>
-              <td class="row-num">04</td>
-              <td><span class="status status-conflict"><span class="dot"></span>conflict</span></td>
-              <td><a href="_repo_drawer.html" class="repo-link">my-repo/broken-thing</a></td>
-              <td><span class="ws ws-2">active</span></td>
-              <td><span class="branch-name">feature/experiment</span></td>
-              <td><span class="delta down">↓ 3</span></td>
-              <td><span class="tag">wip</span></td>
-              <td><span class="last-pull">3d ago</span></td>
-              <td><div class="row-actions">
-                <button class="btn btn-ghost btn-sm" disabled>Pull</button>
-                <details class="menu">
-                  <summary title="More actions">⋯</summary>
-                  <div class="menu-pop">
-                    <a href="_repo_drawer.html">View details</a>
-                    <button type="button">Open folder</button>
-                    <button type="button">Copy URL</button>
-                    <hr>
-                    <button type="button">Freeze</button>
-                    <button type="button">Edit tags</button>
-                    <hr>
-                    <button type="button" class="danger">Remove</button>
-                  </div>
-                </details>
-              </div></td>
-            </tr>
-
-            <tr class="frozen">
-              <td class="row-num">05</td>
-              <td>
-                <span class="status status-frozen"><span class="dot"></span>frozen</span>
-                <svg class="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
-              </td>
-              <td><a href="_repo_drawer.html" class="repo-link">openai/whisper</a></td>
-              <td><span class="ws ws-1">oss</span></td>
-              <td><span class="branch-name">main</span></td>
-              <td><span class="delta even">—</span></td>
-              <td><span class="tag">ai</span></td>
-              <td><span class="last-pull">2w ago</span></td>
-              <td><div class="row-actions">
-                <button class="btn btn-ghost btn-sm" disabled>Pull</button>
-                <details class="menu">
-                  <summary title="More actions">⋯</summary>
-                  <div class="menu-pop">
-                    <a href="_repo_drawer.html">View details</a>
-                    <button type="button">Open folder</button>
-                    <button type="button">Copy URL</button>
-                    <hr>
-                    <button type="button">Unfreeze</button>
-                    <button type="button">Edit tags</button>
-                    <hr>
-                    <button type="button" class="danger">Remove</button>
-                  </div>
-                </details>
-              </div></td>
-            </tr>
-
-            <tr>
-              <td class="row-num">06</td>
-              <td><span class="status status-clean"><span class="dot"></span>clean</span></td>
-              <td><a href="_repo_drawer.html" class="repo-link">torvalds/linux</a></td>
-              <td><span class="ws ws-1">oss</span></td>
-              <td><span class="branch-name">master</span></td>
-              <td><span class="delta down">↓ 203</span></td>
-              <td><span class="tag">kernel</span></td>
-              <td><span class="last-pull">5d ago</span></td>
-              <td><div class="row-actions">
-                <button class="btn btn-primary btn-sm">Pull</button>
-                <details class="menu">
-                  <summary title="More actions">⋯</summary>
-                  <div class="menu-pop">
-                    <a href="_repo_drawer.html">View details</a>
-                    <button type="button">Open folder</button>
-                    <button type="button">Copy URL</button>
-                    <hr>
-                    <button type="button">Freeze</button>
-                    <button type="button">Edit tags</button>
-                    <hr>
-                    <button type="button" class="danger">Remove</button>
-                  </div>
-                </details>
-              </div></td>
-            </tr>
-
-          </tbody>
-        </table>
-      </div>
-
-      <small style="display: block; margin-top: 1.2rem; color: var(--muted-soft); font-family: 'JetBrains Mono', monospace; font-size: 0.78rem;">
-        auto-refresh 30s · click repo name → details · pull runs in place
-      </small>
-
-    </div>
-  </main>
-
-  <footer class="site">
-    <div class="container footer-inner">
-      <div>
-        <span class="dot green"></span>
-        <span class="live-label">live</span>
-        <code style="margin-left: 0.6rem;">127.0.0.1:7853</code>
-      </div>
-      <button class="btn btn-ghost btn-sm" onclick="alert('Phase A mock — wires up in Phase B')">Shutdown</button>
-    </div>
-  </footer>
-</body>
-</html>
+{% endblock %}
