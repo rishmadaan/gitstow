@@ -47,6 +47,86 @@
     </div>
   </footer>
 
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    (function () {
+      var toastEl = document.getElementById('toast');
+      var toastTimer = null;
+      function showToast(msg, kind) {
+        if (!toastEl) return;
+        toastEl.textContent = msg;
+        toastEl.className = 'toast show' + (kind ? ' toast-' + kind : '');
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(function () {
+          toastEl.className = 'toast';
+        }, 1800);
+      }
+
+      function copyText(text) {
+        if (navigator.clipboard && window.isSecureContext) {
+          return navigator.clipboard.writeText(text);
+        }
+        // Fallback for non-HTTPS / older browsers
+        return new Promise(function (resolve, reject) {
+          try {
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            resolve();
+          } catch (e) { reject(e); }
+        });
+      }
+
+      document.addEventListener('click', function (e) {
+        var btn = e.target.closest('.js-copy');
+        if (!btn) return;
+        e.preventDefault();
+        var text = btn.getAttribute('data-copy') || '';
+        var label = btn.getAttribute('data-copy-label') || 'text';
+        if (!text) {
+          showToast('Nothing to copy (' + label + ' is empty)', 'error');
+          return;
+        }
+        copyText(text).then(
+          function () { showToast('Copied ' + label + ' — ' + text); },
+          function () { showToast('Copy failed', 'error'); }
+        );
+        // Close the details menu if this button was inside one
+        var menu = btn.closest('details.menu');
+        if (menu) menu.removeAttribute('open');
+      });
+
+      // Show a toast when an hx-post with data-toast succeeds
+      document.body.addEventListener('htmx:afterRequest', function (evt) {
+        var el = evt.detail && evt.detail.elt;
+        if (!el || !el.getAttribute) return;
+        var msg = el.getAttribute('data-toast');
+        if (!msg) return;
+        if (evt.detail.successful) {
+          showToast(msg);
+          var menu = el.closest && el.closest('details.menu');
+          if (menu) menu.removeAttribute('open');
+        } else {
+          var errMsg = 'Action failed';
+          try {
+            var body = evt.detail.xhr && evt.detail.xhr.response;
+            if (body) {
+              var parsed = JSON.parse(body);
+              if (parsed && parsed.error) errMsg = parsed.error;
+            }
+          } catch (e) { /* non-JSON response; keep default */ }
+          showToast(errMsg, 'error');
+        }
+      });
+    })();
+  </script>
+
   {% block body_extra %}{% endblock %}
 </body>
 </html>

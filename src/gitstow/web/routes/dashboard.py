@@ -159,6 +159,8 @@ def _build_repos_data(settings, store) -> tuple[list, dict]:
             "key": repo.key,
             "display_name": repo.key,
             "workspace": repo.workspace,
+            "remote_url": repo.remote_url or "",
+            "local_path": str(repo_path),
             "ws_slot": _workspace_slot(repo.workspace, ws_sorted),
             "ws_tooltip": f"Workspace '{repo.workspace}' — {ws_path} ({ws_layout} layout)",
             "branch": status.branch if status else "—",

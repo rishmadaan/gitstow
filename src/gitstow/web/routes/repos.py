@@ -8,10 +8,12 @@ from __future__ import annotations
 import asyncio
 import functools
 import shutil
+import subprocess
+import sys
 from datetime import datetime
 
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from gitstow.core.config import load_config
 from gitstow.core.git import clone as git_clone, get_status, is_git_repo, pull as git_pull
@@ -49,6 +51,8 @@ def _row_context(repo, settings, sorted_labels, num: int | None) -> dict | None:
         "key": repo.key,
         "display_name": repo.key,
         "workspace": repo.workspace,
+        "remote_url": repo.remote_url or "",
+        "local_path": str(repo_path),
         "ws_slot": _workspace_slot(repo.workspace, sorted_labels),
         "ws_tooltip": f"Workspace '{repo.workspace}' — {ws.path} ({ws.layout} layout)",
         "branch": status.branch if status else "—",
@@ -320,6 +324,49 @@ def _render_row_for(key: str, workspace: str, request: Request):
     sorted_labels = sorted(w.label for w in settings.get_workspaces())
     ctx = _row_context(repo, settings, sorted_labels, num)
     return render(request, "partials/repo_row.html", repo=ctx)
+
+
+def _platform_open(path: str) -> tuple[bool, str]:
+    """Reveal a folder in the OS file manager. Returns (ok, error_message)."""
+    try:
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", path])
+        elif sys.platform.startswith("linux"):
+            subprocess.Popen(["xdg-open", path])
+        elif sys.platform == "win32":
+            subprocess.Popen(["explorer", path])
+        else:
+            return False, f"unsupported platform: {sys.platform}"
+    except FileNotFoundError as exc:
+        return False, f"file manager command not found: {exc}"
+    except Exception as exc:  # noqa: BLE001
+        return False, str(exc)
+    return True, ""
+
+
+@router.post("/repos/{workspace}/{key:path}/open-folder")
+async def open_folder(workspace: str, key: str):
+    """Reveal the repo's folder in the OS file manager. Server runs locally, so this is safe."""
+    settings = load_config()
+    store = RepoStore()
+    ws = settings.get_workspace(workspace)
+    if ws is None:
+        raise HTTPException(status_code=404, detail="workspace not found")
+    repo = store.get(key, workspace=workspace)
+    if repo is None:
+        raise HTTPException(status_code=404, detail="repo not found")
+
+    repo_path = repo.get_path(ws.get_path())
+    if not repo_path.exists():
+        return JSONResponse(
+            {"ok": False, "error": f"folder missing on disk: {repo_path}"},
+            status_code=404,
+        )
+
+    ok, err = _platform_open(str(repo_path))
+    if not ok:
+        return JSONResponse({"ok": False, "error": err}, status_code=500)
+    return JSONResponse({"ok": True, "path": str(repo_path)})
 
 
 @router.post("/repos/{workspace}/{key:path}/freeze")

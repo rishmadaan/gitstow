@@ -31,7 +31,24 @@
     </div>
     <div style="display: inline-flex; gap: 0.45rem; flex-wrap: wrap;">
       <button class="btn btn-primary btn-sm">↓ Pull now</button>
-      <button class="btn btn-outline btn-sm">Open folder</button>
+      <button class="btn btn-outline btn-sm"
+              title="Reveal this repo in your file manager"
+              hx-post="/repos/{{ repo.workspace }}/{{ repo.key }}/open-folder"
+              hx-swap="none"
+              data-toast="Opened {{ repo.key }} in file manager">Open folder</button>
+      <button class="btn btn-outline btn-sm js-copy"
+              data-copy="{{ repo.remote_url }}"
+              data-copy-label="remote URL"
+              title="Copy remote URL: {{ repo.remote_url }}"
+              {% if not repo.remote_url %}disabled{% endif %}>Copy URL</button>
+      <button class="btn btn-outline btn-sm js-copy"
+              data-copy="{{ repo.key }}"
+              data-copy-label="repo path"
+              title="Copy repo key: {{ repo.key }}">Copy path</button>
+      <button class="btn btn-outline btn-sm js-copy"
+              data-copy="{{ repo.local_path }}"
+              data-copy-label="local path"
+              title="Copy absolute local path: {{ repo.local_path }}">Copy local path</button>
     </div>
   </div>
 

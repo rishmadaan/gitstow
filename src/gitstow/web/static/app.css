@@ -753,6 +753,39 @@ details:not(.menu) summary::-webkit-details-marker { display: none; }
 details:not(.menu) summary::before { content: "▸ "; display: inline-block; transition: transform 0.15s ease; color: var(--muted-soft); }
 details:not(.menu)[open] summary::before { transform: rotate(90deg); }
 
+/* ---------- Toast ---------- */
+.toast {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%) translateY(8px);
+  min-width: 200px;
+  max-width: min(560px, calc(100vw - 2rem));
+  padding: 0.7rem 1rem;
+  background: #1a1d22;
+  color: var(--text);
+  border: 1px solid var(--border-hi);
+  border-radius: 6px;
+  box-shadow: var(--shadow-lg);
+  font-family: 'Bricolage Grotesque', sans-serif;
+  font-size: 0.88rem;
+  line-height: 1.35;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  z-index: 9999;
+  text-align: center;
+  word-break: break-all;
+}
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+.toast.toast-error {
+  border-color: #7f1d1d;
+  color: #fecaca;
+}
+
 /* ---------- Animations ---------- */
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(8px); }

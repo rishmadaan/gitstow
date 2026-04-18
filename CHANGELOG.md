@@ -4,6 +4,17 @@ All notable changes to gitstow will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.3] - 2026-04-18
+
+### Fixed
+
+- **Web dashboard — "Open folder" now actually opens the folder.** The row-menu and drawer buttons were previously no-ops; they now POST to a new `/repos/{ws}/{key}/open-folder` route which shells out to the platform opener (`open` on macOS, `xdg-open` on Linux, `explorer` on Windows). The server binds to `127.0.0.1` only, so no exposure beyond localhost.
+
+### Added
+
+- **Web dashboard — Copy URL / Copy path / Copy local path actions.** The `⋯` row menu and the repo drawer each expose three clipboard actions: Copy URL (remote clone URL), Copy path (repo key like `owner/repo`), Copy local path (absolute filesystem path). Implemented client-side with `navigator.clipboard` and a textarea fallback for non-secure contexts.
+- **Toast notifications.** A new bottom-center toast surfaces success/failure for Open folder and the copy actions (reads an optional `data-toast` attr on any `hx-post` button and an error message from the JSON response body on failure).
+
 ## [0.2.2] - 2026-04-18
 
 ### Added
