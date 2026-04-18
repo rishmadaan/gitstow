@@ -18,7 +18,14 @@ from gitstow.core.git import clone as git_clone, get_status, is_git_repo, pull a
 from gitstow.core.parallel import run_parallel
 from gitstow.core.repo import Repo, RepoStore
 from gitstow.core.url_parser import parse_git_url
-from gitstow.web.routes.dashboard import _classify, _delta, _relative_time, _workspace_slot
+from gitstow.web.routes.dashboard import (
+    _STATUS_TOOLTIPS,
+    _classify,
+    _delta,
+    _pull_tooltip,
+    _relative_time,
+    _workspace_slot,
+)
 from gitstow.web.server import render
 
 router = APIRouter()
@@ -33,25 +40,40 @@ def _row_context(repo, settings, sorted_labels, num: int | None) -> dict | None:
     exists = repo_path.exists() and is_git_repo(repo_path)
     status = get_status(repo_path) if exists else None
     status_class, status_label, pull_variant = _classify(repo.frozen, status, exists)
-    delta_cls, delta_txt = _delta(
-        status.ahead if status else 0,
-        status.behind if status else 0,
-    )
+    ahead_n = status.ahead if status else 0
+    behind_n = status.behind if status else 0
+    delta_cls, delta_txt, delta_tip = _delta(ahead_n, behind_n)
+
     return {
         "num": f"{num:02d}" if num else "—",
         "key": repo.key,
         "display_name": repo.key,
         "workspace": repo.workspace,
         "ws_slot": _workspace_slot(repo.workspace, sorted_labels),
+        "ws_tooltip": f"Workspace '{repo.workspace}' — {ws.path} ({ws.layout} layout)",
         "branch": status.branch if status else "—",
+        "branch_tooltip": (
+            f"Current local branch: {status.branch}" if status
+            else "Branch unknown — repo missing or unreadable"
+        ),
         "delta_class": delta_cls,
         "delta_text": delta_txt,
+        "delta_tooltip": delta_tip,
         "tags": repo.tags,
         "last_pull": _relative_time(repo.last_pulled),
+        "last_pull_tooltip": (
+            f"gitstow last pulled this repo at {repo.last_pulled}"
+            if repo.last_pulled else
+            "gitstow hasn't pulled this repo yet"
+        ),
         "status_class": status_class,
         "status_label": status_label,
+        "status_tooltip": _STATUS_TOOLTIPS.get(status_class, status_label),
         "frozen": repo.frozen,
         "pull_variant": pull_variant,
+        "pull_tooltip": _pull_tooltip(pull_variant, status_class, behind_n),
+        "behind": behind_n,
+        "repo_link_tooltip": f"Open details for {repo.key}",
     }
 
 

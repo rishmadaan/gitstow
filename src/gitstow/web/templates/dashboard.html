@@ -17,31 +17,34 @@
     </div>
     <div class="hero-right">
       <div class="metrics-strip">
-        {% if counts.clean %}<span class="m"><span class="pip clean"></span><span class="count">{{ '%02d' % counts.clean }}</span> <span class="lbl">clean</span></span>{% endif %}
-        {% if counts.dirty %}<span class="m"><span class="pip dirty"></span><span class="count">{{ '%02d' % counts.dirty }}</span> <span class="lbl">dirty</span></span>{% endif %}
-        {% if counts.conflict %}<span class="m"><span class="pip conflict"></span><span class="count">{{ '%02d' % counts.conflict }}</span> <span class="lbl">conflict</span></span>{% endif %}
-        {% if counts.behind %}<span class="m"><span class="pip behind"></span><span class="count">{{ '%02d' % counts.behind }}</span> <span class="lbl">behind</span></span>{% endif %}
-        {% if counts.ahead %}<span class="m"><span class="pip ahead"></span><span class="count">{{ '%02d' % counts.ahead }}</span> <span class="lbl">ahead</span></span>{% endif %}
-        {% if counts.frozen %}<span class="m"><span class="pip frozen"></span><span class="count">{{ '%02d' % counts.frozen }}</span> <span class="lbl">frozen</span></span>{% endif %}
+        {% if counts.clean %}<span class="m" title="{{ counts.clean }} clean — working tree matches HEAD and is in sync with the last fetch"><span class="pip clean"></span><span class="count">{{ '%02d' % counts.clean }}</span> <span class="lbl">clean</span></span>{% endif %}
+        {% if counts.dirty %}<span class="m" title="{{ counts.dirty }} dirty — uncommitted local changes, not yet committed or stashed"><span class="pip dirty"></span><span class="count">{{ '%02d' % counts.dirty }}</span> <span class="lbl">dirty</span></span>{% endif %}
+        {% if counts.conflict %}<span class="m" title="{{ counts.conflict }} in conflict — dirty AND behind remote; resolve locally"><span class="pip conflict"></span><span class="count">{{ '%02d' % counts.conflict }}</span> <span class="lbl">conflict</span></span>{% endif %}
+        {% if counts.behind %}<span class="m" title="{{ counts.behind }} behind upstream — remote has commits you don't"><span class="pip behind"></span><span class="count">{{ '%02d' % counts.behind }}</span> <span class="lbl">behind</span></span>{% endif %}
+        {% if counts.ahead %}<span class="m" title="{{ counts.ahead }} ahead of upstream — you have local commits not yet pushed"><span class="pip ahead"></span><span class="count">{{ '%02d' % counts.ahead }}</span> <span class="lbl">ahead</span></span>{% endif %}
+        {% if counts.frozen %}<span class="m" title="{{ counts.frozen }} frozen — intentionally skipped by 'Pull all'"><span class="pip frozen"></span><span class="count">{{ '%02d' % counts.frozen }}</span> <span class="lbl">frozen</span></span>{% endif %}
       </div>
+      <button type="button" class="info-btn" title="How to read this dashboard" onclick="document.getElementById('help-dialog').showModal()" aria-label="Help">?</button>
     </div>
   </section>
 
   <div class="action-bar">
-    <select>
+    <select title="Filter the ledger to one workspace">
       <option>All workspaces</option>
       {% for ws in workspaces %}<option>{{ ws.label }}</option>{% endfor %}
     </select>
-    <input type="search" placeholder="Search repos, tags…">
-    <label class="inline"><input type="checkbox"> Hide frozen</label>
+    <input type="search" placeholder="Search repos, tags…" title="Filter rows by repo name or tag">
+    <label class="inline" title="Collapse rows for frozen repos"><input type="checkbox"> Hide frozen</label>
     <div class="spacer"></div>
     <button class="btn btn-ghost btn-sm"
+            title="Re-read local state now — re-reads repos.yaml and runs 'git status' on each repo. Does NOT run 'git fetch'."
             hx-get="/"
             hx-select="main"
             hx-target="main"
             hx-swap="outerHTML">↻ Refresh</button>
-    <a href="/add" class="btn btn-outline btn-sm">+ Add repo</a>
+    <a href="/add" class="btn btn-outline btn-sm" title="Clone a new repo into a workspace">+ Add repo</a>
     <button class="btn btn-primary btn-sm"
+            title="Pull every non-frozen repo in parallel. Shows a summary panel with per-repo results."
             hx-post="/repos/pull-all"
             hx-target="#pull-summary"
             hx-swap="outerHTML"
@@ -56,15 +59,15 @@
     <table class="ledger">
       <thead>
         <tr>
-          <th style="width: 2.8rem;">№</th>
-          <th style="width: 7.5rem;">Status</th>
-          <th>Repository</th>
-          <th>Workspace</th>
-          <th>Branch</th>
-          <th>Δ remote</th>
-          <th>Tags</th>
-          <th>Last pull</th>
-          <th style="text-align: right;">Actions</th>
+          <th style="width: 2.8rem;" title="Row number">№</th>
+          <th style="width: 7.5rem;" title="State of the working tree and relationship to upstream remote">Status</th>
+          <th title="Repository name — click to open details">Repository</th>
+          <th title="Which gitstow workspace manages this repo">Workspace</th>
+          <th title="Current local branch">Branch</th>
+          <th title="Commits ahead (↑) / behind (↓) upstream — reflects your last fetch, not live remote">Remote Δ</th>
+          <th title="Your tags + workspace auto-tags">Tags</th>
+          <th title="When gitstow last pulled this repo (not the last git fetch)">Last pull</th>
+          <th style="text-align: right;" title="Pull + more-actions menu">Actions</th>
         </tr>
       </thead>
       <tbody hx-get="/dashboard/rows"
@@ -76,7 +79,7 @@
   </div>
 
   <small style="display: block; margin-top: 1.2rem; color: var(--muted-soft); font-family: 'JetBrains Mono', monospace; font-size: 0.78rem;">
-    auto-refresh 30s · click repo name → details · pull runs in place
+    auto-refresh 30s · click repo name → details · pull runs in place · <a href="#" onclick="document.getElementById('help-dialog').showModal(); return false;" style="color: var(--muted); text-decoration: underline;">what does this dashboard show?</a>
   </small>
 
   {% else %}
@@ -89,6 +92,84 @@
 
   {% endif %}
 
+  <dialog id="help-dialog" class="help-dialog">
+    <form method="dialog" class="help-form">
+      <header class="help-head">
+        <h2>Reading the dashboard</h2>
+        <button type="submit" class="help-close" aria-label="Close" title="Close (or press Esc)">×</button>
+      </header>
+
+      <section>
+        <h4>Statuses</h4>
+        <dl class="help-grid">
+          <dt><span class="status status-clean"><span class="dot"></span>clean</span></dt>
+          <dd>Working tree matches HEAD; no uncommitted changes. In sync with your last fetch.</dd>
+
+          <dt><span class="status status-dirty"><span class="dot"></span>dirty</span></dt>
+          <dd>Uncommitted local changes. Commit or stash before pulling.</dd>
+
+          <dt><span class="status status-conflict"><span class="dot"></span>conflict</span></dt>
+          <dd>Working tree is dirty AND behind remote. Resolve locally before pulling.</dd>
+
+          <dt><span class="status status-behind"><span class="dot"></span>behind</span></dt>
+          <dd>Remote has commits you don't. The Pull button turns orange and shows the count.</dd>
+
+          <dt><span class="status status-ahead"><span class="dot"></span>ahead</span></dt>
+          <dd>You have local commits not yet pushed. Pull does nothing here — consider <code>git push</code>.</dd>
+
+          <dt><span class="status status-frozen"><span class="dot"></span>frozen</span></dt>
+          <dd>Intentionally skipped by "Pull all". Lock icon marks the row. Unfreeze from the ⋯ menu.</dd>
+        </dl>
+      </section>
+
+      <section class="section">
+        <h4>The Pull button</h4>
+        <dl class="help-grid">
+          <dt><button type="button" class="btn btn-primary btn-sm" onclick="return false;">↓ Pull 5</button></dt>
+          <dd><strong>Orange</strong> — repo is behind. Click to fast-forward by the shown count.</dd>
+
+          <dt><button type="button" class="btn btn-ghost btn-sm" onclick="return false;">Pull</button></dt>
+          <dd><strong>Ghost</strong> — already up to date, or working tree is dirty/ahead. The button still works; it just won't change anything useful.</dd>
+
+          <dt><button type="button" class="btn btn-ghost btn-sm" disabled>Pull</button></dt>
+          <dd><strong>Disabled</strong> — repo is frozen, in conflict, or missing on disk. Pull is blocked until you resolve.</dd>
+        </dl>
+      </section>
+
+      <section class="section">
+        <h4>The Remote Δ column</h4>
+        <p>Ahead (<code>↑ N</code>), behind (<code>↓ N</code>), or even (<code>—</code>) relative to upstream. <strong>These counts reflect your last <code>git fetch</code>, not live remote state.</strong> If you haven't fetched in a while, the numbers are stale. Pulling updates them.</p>
+      </section>
+
+      <section class="section">
+        <h4>Auto-refresh (every 30s)</h4>
+        <p>Refresh re-reads <strong>local state only</strong>: your <code>~/.gitstow/repos.yaml</code> registry plus <code>git status</code> on each tracked repo. It catches:</p>
+        <ul>
+          <li>New repos added via the CLI (<code>gitstow add</code> in another terminal)</li>
+          <li>Local commits, branch switches, dirty files you just edited</li>
+        </ul>
+        <p style="margin-top: 0.75rem;">It does <strong>NOT</strong> run <code>git fetch</code> — so "behind" and "ahead" counts won't update unless you pull (or fetch manually).</p>
+      </section>
+
+      <section class="section">
+        <h4>Actions</h4>
+        <dl class="help-grid">
+          <dt>Pull</dt><dd>Pull from remote (fast-forward only).</dd>
+          <dt>↓ Pull all</dt><dd>Pull every non-frozen repo in parallel. Results summary appears above the table.</dd>
+          <dt>+ Add repo</dt><dd>Clone a new repo into a workspace.</dd>
+          <dt>↻ Refresh</dt><dd>Re-read local state now (same as the 30-second auto).</dd>
+          <dt>Hide frozen</dt><dd>Collapse rows for frozen repos.</dd>
+          <dt>⋯</dt><dd>Per-row menu: view details, open folder, copy URL, freeze/unfreeze, edit tags, remove.</dd>
+          <dt>Shutdown (footer)</dt><dd>Stop the gitstow server and close the dashboard.</dd>
+        </dl>
+      </section>
+
+      <footer class="help-foot">
+        <button type="submit" class="btn btn-primary">Got it</button>
+      </footer>
+    </form>
+  </dialog>
+
 {% endblock %}
 {% block body_extra %}
   <script>
@@ -97,5 +178,12 @@
         if (!d.contains(e.target)) d.removeAttribute('open');
       });
     });
+    // Close dialog when clicking its backdrop (native <dialog> doesn't do this by default)
+    const helpDialog = document.getElementById('help-dialog');
+    if (helpDialog) {
+      helpDialog.addEventListener('click', (e) => {
+        if (e.target === helpDialog) helpDialog.close();
+      });
+    }
   </script>
 {% endblock %}

@@ -1,45 +1,49 @@
 <tr{% if repo.frozen %} class="frozen"{% endif %}>
-  <td class="row-num">{{ repo.num }}</td>
+  <td class="row-num" title="Row {{ repo.num }}">{{ repo.num }}</td>
   <td>
-    <span class="status status-{{ repo.status_class }}"><span class="dot"></span>{{ repo.status_label }}</span>
-    {% if repo.frozen %}<svg class="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>{% endif %}
+    <span class="status status-{{ repo.status_class }}" title="{{ repo.status_tooltip }}"><span class="dot"></span>{{ repo.status_label }}</span>
+    {% if repo.frozen %}<svg class="lock" title="Frozen — 'Pull all' skips this repo. Unfreeze from the ⋯ menu." viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>{% endif %}
   </td>
-  <td><a href="/repo/{{ repo.workspace }}/{{ repo.key }}" class="repo-link">{{ repo.display_name }}</a></td>
-  <td><span class="ws ws-{{ repo.ws_slot }}">{{ repo.workspace }}</span></td>
-  <td><span class="branch-name">{{ repo.branch }}</span></td>
-  <td><span class="delta {{ repo.delta_class }}">{{ repo.delta_text }}</span></td>
-  <td>{% for tag in repo.tags %}<span class="tag">{{ tag }}</span>{% endfor %}</td>
-  <td><span class="last-pull">{{ repo.last_pull }}</span></td>
+  <td><a href="/repo/{{ repo.workspace }}/{{ repo.key }}" class="repo-link" title="{{ repo.repo_link_tooltip }}">{{ repo.display_name }}</a></td>
+  <td><span class="ws ws-{{ repo.ws_slot }}" title="{{ repo.ws_tooltip }}">{{ repo.workspace }}</span></td>
+  <td><span class="branch-name" title="{{ repo.branch_tooltip }}">{{ repo.branch }}</span></td>
+  <td><span class="delta {{ repo.delta_class }}" title="{{ repo.delta_tooltip }}">{{ repo.delta_text }}</span></td>
+  <td>{% for tag in repo.tags %}<span class="tag" title="Tag: {{ tag }}">{{ tag }}</span>{% endfor %}</td>
+  <td><span class="last-pull" title="{{ repo.last_pull_tooltip }}">{{ repo.last_pull }}</span></td>
   <td><div class="row-actions">
     {% if repo.pull_variant == "primary" %}
       <button class="btn btn-primary btn-sm"
+              title="{{ repo.pull_tooltip }}"
               hx-post="/repos/{{ repo.workspace }}/{{ repo.key }}/pull"
               hx-target="closest tr"
               hx-swap="outerHTML"
-              hx-disabled-elt="this">Pull</button>
+              hx-disabled-elt="this">↓ Pull {{ repo.behind }}</button>
     {% elif repo.pull_variant == "disabled" %}
-      <button class="btn btn-ghost btn-sm" disabled>Pull</button>
+      <button class="btn btn-ghost btn-sm" disabled title="{{ repo.pull_tooltip }}">Pull</button>
     {% else %}
       <button class="btn btn-ghost btn-sm"
+              title="{{ repo.pull_tooltip }}"
               hx-post="/repos/{{ repo.workspace }}/{{ repo.key }}/pull"
               hx-target="closest tr"
               hx-swap="outerHTML"
               hx-disabled-elt="this">Pull</button>
     {% endif %}
     <details class="menu">
-      <summary title="More actions">⋯</summary>
+      <summary title="More actions for {{ repo.key }}">⋯</summary>
       <div class="menu-pop">
-        <a href="/repo/{{ repo.workspace }}/{{ repo.key }}">View details</a>
-        <button type="button">Open folder</button>
-        <button type="button">Copy URL</button>
+        <a href="/repo/{{ repo.workspace }}/{{ repo.key }}" title="Open the repo detail page">View details</a>
+        <button type="button" title="Reveal this repo in your file manager (not yet wired)">Open folder</button>
+        <button type="button" title="Copy the repo's remote URL to your clipboard (not yet wired)">Copy URL</button>
         <hr>
         <button type="button"
+                title="{% if repo.frozen %}Unfreeze — include this repo in 'Pull all' again{% else %}Freeze — exclude this repo from 'Pull all'{% endif %}"
                 hx-post="/repos/{{ repo.workspace }}/{{ repo.key }}/freeze"
                 hx-target="closest tr"
                 hx-swap="outerHTML">{% if repo.frozen %}Unfreeze{% else %}Freeze{% endif %}</button>
-        <a href="/repo/{{ repo.workspace }}/{{ repo.key }}#tags">Edit tags</a>
+        <a href="/repo/{{ repo.workspace }}/{{ repo.key }}#tags" title="Open the repo detail page to edit tags">Edit tags</a>
         <hr>
         <button type="button" class="danger"
+                title="Remove this repo from gitstow's registry. Files on disk stay untouched."
                 hx-post="/repos/{{ repo.workspace }}/{{ repo.key }}/remove"
                 hx-target="closest tr"
                 hx-swap="delete swap:200ms"

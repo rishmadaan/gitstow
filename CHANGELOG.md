@@ -4,6 +4,19 @@ All notable changes to gitstow will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.2] - 2026-04-18
+
+### Added
+
+- **Dashboard tooltips everywhere.** Every interactive element now has a `title=` explaining what it does or what its state means — status pills (with the recommended next step), delta badges, workspace chips, tags, last-pull, Pull button (text varies by repo state), the `⋯` menu and each of its items, action-bar buttons, column headers, the nav links, the live dot, the Shutdown button, the lock icon. Hover over anything.
+- **Pull button now shows the commit count when behind.** `↓ Pull 5` instead of just `Pull` — the action's payload is visible at a glance without hover.
+- **"Reading the dashboard" help dialog.** New `?` button in the hero opens a native `<dialog>` modal with: statuses + what each means + what to do, the Pull button color convention, what Remote Δ reflects (last fetch, not live remote), what auto-refresh actually does (local state only; does NOT run `git fetch`), and a reference for every action. Click the backdrop or press Esc to close.
+- Matching `docs/user/commands.md` "Reading the dashboard" subsection under `gitstow serve` so the legend exists in prose too, not only in the UI.
+
+### Changed
+
+- `_classify` and `_delta` helpers in `web/routes/dashboard.py` now also return tooltip strings; `_pull_tooltip` maps (variant × status) to the exact explanation shown on each Pull button. Partial template `partials/repo_row.html` threads these through consistently so HTMX row swaps after pull keep the tooltips accurate.
+
 ## [0.2.1] - 2026-04-17
 
 ### Added

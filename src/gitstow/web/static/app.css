@@ -766,6 +766,83 @@ details:not(.menu)[open] summary::before { transform: rotate(90deg); }
 .ledger tbody tr:nth-child(5) { animation-delay: 0.34s; }
 .ledger tbody tr:nth-child(6) { animation-delay: 0.38s; }
 
+/* ---------- Info button + help dialog ---------- */
+.hero-right { align-items: flex-end; }
+.info-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 50%;
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--border-hi);
+  font-family: 'Bricolage Grotesque', sans-serif;
+  font-size: 0.85rem; font-weight: 600; line-height: 1;
+  cursor: pointer; padding: 0; margin-top: 0.55rem;
+  transition: all 0.15s ease;
+}
+.info-btn:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
+
+.help-dialog {
+  max-width: 760px; width: calc(100vw - 2rem);
+  max-height: calc(100vh - 3rem);
+  padding: 0; margin: auto;
+  background: var(--bg-panel);
+  color: var(--text-soft);
+  border: 1px solid var(--border-hi);
+  border-radius: 10px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+.help-dialog::backdrop {
+  background: rgba(10, 10, 12, 0.7);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.help-form {
+  display: flex; flex-direction: column;
+  max-height: calc(100vh - 3rem);
+}
+.help-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 1.15rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.help-head h2 {
+  margin: 0;
+  font-family: 'Bricolage Grotesque', sans-serif;
+  font-variation-settings: 'opsz' 48, 'wdth' 90, 'wght' 600;
+  font-size: 1.3rem; color: var(--text);
+}
+.help-close {
+  background: transparent; border: none; cursor: pointer;
+  color: var(--muted); font-size: 1.6rem; line-height: 1;
+  padding: 0.25rem 0.55rem; border-radius: 4px;
+  transition: all 0.1s;
+}
+.help-close:hover { color: var(--text); background: var(--surface-hi); }
+.help-form > section {
+  padding: 1.15rem 1.5rem;
+  overflow-y: auto;
+}
+.help-form > section + section { border-top: 1px solid var(--border); }
+.help-form section h4 { margin-bottom: 0.65rem; color: var(--text); font-size: 0.72rem; }
+.help-form section p { font-size: 0.88rem; line-height: 1.6; }
+.help-form section p + p { margin-top: 0.65rem; }
+.help-form section ul { margin: 0.5rem 0 0; padding-left: 1.25rem; font-size: 0.88rem; line-height: 1.7; }
+.help-grid {
+  display: grid; grid-template-columns: max-content 1fr;
+  gap: 0.85rem 1.25rem; margin: 0;
+  align-items: baseline;
+}
+.help-grid dt { white-space: nowrap; }
+.help-grid dd { margin: 0; font-size: 0.88rem; line-height: 1.55; color: var(--text-soft); }
+.help-grid dd strong { color: var(--text); }
+.help-foot {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  display: flex; justify-content: flex-end;
+}
+
 /* ---------- Error / success banners ---------- */
 .error-banner, .notice-banner {
   border: 1px solid;

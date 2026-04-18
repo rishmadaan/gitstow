@@ -49,6 +49,16 @@ def _relative_time(iso_str: str) -> str:
     return f"{int(seconds / 86400 / 365)}y ago"
 
 
+_STATUS_TOOLTIPS = {
+    "clean":    "Clean — working tree matches HEAD; up to date with the last fetch.",
+    "dirty":    "Dirty — uncommitted changes in the working tree. Commit or stash before pulling.",
+    "conflict": "Conflict — working tree is dirty AND behind remote. Resolve locally before pulling.",
+    "behind":   "Behind — remote upstream has commits your local copy doesn't. Pull to fast-forward.",
+    "ahead":    "Ahead — you have local commits not yet pushed to remote.",
+    "frozen":   "Frozen — 'Pull all' skips this repo. Open details to unfreeze.",
+}
+
+
 def _classify(repo_frozen: bool, status, exists: bool):
     """Return (status_class, status_label, pull_variant). pull_variant: 'primary'|'ghost'|'disabled'."""
     if not exists:
@@ -68,14 +78,45 @@ def _classify(repo_frozen: bool, status, exists: bool):
     return "clean", "clean", "ghost"
 
 
-def _delta(ahead: int, behind: int) -> tuple[str, str]:
+def _delta(ahead: int, behind: int) -> tuple[str, str, str]:
+    """Return (css_class, display_label, tooltip)."""
     if ahead and behind:
-        return "down", f"↑{ahead} ↓{behind}"
+        return (
+            "down",
+            f"↑{ahead} ↓{behind}",
+            f"Diverged — {ahead} local commit(s) ahead, {behind} remote commit(s) behind (since last fetch).",
+        )
     if ahead:
-        return "up", f"↑ {ahead}"
+        return (
+            "up",
+            f"↑ {ahead}",
+            f"Ahead — {ahead} local commit(s) not yet pushed to remote.",
+        )
     if behind:
-        return "down", f"↓ {behind}"
-    return "even", "—"
+        return (
+            "down",
+            f"↓ {behind}",
+            f"Behind — {behind} remote commit(s) not yet pulled (reflects last fetch).",
+        )
+    return "even", "—", "Even — local and remote upstream in sync (since last fetch)."
+
+
+def _pull_tooltip(variant: str, status_class: str, behind: int) -> str:
+    """Tooltip explaining what Pull will do (or why it's disabled) for this row."""
+    if variant == "primary":
+        return f"Pull — fast-forward this repo by {behind} commit(s) from remote."
+    if variant == "disabled":
+        if status_class == "frozen":
+            return "Pull disabled — repo is frozen. Unfreeze from the ⋯ menu to pull."
+        if status_class == "conflict":
+            return "Pull disabled — dirty AND behind remote. Resolve locally before pulling."
+        return "Pull disabled — repo is missing on disk or status can't be read."
+    # ghost
+    if status_class == "dirty":
+        return "Pull available — working tree is dirty; pull may fail. Commit or stash first."
+    if status_class == "ahead":
+        return "Pull available — nothing behind to pull. You have local commits to push instead."
+    return "Pull available — already up to date with the last fetch."
 
 
 def _build_repos_data(settings, store) -> tuple[list, dict]:
@@ -106,10 +147,12 @@ def _build_repos_data(settings, store) -> tuple[list, dict]:
         elif status_class in counts:
             counts[status_class] += 1
 
-        delta_cls, delta_txt = _delta(
-            status.ahead if status else 0,
-            status.behind if status else 0,
-        )
+        ahead_n = status.ahead if status else 0
+        behind_n = status.behind if status else 0
+        delta_cls, delta_txt, delta_tip = _delta(ahead_n, behind_n)
+
+        ws_path = ws.path if ws else ""
+        ws_layout = ws.layout if ws else ""
 
         repos_data.append({
             "num": f"{i:02d}",
@@ -117,15 +160,27 @@ def _build_repos_data(settings, store) -> tuple[list, dict]:
             "display_name": repo.key,
             "workspace": repo.workspace,
             "ws_slot": _workspace_slot(repo.workspace, ws_sorted),
+            "ws_tooltip": f"Workspace '{repo.workspace}' — {ws_path} ({ws_layout} layout)",
             "branch": status.branch if status else "—",
+            "branch_tooltip": f"Current local branch: {status.branch}" if status else "Branch unknown — repo missing or unreadable",
             "delta_class": delta_cls,
             "delta_text": delta_txt,
+            "delta_tooltip": delta_tip,
             "tags": repo.tags,
             "last_pull": _relative_time(repo.last_pulled),
+            "last_pull_tooltip": (
+                f"gitstow last pulled this repo at {repo.last_pulled}"
+                if repo.last_pulled else
+                "gitstow hasn't pulled this repo yet"
+            ),
             "status_class": status_class,
             "status_label": status_label,
+            "status_tooltip": _STATUS_TOOLTIPS.get(status_class, status_label),
             "frozen": repo.frozen,
             "pull_variant": pull_variant,
+            "pull_tooltip": _pull_tooltip(pull_variant, status_class, behind_n),
+            "behind": behind_n,
+            "repo_link_tooltip": f"Open details for {repo.key}",
         })
 
     return repos_data, counts

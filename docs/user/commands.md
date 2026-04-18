@@ -508,6 +508,36 @@ gitstow serve --no-browser     # don't auto-open
 
 **Security:** binds `127.0.0.1` only — there is no `--host` flag. The server runs git operations in arbitrary workspace directories, so it must not be LAN-reachable.
 
+#### Reading the dashboard
+
+Every interactive element has a hover tooltip. There's also a `?` button in the hero that opens a full legend dialog.
+
+**Statuses** (left column + metrics strip):
+
+| | Meaning | What to do |
+|---|---|---|
+| clean | Working tree matches HEAD; in sync with the last fetch | Nothing |
+| dirty | Uncommitted local changes | Commit or stash before pulling |
+| conflict | Dirty AND behind remote | Resolve locally before pulling |
+| behind | Remote has commits you don't | Click the orange Pull button |
+| ahead | You have local commits not yet pushed | Consider `git push` |
+| frozen | Intentionally skipped by "Pull all" | Unfreeze from the ⋯ menu |
+
+**The Pull button color encodes priority**:
+
+- **Orange** `↓ Pull 5` — repo is behind; clicking fast-forwards by the shown count
+- **Ghost** (gray) — already up to date, or working tree is dirty/ahead. The button still works; it just won't change anything useful
+- **Disabled** — frozen, in conflict, or missing on disk
+
+**Remote Δ** (`↑ N`, `↓ N`, or `—`) reflects your *last fetch*, not live remote state. If the counts look stale, pull (or run `git fetch --all` manually) to refresh them.
+
+**Auto-refresh every 30s** re-reads local state only:
+
+- Your `~/.gitstow/repos.yaml` registry (catches `gitstow add` from another terminal)
+- `git status` on each tracked repo (catches new local commits, branch switches, dirty files)
+
+It does **NOT** run `git fetch`. Ahead/behind counts won't update without a pull or manual fetch.
+
 ### `gitstow update`
 
 Upgrade gitstow itself from PyPI. Detects your install method (pipx, pip, or editable) and runs the matching upgrade.

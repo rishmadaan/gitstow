@@ -18,9 +18,9 @@
           <span class="tagline">library.mgr · v{{ version }}</span>
         </div>
         <ul class="links">
-          <li><a href="/"{% if page == "dashboard" %} class="active"{% endif %}>Library</a></li>
-          <li><a href="/workspaces"{% if page == "workspaces" %} class="active"{% endif %}>Workspaces</a></li>
-          <li><a href="/settings"{% if page == "settings" %} class="active"{% endif %}>Settings</a></li>
+          <li><a href="/" title="Dashboard — ledger of every tracked repo"{% if page == "dashboard" %} class="active"{% endif %}>Library</a></li>
+          <li><a href="/workspaces" title="Workspaces — where gitstow organizes repos"{% if page == "workspaces" %} class="active"{% endif %}>Workspaces</a></li>
+          <li><a href="/settings" title="Settings, collection export/import, integrations"{% if page == "settings" %} class="active"{% endif %}>Settings</a></li>
         </ul>
       </nav>
     </div>
@@ -34,12 +34,13 @@
 
   <footer class="site">
     <div class="container footer-inner">
-      <div>
+      <div title="gitstow server running at {{ server_addr }}">
         <span class="dot green"></span>
         <span class="live-label">live</span>
         <code style="margin-left: 0.6rem;">{{ server_addr }}</code>
       </div>
       <button class="btn btn-ghost btn-sm"
+              title="Stop the gitstow server and close this dashboard. Ctrl+C in the terminal also works."
               hx-post="/shutdown"
               hx-swap="outerHTML"
               hx-confirm="Shut down the gitstow server?">Shutdown</button>
