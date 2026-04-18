@@ -488,6 +488,38 @@ Keyboard shortcuts:
 - `/` — Focus filter input
 - `q` — Quit
 
+### `gitstow serve`
+
+Launch a local browser dashboard — a dark-themed web UI for daily repo management. Binds to `127.0.0.1` only; auto-opens your default browser.
+
+```bash
+gitstow serve                  # http://127.0.0.1:7853
+gitstow serve --port 8080      # custom port
+gitstow serve --no-browser     # don't auto-open
+```
+
+**Features:**
+- Live status across every tracked repo (clean / dirty / conflict / behind / ahead / frozen), auto-refreshes every 30s
+- Click a repo name to open its detail drawer (metadata, tags, freeze toggle, danger zone)
+- **Pull** on a row updates in place via HTMX; **Pull all** runs the parallel semaphore and shows a summary panel with failures
+- Add / remove / freeze / tag repos without leaving the tab
+- Workspace CRUD + Scan; Collection export/import under Settings
+- Click **Shutdown** in the footer (or Ctrl+C) to stop
+
+**Security:** binds `127.0.0.1` only — there is no `--host` flag. The server runs git operations in arbitrary workspace directories, so it must not be LAN-reachable.
+
+### `gitstow update`
+
+Upgrade gitstow itself from PyPI. Detects your install method (pipx, pip, or editable) and runs the matching upgrade.
+
+```bash
+gitstow update                 # install the latest from PyPI
+gitstow update --check         # just query PyPI; don't install
+gitstow update -c              # short form of --check
+```
+
+For editable installs (`pip install -e .`), runs nothing and points you at `git pull` instead. For pipx installs, runs `pipx upgrade gitstow`. For regular pip installs, runs `python -m pip install --upgrade gitstow`.
+
 ---
 
 ## Configuration Commands

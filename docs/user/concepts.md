@@ -206,6 +206,7 @@ This is the core thesis: developers increasingly maintain local repo clones that
 | Flat + structured layouts | ✅ | ❌ | ❌ |
 | Bulk pull | ✅ | ❌ | ✅ |
 | Status dashboard | ✅ | ❌ | ✅ |
+| Browser dashboard | ✅ (`gitstow serve`) | ❌ | ❌ |
 | Freeze/skip repos | ✅ | ❌ | Via groups |
 | Tags | ✅ | ❌ | ❌ (has groups) |
 | URL shorthand | ✅ | ✅ | ❌ |

@@ -32,7 +32,7 @@ Verify it worked:
 
 ```bash
 gitstow --version
-# gitstow v0.1.0
+# gitstow v0.2.1
 ```
 
 > **Command not found?** On some systems, pip installs to a directory not on your PATH. Try `python3 -m gitstow --version` instead, or use pipx which handles PATH automatically.
@@ -159,6 +159,21 @@ gitstow install-skill
 This is also done automatically during `gitstow onboard` and auto-updates when you upgrade gitstow. Once installed, you can say things like "add this repo" or "update my repos" conversationally.
 
 > For non-Claude-Code AI tools (Claude Desktop, Cursor), an optional MCP server is available. See [Configuration — MCP Server](configuration.md#mcp-server-optional).
+
+## Prefer a Browser?
+
+```bash
+gitstow serve
+```
+
+Opens a local dark-themed dashboard at `http://127.0.0.1:7853` — a tab you leave open. Shows dirty state across every repo at a glance, pulls single repos or all-of-them in parallel, adds/removes repos, edits tags. Auto-refreshes every 30 seconds. Click **Shutdown** in the footer (or Ctrl+C) when done. See [commands.md — `gitstow serve`](commands.md#gitstow-serve) for full details.
+
+## Keep gitstow Up to Date
+
+```bash
+gitstow update --check    # just look; don't install
+gitstow update            # upgrade to the latest PyPI version
+```
 
 ## Troubleshooting
 

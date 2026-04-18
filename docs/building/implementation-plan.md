@@ -628,11 +628,11 @@ dev = [
 12. **Skill** — SKILL.md + install-skill command
 13. **README** — user-facing documentation
 
-### Stage 2 — Polish & Power (future)
+### Stage 2 — Polish & Power (shipped in v0.1.0)
 
 | Component | Description |
 |-----------|-------------|
-| TUI | Interactive dashboard via Textual (`gitstow tui`) |
+| TUI | Interactive dashboard via Textual (`gitstow tui`) — broken, parked in BACKLOG |
 | MCP server | Expose tools to any AI tool via Model Context Protocol |
 | `search` | Grep across all repos |
 | `open` | Open repo in editor/browser/Finder |
@@ -641,6 +641,18 @@ dev = [
 | `export`/`import` | Share collections as portable lists |
 | Shell integration | fzf helpers, shell completions, cd shortcut |
 | GitHub Actions | Automated PyPI publishing on tag |
+
+### Stage 3 — Browser GUI (shipped in v0.2.0 / v0.2.1)
+
+| Component | Description |
+|-----------|-------------|
+| `gitstow serve` | Persistent localhost browser dashboard (FastAPI + Jinja2 + HTMX, dark theme). Core feature, not an extra. `src/gitstow/web/` |
+| Read-only dashboard | Status ledger with auto-refresh every 30s via HTMX; repo detail drawer |
+| Mutations | Add / pull single / pull all (parallel) / remove / delete / freeze / tag — HTMX row swaps, no SPA toolchain |
+| Workspace CRUD + Scan | Add/remove workspaces, scan-and-catalog from the UI |
+| Collection I/O | Export YAML/JSON/URLs, import uploads — under Settings |
+| Shutdown | Footer button POSTs `/shutdown` → flips `uvicorn.Server.should_exit` |
+| `gitstow update` (v0.2.1) | Self-upgrade command — detects pipx/pip/editable and runs the right upgrade; `--check` queries PyPI without installing |
 
 ---
 
