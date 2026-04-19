@@ -646,7 +646,7 @@ dev = [
 
 | Component | Description |
 |-----------|-------------|
-| `gitstow serve` | Persistent localhost browser dashboard (FastAPI + Jinja2 + HTMX, dark theme). Core feature, not an extra. `src/gitstow/web/` |
+| `gitstow ui` | Persistent localhost browser dashboard (FastAPI + Jinja2 + HTMX, dark theme). Core feature, not an extra. `src/gitstow/web/` |
 | Read-only dashboard | Status ledger with auto-refresh every 30s via HTMX; repo detail drawer |
 | Mutations | Add / pull single / pull all (parallel) / remove / delete / freeze / tag — HTMX row swaps, no SPA toolchain |
 | Workspace CRUD + Scan | Add/remove workspaces, scan-and-catalog from the UI |

@@ -163,10 +163,10 @@ This is also done automatically during `gitstow onboard` and auto-updates when y
 ## Prefer a Browser?
 
 ```bash
-gitstow serve
+gitstow ui
 ```
 
-Opens a local dark-themed dashboard at `http://127.0.0.1:7853` — a tab you leave open. Shows dirty state across every repo at a glance, pulls single repos or all-of-them in parallel, adds/removes repos, edits tags. Auto-refreshes every 30 seconds. Click **Shutdown** in the footer (or Ctrl+C) when done. See [commands.md — `gitstow serve`](commands.md#gitstow-serve) for full details.
+Opens a local dark-themed dashboard at `http://127.0.0.1:7853` — a tab you leave open. Shows dirty state across every repo at a glance, pulls single repos or all-of-them in parallel, adds/removes repos, edits tags. Auto-refreshes every 30 seconds. Click **Shutdown** in the footer (or Ctrl+C) when done. See [commands.md — `gitstow ui`](commands.md#gitstow-ui) for full details.
 
 ## Keep gitstow Up to Date
 

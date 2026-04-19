@@ -40,7 +40,7 @@ The codebase has a strict layered architecture:
 cli/     → Thin command layer (Typer). Delegates to core/.
 core/    → Business logic. Git ops, config, repo store, URL parsing.
 tui/     → Textual interactive dashboard.
-web/     → FastAPI + Jinja2 + HTMX browser dashboard (`gitstow serve`).
+web/     → FastAPI + Jinja2 + HTMX browser dashboard (`gitstow ui`).
 skill/   → Claude Code skill (SKILL.md).
 mcp/     → MCP server for non-Claude-Code AI tools.
 ```

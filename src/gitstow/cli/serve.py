@@ -1,4 +1,4 @@
-"""gitstow serve — launch the local web dashboard."""
+"""gitstow ui — launch the local web dashboard."""
 
 from __future__ import annotations
 
@@ -9,13 +9,13 @@ console = Console()
 err_console = Console(stderr=True)
 
 
-def serve(
+def ui(
     port: int = typer.Option(7853, "--port", "-p", help="Port to bind."),
     no_browser: bool = typer.Option(
         False, "--no-browser", help="Don't auto-open a browser window."
     ),
 ) -> None:
-    """[bold cyan]serve[/bold cyan] — launch the gitstow web dashboard.
+    """[bold cyan]ui[/bold cyan] — launch the gitstow web dashboard.
 
     Runs a localhost-only HTTP server at [bold]http://127.0.0.1:PORT[/bold].
     Press [bold]Ctrl+C[/bold] to stop, or click [bold]Shutdown[/bold] in
@@ -41,7 +41,7 @@ def serve(
         if "Address already in use" in str(exc) or "address already in use" in str(exc).lower():
             err_console.print(
                 f"[red]Error:[/red] Port {port} is already in use.\n"
-                f"Try another port: [bold]gitstow serve --port {port + 1}[/bold]"
+                f"Try another port: [bold]gitstow ui --port {port + 1}[/bold]"
             )
             raise typer.Exit(code=1)
         raise

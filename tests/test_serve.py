@@ -1,4 +1,4 @@
-"""Smoke tests for gitstow serve (FastAPI app).
+"""Smoke tests for gitstow ui (FastAPI app).
 
 Isolates gitstow's on-disk state (config.yaml, repos.yaml) by redirecting
 the module-level file paths to tmp. Monkeypatches git clone/pull so tests

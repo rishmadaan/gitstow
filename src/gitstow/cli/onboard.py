@@ -150,7 +150,7 @@ def onboard(
         "Quick start:\n"
         "  [cyan]gitstow add owner/repo[/cyan]           Clone a repo\n"
         "  [cyan]gitstow status[/cyan]                   Git status dashboard\n"
-        "  [cyan]gitstow serve[/cyan]                    Local browser dashboard\n"
+        "  [cyan]gitstow ui[/cyan]                       Local browser dashboard\n"
         "  [cyan]gitstow workspace list[/cyan]           See all workspaces\n"
         "  [cyan]gitstow workspace add <path>[/cyan]     Add a new workspace\n\n"
         "AI integration:\n"

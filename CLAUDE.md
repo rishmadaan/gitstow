@@ -41,7 +41,7 @@ src/gitstow/
 ├── tui/          # Textual interactive dashboard
 │   ├── app.py         # Main TUI application
 │   └── __init__.py
-├── web/          # FastAPI browser dashboard (gitstow serve)
+├── web/          # FastAPI browser dashboard (gitstow ui)
 │   ├── server.py          # FastAPI app, uvicorn runner, app.state.server stash
 │   ├── static/app.css     # Dark theme, Bricolage Grotesque + JetBrains Mono
 │   ├── templates/         # Jinja2 — base.html + page templates + partials/
@@ -93,7 +93,7 @@ active:
 **Repo management:** `repo freeze`, `repo unfreeze`, `repo tag`, `repo untag`, `repo tags`, `repo info`
 **Power:** `exec`, `search`, `open`, `stats`
 **Sharing:** `collection export`, `collection import`
-**Shell:** `shell pick`, `shell init`, `shell completions`, `shell setup`, `tui`, `serve`
+**Shell:** `shell pick`, `shell init`, `shell completions`, `shell setup`, `tui`, `ui`
 **Setup:** `onboard`, `config show/set/path/migrate-root`, `doctor`, `install-skill`, `setup-ai`, `update`
 
 ## Development

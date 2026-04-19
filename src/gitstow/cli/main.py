@@ -106,7 +106,7 @@ from gitstow.cli.shell import shell_app  # noqa: E402
 from gitstow.cli.tui import tui_cmd  # noqa: E402
 from gitstow.cli.setup_ai import setup_ai  # noqa: E402
 from gitstow.cli.workspace_cmd import workspace_app  # noqa: E402
-from gitstow.cli.serve import serve  # noqa: E402
+from gitstow.cli.serve import ui  # noqa: E402
 from gitstow.cli.update import update  # noqa: E402
 
 app.command()(add)
@@ -126,7 +126,8 @@ app.add_typer(config_app, name="config")
 app.add_typer(manage_app, name="repo", help="Manage individual repos — freeze, tag, info.")
 app.add_typer(export_app, name="collection", help="Export and import repo collections.")
 app.command("tui")(tui_cmd)
-app.command()(serve)
+app.command()(ui)
+app.command("serve", hidden=True)(ui)
 app.command()(update)
 app.command("setup-ai")(setup_ai)
 app.add_typer(shell_app, name="shell", help="Shell integration — fzf picker, cd helper, setup.")

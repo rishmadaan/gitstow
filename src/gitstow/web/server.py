@@ -1,4 +1,4 @@
-"""FastAPI server entrypoint for `gitstow serve`.
+"""FastAPI server entrypoint for `gitstow ui`.
 
 Binds to 127.0.0.1 only (arbitrary git execution must not be LAN-reachable).
 Stashes the uvicorn.Server instance on app.state.server so the /shutdown

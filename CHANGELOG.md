@@ -4,6 +4,13 @@ All notable changes to gitstow will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.4] - 2026-04-19
+
+### Changed
+
+- **Renamed `gitstow serve` → `gitstow ui`** — more intuitive command name for the browser dashboard. `gitstow serve` remains as a hidden alias for backwards compatibility.
+- **Removed `WEB_GUI_PLAN.md`** — shipped planning artifact retired; git history preserves it.
+
 ## [0.2.3] - 2026-04-18
 
 ### Fixed
@@ -22,7 +29,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **Dashboard tooltips everywhere.** Every interactive element now has a `title=` explaining what it does or what its state means — status pills (with the recommended next step), delta badges, workspace chips, tags, last-pull, Pull button (text varies by repo state), the `⋯` menu and each of its items, action-bar buttons, column headers, the nav links, the live dot, the Shutdown button, the lock icon. Hover over anything.
 - **Pull button now shows the commit count when behind.** `↓ Pull 5` instead of just `Pull` — the action's payload is visible at a glance without hover.
 - **"Reading the dashboard" help dialog.** New `?` button in the hero opens a native `<dialog>` modal with: statuses + what each means + what to do, the Pull button color convention, what Remote Δ reflects (last fetch, not live remote), what auto-refresh actually does (local state only; does NOT run `git fetch`), and a reference for every action. Click the backdrop or press Esc to close.
-- Matching `docs/user/commands.md` "Reading the dashboard" subsection under `gitstow serve` so the legend exists in prose too, not only in the UI.
+- Matching `docs/user/commands.md` "Reading the dashboard" subsection under `gitstow ui` so the legend exists in prose too, not only in the UI.
 
 ### Changed
 
@@ -43,7 +50,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Added
 
-- **`gitstow serve`** — a persistent local browser dashboard for daily repo management. Launches a FastAPI + Jinja2 + HTMX server at `http://127.0.0.1:7853` and auto-opens your default browser. Dark theme (Bricolage Grotesque display, JetBrains Mono data) with ember-orange primary accent and signal-blue secondary.
+- **`gitstow ui`** — a persistent local browser dashboard for daily repo management. Launches a FastAPI + Jinja2 + HTMX server at `http://127.0.0.1:7853` and auto-opens your default browser. Dark theme (Bricolage Grotesque display, JetBrains Mono data) with ember-orange primary accent and signal-blue secondary.
   - **Dashboard** — ledger view of every tracked repo: colored-dot status (clean / dirty / conflict / behind / ahead / frozen), workspace chip, branch, remote delta, tags, last-pull time. Hero metrics strip summarizes counts. Hover reveals an accent indicator line on the row's left edge.
   - **Pull** — single-repo pull with HTMX row swap in place; **Pull all** runs every non-frozen repo in parallel via the existing `core.parallel` semaphore and renders a summary panel (`N ok · N failed · N skipped`) with per-repo failure details.
   - **Add repo** — form with URL parser, workspace selector, and optional tags; merges workspace auto-tags on clone.
@@ -63,13 +70,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Security
 
-- `gitstow serve` binds `127.0.0.1` only. There is no `--host` flag — arbitrary git execution must not be LAN-reachable.
+- `gitstow ui` binds `127.0.0.1` only. There is no `--host` flag — arbitrary git execution must not be LAN-reachable.
 - All mutations are POST; `/shutdown` is POST so stray links can't terminate the server.
 - Registry + disk delete resolves the repo path and verifies it lives under the workspace root before `rmtree`.
 
 ### Deferred
 
-- The Textual TUI has multiple breakages and is parked in [BACKLOG.md](BACKLOG.md); `gitstow serve` is the primary visual dashboard now. TUI remains for the eventual SSH / remote use case.
+- The Textual TUI has multiple breakages and is parked in [BACKLOG.md](BACKLOG.md); `gitstow ui` is the primary visual dashboard now. TUI remains for the eventual SSH / remote use case.
 - Web GUI is intentionally single-user + localhost-only. Auth, multi-user, HTTPS, remote access, and daemonization are explicitly out of scope for v0.2.
 
 ## [0.1.0] - 2026-04-10

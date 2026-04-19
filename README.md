@@ -34,7 +34,7 @@ gitstow pull
 gitstow list
 ```
 
-Prefer a GUI? Run `gitstow serve` — a local dark-themed browser dashboard opens automatically. Dirty state, branch deltas, Pull / Pull-all, add / remove / freeze / tag, workspace CRUD, collection export/import — all in one tab you leave open. See [Browser Dashboard](#browser-dashboard).
+Prefer a GUI? Run `gitstow ui` — a local dark-themed browser dashboard opens automatically. Dirty state, branch deltas, Pull / Pull-all, add / remove / freeze / tag, workspace CRUD, collection export/import — all in one tab you leave open. See [Browser Dashboard](#browser-dashboard).
 
 ## Features
 
@@ -137,9 +137,9 @@ gsp                              # gitstow pull shorthand
 
 ### Browser Dashboard
 ```bash
-gitstow serve          # opens http://127.0.0.1:7853 in your browser
-gitstow serve --port 8080
-gitstow serve --no-browser
+gitstow ui             # opens http://127.0.0.1:7853 in your browser
+gitstow ui --port 8080
+gitstow ui --no-browser
 ```
 Persistent local web dashboard for daily repo management — a tab you leave open. Shows dirty state across your library, pulls single repos or all-of-them with a parallel summary panel, adds/removes repos, edits tags, freezes stale ones. Auto-refreshes row status every 30 seconds. Binds `127.0.0.1` only (arbitrary git execution must not be LAN-reachable). Click **Shutdown** in the footer — or Ctrl+C — to stop.
 
@@ -193,7 +193,7 @@ gitstow status --json
 | `gitstow shell pick` | fzf-powered repo picker |
 | `gitstow shell completions` | Tab completion for repo names, workspaces, tags |
 | `gitstow tui` | Interactive terminal dashboard |
-| `gitstow serve` | Launch local browser dashboard (http://127.0.0.1:7853) |
+| `gitstow ui` | Launch local browser dashboard (http://127.0.0.1:7853) |
 | `gitstow update` | Upgrade gitstow itself from PyPI (detects pipx / pip / editable) |
 | `gitstow update --check` | Check PyPI for a newer version without installing |
 | **Config** | |

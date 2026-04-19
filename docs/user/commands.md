@@ -488,14 +488,14 @@ Keyboard shortcuts:
 - `/` — Focus filter input
 - `q` — Quit
 
-### `gitstow serve`
+### `gitstow ui`
 
 Launch a local browser dashboard — a dark-themed web UI for daily repo management. Binds to `127.0.0.1` only; auto-opens your default browser.
 
 ```bash
-gitstow serve                  # http://127.0.0.1:7853
-gitstow serve --port 8080      # custom port
-gitstow serve --no-browser     # don't auto-open
+gitstow ui                     # http://127.0.0.1:7853
+gitstow ui --port 8080         # custom port
+gitstow ui --no-browser        # don't auto-open
 ```
 
 **Features:**
