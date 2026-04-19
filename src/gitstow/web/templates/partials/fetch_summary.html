@@ -1,14 +1,15 @@
 <article id="pull-summary" class="summary-panel">
+  {# Auto-refresh table rows so updated deltas are visible immediately #}
+  <div hx-get="/dashboard/rows"
+       hx-target="tbody"
+       hx-swap="innerHTML"
+       hx-trigger="load delay:300ms"
+       style="display:none"></div>
   <header class="panel-head">
     <div>
       <strong>Fetch all — complete</strong>
       <small style="margin-left: 0.6rem; font-family: 'JetBrains Mono', monospace; color: var(--muted);">{{ summary.total }} processed</small>
     </div>
-    <button class="btn btn-ghost btn-sm"
-            hx-get="/"
-            hx-select="main"
-            hx-target="main"
-            hx-swap="outerHTML">↻ Refresh rows</button>
   </header>
   <div class="stats">
     {% if summary.ok %}<span class="status status-clean"><span class="dot"></span>{{ summary.ok }} fetched</span>{% endif %}
