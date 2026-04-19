@@ -14,7 +14,7 @@
     {% if summary.ok %}<span class="status status-clean"><span class="dot"></span>{{ summary.ok }} ok</span>{% endif %}
     {% if summary.failed %}<span class="status status-conflict"><span class="dot"></span>{{ summary.failed|length }} failed</span>{% endif %}
     {% if summary.skipped_frozen %}<span class="status status-frozen"><span class="dot"></span>{{ summary.skipped_frozen }} frozen</span>{% endif %}
-    {% if summary.skipped_missing %}<span class="status status-conflict"><span class="dot"></span>{{ summary.skipped_missing }} missing</span>{% endif %}
+    {% if summary.missing %}<span class="status status-conflict"><span class="dot"></span>{{ summary.missing|length }} missing</span>{% endif %}
   </div>
   {% if summary.failed %}
   <details style="margin-top: 0.85rem;">
@@ -22,6 +22,16 @@
     <ul style="margin: 0.5rem 0 0; padding-left: 1.2rem; color: var(--text-soft); font-size: 0.86rem;">
       {% for f in summary.failed %}
       <li><code>{{ f.key }}</code> — {{ f.error }}</li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% endif %}
+  {% if summary.missing %}
+  <details style="margin-top: 0.85rem;">
+    <summary>View missing ({{ summary.missing|length }})</summary>
+    <ul style="margin: 0.5rem 0 0; padding-left: 1.2rem; color: var(--text-soft); font-size: 0.86rem;">
+      {% for m in summary.missing %}
+      <li><code>{{ m.key }}</code> — {{ m.reason }}</li>
       {% endfor %}
     </ul>
   </details>

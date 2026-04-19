@@ -159,18 +159,21 @@ async def pull_all(request: Request):
     # Build targets — skip frozen repos + missing directories
     targets: list[tuple[str, str]] = []  # (global_key, repo_path)
     skipped_frozen = 0
-    skipped_missing = 0
+    missing: list[dict] = []
     for repo in store.list_all():
         if repo.frozen:
             skipped_frozen += 1
             continue
         ws = ws_by_label.get(repo.workspace)
         if ws is None:
-            skipped_missing += 1
+            missing.append({"key": repo.global_key, "reason": "workspace not found"})
             continue
         path = repo.get_path(ws.get_path())
-        if not path.exists() or not is_git_repo(path):
-            skipped_missing += 1
+        if not path.exists():
+            missing.append({"key": repo.global_key, "reason": "directory not found on disk"})
+            continue
+        if not is_git_repo(path):
+            missing.append({"key": repo.global_key, "reason": "not a git repo"})
             continue
         targets.append((repo.global_key, path))
 
@@ -198,7 +201,7 @@ async def pull_all(request: Request):
         "ok": ok,
         "failed": failed,
         "skipped_frozen": skipped_frozen,
-        "skipped_missing": skipped_missing,
+        "missing": missing,
     }
     return render(request, "partials/pull_summary.html", summary=summary)
 
@@ -212,15 +215,18 @@ async def fetch_all(request: Request):
 
     # Build targets — include frozen repos (fetch is non-destructive)
     targets: list[tuple[str, str]] = []
-    skipped_missing = 0
+    missing: list[dict] = []
     for repo in store.list_all():
         ws = ws_by_label.get(repo.workspace)
         if ws is None:
-            skipped_missing += 1
+            missing.append({"key": repo.global_key, "reason": "workspace not found"})
             continue
         path = repo.get_path(ws.get_path())
-        if not path.exists() or not is_git_repo(path):
-            skipped_missing += 1
+        if not path.exists():
+            missing.append({"key": repo.global_key, "reason": "directory not found on disk"})
+            continue
+        if not is_git_repo(path):
+            missing.append({"key": repo.global_key, "reason": "not a git repo"})
             continue
         targets.append((repo.global_key, path))
 
@@ -244,7 +250,7 @@ async def fetch_all(request: Request):
         "total": len(targets),
         "ok": ok,
         "failed": failed,
-        "skipped_missing": skipped_missing,
+        "missing": missing,
     }
     return render(request, "partials/fetch_summary.html", summary=summary)
 
