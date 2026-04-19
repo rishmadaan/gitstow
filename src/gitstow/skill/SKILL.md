@@ -95,6 +95,9 @@ For commands shown to the user to run themselves, use the human-readable form (n
 | Run setup wizard | `gitstow onboard` |
 | Health check | `gitstow doctor` |
 | Shell completions | `gitstow shell completions` |
+| Fetch all remotes | `gitstow fetch` (updates ahead/behind without merging) |
+| Fetch one workspace | `gitstow -w oss fetch` |
+| Fetch repos by tag | `gitstow fetch --tag active` |
 | Launch browser dashboard | `gitstow ui` (the user's preferred visual surface) |
 | Upgrade gitstow itself | `gitstow update` (or `gitstow update --check` to just query PyPI) |
 

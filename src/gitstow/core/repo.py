@@ -27,6 +27,7 @@ class Repo:
     tags: list[str] = field(default_factory=list)
     added: str = ""         # ISO date (YYYY-MM-DD)
     last_pulled: str = ""   # ISO datetime
+    last_fetched: str = ""  # ISO datetime
 
     @property
     def key(self) -> str:
@@ -54,6 +55,7 @@ class Repo:
             "tags": self.tags,
             "added": self.added,
             "last_pulled": self.last_pulled,
+            "last_fetched": self.last_fetched,
         }
 
     @classmethod
@@ -71,6 +73,7 @@ class Repo:
             tags=data.get("tags", []),
             added=data.get("added", ""),
             last_pulled=data.get("last_pulled", ""),
+            last_fetched=data.get("last_fetched", ""),
         )
 
 

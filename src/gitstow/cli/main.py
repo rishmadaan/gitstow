@@ -86,6 +86,7 @@ def main(
 # --- Register Stage 1 commands ---
 from gitstow.cli.add import add  # noqa: E402
 from gitstow.cli.pull import pull  # noqa: E402
+from gitstow.cli.fetch import fetch  # noqa: E402
 from gitstow.cli.list_cmd import list_repos  # noqa: E402
 from gitstow.cli.status import status  # noqa: E402
 from gitstow.cli.remove import remove  # noqa: E402
@@ -111,6 +112,7 @@ from gitstow.cli.update import update  # noqa: E402
 
 app.command()(add)
 app.command()(pull)
+app.command()(fetch)
 app.command("list")(list_repos)
 app.command()(status)
 app.command()(remove)

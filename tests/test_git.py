@@ -6,6 +6,7 @@ from pathlib import Path
 
 from gitstow.core.git import (
     clone,
+    fetch,
     get_status,
     is_git_installed,
     is_git_repo,
@@ -134,6 +135,45 @@ class TestPull:
         result = pull(Path("/tmp/repo"))
         assert result.success is False
         assert "timed out" in result.error.lower()
+
+
+class TestFetch:
+    @patch("gitstow.core.git._run_git")
+    def test_fetch_success(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="",
+            stderr="Fetching origin\n",
+        )
+        result = fetch(Path("/tmp/repo"))
+        assert result.success is True
+
+    @patch("gitstow.core.git._run_git")
+    def test_fetch_failure(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=128,
+            stdout="",
+            stderr="fatal: could not read from remote",
+        )
+        result = fetch(Path("/tmp/repo"))
+        assert result.success is False
+        assert "could not read" in result.error
+
+    @patch("gitstow.core.git._run_git")
+    def test_fetch_timeout(self, mock_run):
+        import subprocess
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=120)
+        result = fetch(Path("/tmp/repo"))
+        assert result.success is False
+        assert "timed out" in result.error.lower()
+
+    @patch("gitstow.core.git._run_git")
+    def test_fetch_uses_all_and_prune(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        fetch(Path("/tmp/repo"))
+        args = mock_run.call_args[0][0]
+        assert "--all" in args
+        assert "--prune" in args
 
 
 class TestGetStatus:

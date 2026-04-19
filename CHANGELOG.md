@@ -4,6 +4,16 @@ All notable changes to gitstow will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.5] - 2026-04-19
+
+### Added
+
+- **`gitstow fetch`** — new CLI command to fetch all remotes without merging. Updates ahead/behind counts. Includes frozen repos (fetch is non-destructive). Supports `--tag`, `--exclude-tag`, `--owner`, `--retry`, `--json`, `--quiet` flags.
+- **Web dashboard — Fetch all button.** New `btn-outline` button in the action bar between Refresh and Add repo. Fetches all remotes in parallel (including frozen repos), then shows a summary panel. No confirmation needed — fetch is non-destructive.
+- **Web dashboard — single-repo Fetch.** New "Fetch" action in each row's three-dot menu. Updates that row's ahead/behind counts in place via HTMX.
+- **`last_fetched` timestamp** tracked per repo in `repos.yaml`. Stamped on successful fetch operations. Backward-compatible — existing repos default to empty.
+- Updated help dialog and tooltips to reference Fetch all instead of "fetch manually."
+
 ## [0.2.4] - 2026-04-19
 
 ### Changed

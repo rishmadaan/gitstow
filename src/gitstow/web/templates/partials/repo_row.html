@@ -33,6 +33,12 @@
       <div class="menu-pop">
         <a href="/repo/{{ repo.workspace }}/{{ repo.key }}" title="Open the repo detail page">View details</a>
         <button type="button"
+                title="Fetch this repo's remotes — updates ahead/behind without merging"
+                hx-post="/repos/{{ repo.workspace }}/{{ repo.key }}/fetch"
+                hx-target="closest tr"
+                hx-swap="outerHTML"
+                hx-disabled-elt="this">Fetch</button>
+        <button type="button"
                 title="Reveal this repo in your file manager"
                 hx-post="/repos/{{ repo.workspace }}/{{ repo.key }}/open-folder"
                 hx-swap="none"

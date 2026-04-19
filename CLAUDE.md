@@ -86,9 +86,9 @@ active:
     tags: [active]
 ```
 
-## All Commands (31)
+## All Commands (32)
 
-**Core:** `add`, `pull`, `list`, `status`, `remove`, `migrate`
+**Core:** `add`, `pull`, `fetch`, `list`, `status`, `remove`, `migrate`
 **Workspace:** `workspace list`, `workspace add`, `workspace remove`, `workspace scan`
 **Repo management:** `repo freeze`, `repo unfreeze`, `repo tag`, `repo untag`, `repo tags`, `repo info`
 **Power:** `exec`, `search`, `open`, `stats`

@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from gitstow.core.config import Settings, Workspace, save_config
-from gitstow.core.git import PullResult, RepoStatus
+from gitstow.core.git import FetchResult, PullResult, RepoStatus
 from gitstow.core.repo import Repo, RepoStore
 from gitstow.web.server import create_app
 
@@ -180,6 +180,62 @@ class TestPull:
         r = client.post("/repos/pull-all")
         assert r.status_code == 200
         assert "Pull all" in r.text
+
+
+# ---------- fetch ----------
+
+
+class TestFetch:
+    def test_fetch_missing(self, client, configured):
+        r = client.post("/repos/test-ws/no/such/fetch")
+        assert r.status_code == 404
+
+    def test_fetch_single_mocked(self, client, configured, workspace_dir, monkeypatch):
+        _make_repo_on_disk(workspace_dir, "acme", "widget")
+        RepoStore().add(Repo(
+            owner="acme", name="widget",
+            remote_url="https://example/acme/widget.git",
+            workspace="test-ws",
+        ))
+
+        monkeypatch.setattr(
+            "gitstow.web.routes.repos.git_fetch",
+            lambda p: FetchResult(success=True, output=""),
+        )
+        monkeypatch.setattr(
+            "gitstow.web.routes.repos.get_status",
+            lambda p: _fake_status(branch="main"),
+        )
+
+        r = client.post("/repos/test-ws/acme/widget/fetch")
+        assert r.status_code == 200
+        assert "<tr" in r.text
+        assert "acme/widget" in r.text
+
+    def test_fetch_all_empty(self, client, configured):
+        r = client.post("/repos/fetch-all")
+        assert r.status_code == 200
+        assert "Fetch all" in r.text
+
+    def test_fetch_all_includes_frozen(self, client, configured, workspace_dir, monkeypatch):
+        """Frozen repos should NOT be skipped by fetch-all."""
+        _make_repo_on_disk(workspace_dir, "acme", "frozen-repo")
+        RepoStore().add(Repo(
+            owner="acme", name="frozen-repo",
+            remote_url="https://example/acme/frozen-repo.git",
+            workspace="test-ws",
+            frozen=True,
+        ))
+
+        monkeypatch.setattr(
+            "gitstow.web.routes.repos.git_fetch",
+            lambda p: FetchResult(success=True, output=""),
+        )
+
+        r = client.post("/repos/fetch-all")
+        assert r.status_code == 200
+        assert "fetched" in r.text.lower()
+        assert "frozen" not in r.text.lower()
 
 
 # ---------- remove / delete ----------

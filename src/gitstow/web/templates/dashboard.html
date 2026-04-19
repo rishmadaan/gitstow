@@ -42,6 +42,12 @@
             hx-select="main"
             hx-target="main"
             hx-swap="outerHTML">↻ Refresh</button>
+    <button class="btn btn-outline btn-sm"
+            title="Fetch all remotes in parallel — updates ahead/behind counts without merging. Includes frozen repos."
+            hx-post="/repos/fetch-all"
+            hx-target="#pull-summary"
+            hx-swap="outerHTML"
+            hx-disabled-elt="this">⟳ Fetch all</button>
     <a href="/add" class="btn btn-outline btn-sm" title="Clone a new repo into a workspace">+ Add repo</a>
     <button class="btn btn-primary btn-sm"
             title="Pull every non-frozen repo in parallel. Shows a summary panel with per-repo results."
@@ -138,7 +144,7 @@
 
       <section class="section">
         <h4>The Remote Δ column</h4>
-        <p>Ahead (<code>↑ N</code>), behind (<code>↓ N</code>), or even (<code>—</code>) relative to upstream. <strong>These counts reflect your last <code>git fetch</code>, not live remote state.</strong> If you haven't fetched in a while, the numbers are stale. Pulling updates them.</p>
+        <p>Ahead (<code>↑ N</code>), behind (<code>↓ N</code>), or even (<code>—</code>) relative to upstream. <strong>These counts reflect your last <code>git fetch</code>, not live remote state.</strong> Click <strong>Fetch all</strong> to refresh them without merging, or <strong>Pull all</strong> to fetch and merge.</p>
       </section>
 
       <section class="section">
@@ -148,14 +154,15 @@
           <li>New repos added via the CLI (<code>gitstow add</code> in another terminal)</li>
           <li>Local commits, branch switches, dirty files you just edited</li>
         </ul>
-        <p style="margin-top: 0.75rem;">It does <strong>NOT</strong> run <code>git fetch</code> — so "behind" and "ahead" counts won't update unless you pull (or fetch manually).</p>
+        <p style="margin-top: 0.75rem;">It does <strong>NOT</strong> run <code>git fetch</code> — so "behind" and "ahead" counts won't update unless you use <strong>Fetch all</strong> or <strong>Pull all</strong>.</p>
       </section>
 
       <section class="section">
         <h4>Actions</h4>
         <dl class="help-grid">
           <dt>Pull</dt><dd>Pull from remote (fast-forward only).</dd>
-          <dt>↓ Pull all</dt><dd>Pull every non-frozen repo in parallel. Results summary appears above the table.</dd>
+          <dt>↓ Pull all</dt><dd>Pull every non-frozen repo in parallel. Automatically fetches first, then merges.</dd>
+          <dt>⟳ Fetch all</dt><dd>Fetch all remotes in parallel — updates ahead/behind counts without merging. Includes frozen repos.</dd>
           <dt>+ Add repo</dt><dd>Clone a new repo into a workspace.</dd>
           <dt>↻ Refresh</dt><dd>Re-read local state now (same as the 30-second auto).</dd>
           <dt>Hide frozen</dt><dd>Collapse rows for frozen repos.</dd>

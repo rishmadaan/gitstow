@@ -193,6 +193,7 @@ gitstow status --json
 | `gitstow shell pick` | fzf-powered repo picker |
 | `gitstow shell completions` | Tab completion for repo names, workspaces, tags |
 | `gitstow tui` | Interactive terminal dashboard |
+| `gitstow fetch` | Fetch all remotes — update ahead/behind counts without merging |
 | `gitstow ui` | Launch local browser dashboard (http://127.0.0.1:7853) |
 | `gitstow update` | Upgrade gitstow itself from PyPI (detects pipx / pip / editable) |
 | `gitstow update --check` | Check PyPI for a newer version without installing |

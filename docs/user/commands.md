@@ -139,6 +139,50 @@ gitstow pull --include-frozen
 
 ---
 
+### `gitstow fetch`
+
+Fetch from all remotes — updates ahead/behind counts without merging.
+
+```bash
+gitstow fetch [repos...] [flags]
+```
+
+**Arguments:**
+- `repos` — Optional. Specific repos to fetch. Omit for all.
+
+**Flags:**
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--tag` | `-t` | Only fetch repos with this tag. Repeatable. |
+| `--exclude-tag` | | Skip repos with this tag. Repeatable. |
+| `--owner` | | Only fetch repos from this owner. |
+| `--retry` | | Retry failed repos N times. |
+| `--json` | `-j` | JSON output. |
+| `--quiet` | `-q` | Suppress per-repo progress. |
+
+**Examples:**
+
+```bash
+# Fetch everything (including frozen repos)
+gitstow fetch
+
+# Only repos tagged 'active'
+gitstow fetch --tag active
+
+# Specific repos
+gitstow fetch anthropic/claude-code
+```
+
+**Behavior:**
+- Frozen repos are included (fetch is non-destructive)
+- Dirty repos are included (fetch doesn't touch the working tree)
+- Runs `git fetch --all --prune` per repo
+- Runs in parallel (configurable, default 6 concurrent)
+- Updates `last_fetched` timestamp on success
+
+---
+
 ### `gitstow list`
 
 Show all tracked repos, grouped by owner.

@@ -16,7 +16,7 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from gitstow.core.config import load_config
-from gitstow.core.git import clone as git_clone, get_status, is_git_repo, pull as git_pull
+from gitstow.core.git import clone as git_clone, fetch as git_fetch, get_status, is_git_repo, pull as git_pull
 from gitstow.core.parallel import run_parallel
 from gitstow.core.repo import Repo, RepoStore
 from gitstow.core.url_parser import parse_git_url
@@ -117,6 +117,39 @@ async def pull_single(workspace: str, key: str, request: Request):
     return render(request, "partials/repo_row.html", repo=ctx)
 
 
+@router.post("/repos/{workspace}/{key:path}/fetch", response_class=HTMLResponse)
+async def fetch_single(workspace: str, key: str, request: Request):
+    """Fetch a single repo's remotes — non-destructive, updates tracking branches."""
+    settings = load_config()
+    store = RepoStore()
+    ws = settings.get_workspace(workspace)
+    if ws is None:
+        raise HTTPException(status_code=404, detail="workspace not found")
+    repo = store.get(key, workspace=workspace)
+    if repo is None:
+        raise HTTPException(status_code=404, detail="repo not found")
+
+    repo_path = repo.get_path(ws.get_path())
+    if not repo_path.exists() or not is_git_repo(repo_path):
+        raise HTTPException(status_code=404, detail="repo directory missing")
+
+    result = await asyncio.to_thread(git_fetch, repo_path)
+
+    if result.success:
+        now_iso = datetime.now().isoformat(timespec="seconds")
+        store.update(repo.key, workspace=repo.workspace, last_fetched=now_iso)
+        repo = store.get(key, workspace=workspace)
+
+    all_repos = store.list_all()
+    num = next(
+        (i + 1 for i, r in enumerate(all_repos) if r.global_key == repo.global_key),
+        0,
+    )
+    sorted_labels = sorted(w.label for w in settings.get_workspaces())
+    ctx = _row_context(repo, settings, sorted_labels, num)
+    return render(request, "partials/repo_row.html", repo=ctx)
+
+
 @router.post("/repos/pull-all", response_class=HTMLResponse)
 async def pull_all(request: Request):
     settings = load_config()
@@ -168,6 +201,52 @@ async def pull_all(request: Request):
         "skipped_missing": skipped_missing,
     }
     return render(request, "partials/pull_summary.html", summary=summary)
+
+
+@router.post("/repos/fetch-all", response_class=HTMLResponse)
+async def fetch_all(request: Request):
+    """Fetch all remotes in parallel — non-destructive, includes frozen repos."""
+    settings = load_config()
+    store = RepoStore()
+    ws_by_label = {w.label: w for w in settings.get_workspaces()}
+
+    # Build targets — include frozen repos (fetch is non-destructive)
+    targets: list[tuple[str, str]] = []
+    skipped_missing = 0
+    for repo in store.list_all():
+        ws = ws_by_label.get(repo.workspace)
+        if ws is None:
+            skipped_missing += 1
+            continue
+        path = repo.get_path(ws.get_path())
+        if not path.exists() or not is_git_repo(path):
+            skipped_missing += 1
+            continue
+        targets.append((repo.global_key, path))
+
+    tasks = [(gk, functools.partial(git_fetch, p)) for gk, p in targets]
+    task_results = await run_parallel(tasks, max_concurrent=settings.parallel_limit)
+
+    now_iso = datetime.now().isoformat(timespec="seconds")
+    ok = 0
+    failed: list[dict] = []
+    for r in task_results:
+        fetch_result = r.data if r.success else None
+        if fetch_result and fetch_result.success:
+            ok += 1
+            ws_label, _, rkey = r.key.partition(":")
+            store.update(rkey, workspace=ws_label, last_fetched=now_iso)
+        else:
+            err = (fetch_result.error if fetch_result else r.error) or "unknown error"
+            failed.append({"key": r.key, "error": err.strip()[:240]})
+
+    summary = {
+        "total": len(targets),
+        "ok": ok,
+        "failed": failed,
+        "skipped_missing": skipped_missing,
+    }
+    return render(request, "partials/fetch_summary.html", summary=summary)
 
 
 def _render_add_form(request, settings, form_values, error):

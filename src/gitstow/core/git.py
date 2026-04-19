@@ -21,6 +21,15 @@ class PullResult:
 
 
 @dataclass
+class FetchResult:
+    """Result of a git fetch operation."""
+
+    success: bool
+    error: str = ""
+    output: str = ""
+
+
+@dataclass
 class RepoStatus:
     """Git status of a repository."""
 
@@ -158,6 +167,28 @@ def pull(repo_path: Path) -> PullResult:
             return PullResult(success=False, error=stderr or output)
     except subprocess.TimeoutExpired:
         return PullResult(success=False, error="Pull timed out (2 minutes)")
+
+
+def fetch(repo_path: Path) -> FetchResult:
+    """Fetch from all remotes.
+
+    Runs ``git fetch --all --prune`` — updates remote-tracking branches
+    without touching the working tree.  Safe to run on frozen or dirty repos.
+
+    Returns FetchResult with success/error status.
+    """
+    try:
+        result = _run_git(["fetch", "--all", "--prune"], cwd=repo_path, timeout=120)
+        output = result.stdout.strip()
+        stderr = result.stderr.strip()
+
+        if result.returncode == 0:
+            # git fetch writes progress to stderr; capture as output
+            return FetchResult(success=True, output=output or stderr)
+        else:
+            return FetchResult(success=False, error=stderr or output)
+    except subprocess.TimeoutExpired:
+        return FetchResult(success=False, error="Fetch timed out (2 minutes)")
 
 
 def get_status(repo_path: Path) -> RepoStatus:

@@ -84,7 +84,7 @@ def _delta(ahead: int, behind: int) -> tuple[str, str, str]:
         return (
             "down",
             f"↑{ahead} ↓{behind}",
-            f"Diverged — {ahead} local commit(s) ahead, {behind} remote commit(s) behind (since last fetch).",
+            f"Diverged — {ahead} local commit(s) ahead, {behind} remote commit(s) behind. Use Fetch all to refresh counts.",
         )
     if ahead:
         return (
@@ -96,9 +96,9 @@ def _delta(ahead: int, behind: int) -> tuple[str, str, str]:
         return (
             "down",
             f"↓ {behind}",
-            f"Behind — {behind} remote commit(s) not yet pulled (reflects last fetch).",
+            f"Behind — {behind} remote commit(s) not yet pulled. Use Fetch all to refresh counts.",
         )
-    return "even", "—", "Even — local and remote upstream in sync (since last fetch)."
+    return "even", "—", "Even — local and remote upstream in sync (since last fetch). Use Fetch all to refresh."
 
 
 def _pull_tooltip(variant: str, status_class: str, behind: int) -> str:
