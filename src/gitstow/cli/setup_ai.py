@@ -93,8 +93,8 @@ def setup_ai(
         if not quiet:
             console.print()
             console.print("  [bold]MCP Server[/bold] (optional, for non-Claude-Code tools)")
-            console.print("  [dim]Warning: MCP tools are always loaded into context,")
-            console.print("  costing tokens even when you're not managing repos.[/dim]")
+            console.print("  [dim]Warning: MCP tools are always loaded into context,[/dim]")
+            console.print("  [dim]costing tokens even when you're not managing repos.[/dim]")
             console.print("  [dim]The Claude Code skill has zero overhead when inactive.[/dim]")
             console.print()
         for tool in mcp_tools:
@@ -236,8 +236,8 @@ def _setup_ai_integrations(auto: bool = False, quiet: bool = False) -> None:
         console.print()
         console.print("     [bold]MCP server[/bold] (optional)")
         console.print("     The MCP server lets Claude Desktop, Cursor, etc. manage repos.")
-        console.print("     [dim]Note: MCP tools are always loaded into context and use tokens")
-        console.print("     even when you're not managing repos. Best for dedicated setups.[/dim]")
+        console.print("     [dim]Note: MCP tools are always loaded into context and use tokens[/dim]")
+        console.print("     [dim]even when you're not managing repos. Best for dedicated setups.[/dim]")
         console.print("     [dim]You can set this up later with: gitstow setup-ai[/dim]")
         console.print()
 

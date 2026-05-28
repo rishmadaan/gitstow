@@ -86,7 +86,10 @@ def onboard(
 
     # Offer to add more workspaces
     console.print()
-    add_more = bconfirm("     Add another workspace? (e.g., for active projects)", default=False)
+    add_more = bconfirm(
+        "     Add another workspace? (e.g., for active projects)",
+        default_is_yes=False,
+    )
     while add_more:
         extra_ws = _setup_workspace(
             default_path="",
@@ -95,7 +98,7 @@ def onboard(
         )
         if extra_ws:
             settings.workspaces.append(extra_ws)
-        add_more = bconfirm("     Add another workspace?", default=False)
+        add_more = bconfirm("     Add another workspace?", default_is_yes=False)
 
     # 2. Default host
     console.print("\n  [bold]2. Default Git host[/bold] (used when you type 'owner/repo')")
@@ -117,7 +120,7 @@ def onboard(
     # 3. SSH preference
     console.print("  [bold]3. Clone protocol preference[/bold]")
     console.print()
-    prefer_ssh = bconfirm("     Prefer SSH over HTTPS?", default=False)
+    prefer_ssh = bconfirm("     Prefer SSH over HTTPS?", default_is_yes=False)
     settings.prefer_ssh = prefer_ssh if prefer_ssh is not None else False
     proto = "SSH" if settings.prefer_ssh else "HTTPS"
     console.print(f"     → {proto}\n")
@@ -131,7 +134,7 @@ def onboard(
     for ws in settings.workspaces:
         ws_path = ws.get_path()
         if not ws_path.exists():
-            create = bconfirm(f"     Create {ws_path}?", default=True)
+            create = bconfirm(f"     Create {ws_path}?", default_is_yes=True)
             if create:
                 ws_path.mkdir(parents=True, exist_ok=True)
                 console.print(f"  [green]✓[/green] Created {ws_path}")
@@ -217,7 +220,7 @@ def _scan_workspace_repos(ws: Workspace) -> None:
         console.print(f"       {dr.key}  [dim]({remote_short})[/dim]")
 
     console.print()
-    register = bconfirm(f"     Register all {len(new_repos)} repos?", default=True)
+    register = bconfirm(f"     Register all {len(new_repos)} repos?", default_is_yes=True)
 
     if register:
         for dr in new_repos:

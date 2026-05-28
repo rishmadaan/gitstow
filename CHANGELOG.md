@@ -4,6 +4,13 @@ All notable changes to gitstow will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.7] - 2026-05-28
+
+### Fixed
+
+- **`gitstow onboard`** now uses Beaupy's `default_is_yes` confirmation parameter, fixing first-run setup crashes on confirmation prompts.
+- **AI integration setup** now renders MCP warning text with balanced Rich markup during onboarding and `gitstow setup-ai`.
+
 ## [0.2.5] - 2026-04-19
 
 ### Added
