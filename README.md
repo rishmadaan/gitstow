@@ -275,6 +275,15 @@ pytest
 ruff check src/
 ```
 
+Release from a `main` branch with no tracked changes:
+
+```bash
+bash scripts/release.sh 0.2.6 "short release note"
+```
+
+The script bumps `pyproject.toml` and `src/gitstow/__init__.py`, commits the bump,
+creates `vX.Y.Z`, and pushes the commit plus tag. Pushing the tag publishes to PyPI.
+
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
 
 ## License

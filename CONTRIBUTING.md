@@ -68,6 +68,17 @@ See `CLAUDE.md` for a detailed architecture guide.
 - The Claude Code skill auto-updates when the version changes (checked on every CLI invocation)
 - Follow [Semantic Versioning](https://semver.org/): breaking.feature.fix
 
+Release from a `main` branch with no tracked changes:
+
+```bash
+bash scripts/release.sh 0.2.6 "short release note"
+```
+
+The release script updates both version files, commits the bump, creates `vX.Y.Z`,
+and pushes the commit plus tag. The `Publish to PyPI` workflow runs on pushed `v*`
+tags and verifies the tag, `pyproject.toml`, and `src/gitstow/__init__.py` versions
+match before publishing.
+
 ## What to Work On
 
 - Check [open issues](https://github.com/rishmadaan/gitstow/issues) for things to pick up
