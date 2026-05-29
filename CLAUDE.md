@@ -119,6 +119,15 @@ pip install -e ".[tui]"   # For TUI development
 - Repo.global_key (`workspace:key`) for unique identification across workspaces
 - Legacy format auto-migration (flat repos.yaml → nested, root_path → workspaces)
 
+## Product & Implementation Standards
+
+- Prefer proper long-term solutions over shortcut patches. If a feature is incomplete in one surface, build the feature into that surface instead of papering over it with wording, partial conditionals, or one-off display logic.
+- Do not recommend quick fixes, temporary patches, or narrow workarounds unless the user explicitly asks for a shortcut.
+- Keep CLI, TUI, web dashboard, JSON output, docs, and tests semantically aligned when changing user-facing status behavior.
+- For repo state presentation, avoid using "dirty" as a broad user-facing bucket for every local change. Present it as local/uncommitted changes with the composition visible: modified, staged, and untracked counts.
+- Keep local working-tree state separate from remote relationship state. For example: local changes, clean, ahead, behind, diverged, frozen, missing.
+- When improving the web dashboard, implement the actual missing dashboard feature and shared classification/model behavior instead of copying a CLI-only assumption into the template.
+
 ## AI Integration
 
 **Primary: Claude Code skill** (`src/gitstow/skill/SKILL.md`)
