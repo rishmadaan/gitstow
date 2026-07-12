@@ -123,10 +123,8 @@ def config_path() -> None:
 
 @config_app.command("migrate-root")
 def config_migrate_root(
+    ctx: typer.Context,
     new_root: str = typer.Argument(help="New directory for the workspace's repos."),
-    workspace: str = typer.Option(
-        None, "--workspace", "-w", help="Workspace to migrate (default: first workspace).",
-    ),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation."),
     copy: bool = typer.Option(False, "--copy", help="Copy instead of move (keeps old root)."),
 ) -> None:
@@ -135,7 +133,7 @@ def config_migrate_root(
     \b
     Examples:
       gitstow config migrate-root ~/new-location            # default workspace
-      gitstow config migrate-root ~/new-location -w active  # specific workspace
+      gitstow -w active config migrate-root ~/new-location  # specific workspace
     """
     import shutil
     from pathlib import Path
@@ -149,7 +147,7 @@ def config_migrate_root(
     if not settings.workspaces:
         settings.workspaces = settings.get_workspaces()
 
-    ws_label = workspace or settings.get_default_workspace().label
+    ws_label = (ctx.obj or {}).get("workspace") or settings.get_default_workspace().label
     ws = settings.get_workspace(ws_label)
     if ws is None:
         labels = ", ".join(w.label for w in settings.get_workspaces())

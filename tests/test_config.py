@@ -157,6 +157,36 @@ class TestMigrateRoot:
         reloaded = load_config()
         assert reloaded.get_workspace("oss").get_path() == new_root.resolve()
 
+    def test_migrate_root_honors_global_workspace_flag(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        from gitstow.core.config import Settings, Workspace, save_config, load_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+
+        first = tmp_path / "first"; first.mkdir()
+        second = tmp_path / "second"
+        (second / "proj" / ".git").mkdir(parents=True)
+        save_config(Settings(workspaces=[
+            Workspace(path=str(first), label="first", layout="structured"),
+            Workspace(path=str(second), label="second", layout="flat"),
+        ]))
+        RepoStore(path=repos_file).add(Repo(owner="", name="proj", remote_url="u", workspace="second"))
+
+        new_root = tmp_path / "moved"
+        from gitstow.cli.main import app
+        result = CliRunner().invoke(app, ["-w", "second", "config", "migrate-root", str(new_root), "--yes"])
+
+        assert result.exit_code == 0
+        assert (new_root / "proj" / ".git").exists()
+        reloaded = load_config()
+        assert reloaded.get_workspace("second").get_path() == new_root.resolve()
+        assert reloaded.get_workspace("first").get_path() == first.resolve()  # untouched
+
     def test_config_set_rejects_root_path_without_advertising_it(self):
         from gitstow.cli.config_cmd import config_set
         assert "root_path" not in (config_set.__doc__ or "")
