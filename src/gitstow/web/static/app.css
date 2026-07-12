@@ -416,6 +416,7 @@ select {
 .tag + .tag { margin-left: 0.3rem; }
 
 /* ---------- Ledger table ---------- */
+.filter-empty { color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; padding: 1.2rem 0.5rem; }
 .table-wrap { margin: 1.5rem 0 0; animation: fadeUp 0.5s ease 0.15s both; overflow: visible; }
 table.ledger { width: 100%; border-collapse: collapse; background: transparent; }
 .ledger th {

@@ -566,6 +566,39 @@ class TestCrossOriginProtection:
         assert r.status_code == 200
 
 
+# ---------- dashboard filter wiring ----------
+
+
+class TestFilterWiring:
+    def _seed_one(self, workspace_dir):
+        from gitstow.core.repo import Repo, RepoStore
+
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="u",
+                             workspace="test-ws", tags=["ai", "demo"]))
+
+    def test_rows_carry_filter_data_attributes(self, client, configured, workspace_dir, monkeypatch):
+        self._seed_one(workspace_dir)
+        monkeypatch.setattr("gitstow.web.routes.dashboard.get_status", lambda p: _fake_status())
+        r = client.get("/")
+        assert 'data-key="a/one"' in r.text
+        assert 'data-workspace="test-ws"' in r.text
+        assert 'data-tags="ai demo"' in r.text
+        assert 'data-status="clean"' in r.text
+
+    def test_controls_have_ids_and_script_included(self, client, configured):
+        r = client.get("/")
+        assert 'id="ws-filter"' in r.text
+        assert 'id="repo-search"' in r.text
+        assert 'id="hide-frozen"' in r.text
+        assert "/static/dashboard.js" in r.text
+
+    def test_dashboard_js_served(self, client, configured):
+        r = client.get("/static/dashboard.js")
+        assert r.status_code == 200
+        assert "applyFilters" in r.text
+
+
 # ---------- parallel status gathering ----------
 
 

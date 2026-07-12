@@ -29,12 +29,12 @@
   </section>
 
   <div class="action-bar">
-    <select title="Filter the ledger to one workspace">
-      <option>All workspaces</option>
-      {% for ws in workspaces %}<option>{{ ws.label }}</option>{% endfor %}
+    <select id="ws-filter" title="Show only one workspace's repos">
+      <option value="">All workspaces</option>
+      {% for ws in workspaces %}<option value="{{ ws.label }}">{{ ws.label }}</option>{% endfor %}
     </select>
-    <input type="search" placeholder="Search repos, tags…" title="Filter rows by repo name or tag">
-    <label class="inline" title="Collapse rows for frozen repos"><input type="checkbox"> Hide frozen</label>
+    <input type="search" id="repo-search" placeholder="Search repos, tags…" aria-label="Search repos and tags" title="Filter rows by repo name or tag">
+    <label class="inline" title="Hide rows for frozen repos"><input type="checkbox" id="hide-frozen" aria-label="Hide frozen repos"> Hide frozen</label>
     <div class="spacer"></div>
     <button class="btn btn-ghost btn-sm"
             title="Re-read local state now — re-reads repos.yaml and runs 'git status' on each repo. Does NOT run 'git fetch'."
@@ -83,6 +83,8 @@
       </tbody>
     </table>
   </div>
+
+  <p id="filter-empty" class="filter-empty" hidden>No repos match the current filters.</p>
 
   <small style="display: block; margin-top: 1.2rem; color: var(--muted-soft); font-family: 'JetBrains Mono', monospace; font-size: 0.78rem;">
     auto-refresh 30s · click repo name → details · pull runs in place · <a href="#" onclick="document.getElementById('help-dialog').showModal(); return false;" style="color: var(--muted); text-decoration: underline;">what does this dashboard show?</a>
@@ -179,6 +181,7 @@
 
 {% endblock %}
 {% block body_extra %}
+  <script src="/static/dashboard.js"></script>
   <script>
     document.addEventListener('click', (e) => {
       document.querySelectorAll('details.menu[open]').forEach(d => {
