@@ -264,3 +264,19 @@ class TestFetchJsonPurity:
             result = CliRunner().invoke(app, ["fetch", "--json"])
         payload = json.loads(result.output)  # must be pure JSON — no banners, no progress lines
         assert payload["fetched"] == 1
+
+
+class TestTuiRetired:
+    def test_tui_command_gone(self):
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+
+        result = CliRunner().invoke(app, ["tui"])
+        assert result.exit_code != 0
+
+    def test_help_does_not_mention_tui(self):
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+
+        result = CliRunner().invoke(app, ["--help"])
+        assert "tui" not in result.output.lower()

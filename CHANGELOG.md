@@ -4,6 +4,12 @@ All notable changes to gitstow will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Removed
+
+- **The Textual TUI (`gitstow tui`).** The web dashboard (`gitstow ui`) replaced it as the visual surface in v0.2.0; the TUI had been broken and parked since. Git history preserves it.
+
 ## [0.2.8] - 2026-07-12
 
 ### Fixed

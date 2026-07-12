@@ -517,21 +517,6 @@ Completes:
 - Workspace labels for `-w/--workspace`
 - Tag names for `-t/--tag`
 
-### `gitstow tui`
-
-Interactive terminal dashboard built with [Textual](https://github.com/Textualize/textual). Requires `pip install gitstow[tui]`.
-
-Keyboard shortcuts:
-- `r` — Refresh
-- `p` — Pull all unfrozen repos
-- `P` — Pull selected repo only
-- `f` — Toggle freeze on selected repo
-- `w` — Cycle workspace filter
-- `t` — Cycle tag filter
-- `Enter` — Show repo details
-- `/` — Focus filter input
-- `q` — Quit
-
 ### `gitstow ui`
 
 Launch a local browser dashboard — a dark-themed web UI for daily repo management. Binds to `127.0.0.1` only; auto-opens your default browser.

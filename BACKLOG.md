@@ -11,7 +11,7 @@ Post-v0.1.0 improvements tracked here. See [GitHub Issues](https://github.com/ri
 - [x] **Progress indication during long clones** (#5) — `git clone --progress`; pull shows live counter `[5/47]`
 - [x] **Publish to PyPI** (#6) — Release workflow created (`.github/workflows/release.yml`); publish on GitHub release
 - [x] **Web dashboard (`gitstow ui`)** — Dark local browser UI wrapping core/ for daily repo management. FastAPI + Jinja2 + HTMX, dark + ember accent aesthetic. See [CHANGELOG.md](CHANGELOG.md) v0.2.0.
-- [ ] **Fix TUI breakage** — Multiple issues across the Textual TUI; currently unusable in daily flow. Keep around for SSH/remote use case but triage and repair when time allows.
+- [x] **Fix TUI breakage** — Resolved by retirement: the Textual TUI was removed in v0.3.0; `gitstow ui` (web dashboard) is the visual surface going forward.
 
 ## Documentation
 
