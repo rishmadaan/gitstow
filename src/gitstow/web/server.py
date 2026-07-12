@@ -36,7 +36,7 @@ def _inject_globals(request, context: dict) -> dict:
     return context
 
 
-def render(request, template_name: str, **context) -> object:
+def render(request, template_name: str, status_code: int = 200, **context) -> object:
     """Render a Jinja2 template with standard globals injected.
 
     Starlette>=0.29 expects TemplateResponse(request, name, context) — newer
@@ -44,7 +44,7 @@ def render(request, template_name: str, **context) -> object:
     """
     ctx = _inject_globals(request, context)
     ctx.pop("request", None)
-    return templates.TemplateResponse(request, template_name, ctx)
+    return templates.TemplateResponse(request, template_name, ctx, status_code=status_code)
 
 
 # gitstow ui executes git and deletes directories. Binding to 127.0.0.1 stops
