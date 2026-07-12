@@ -572,7 +572,7 @@ Every interactive element has a hover tooltip. There's also a `?` button in the 
 - **Ghost** (gray) — already up to date, has local changes, or ahead. The button still works; it just won't change anything useful. (Untracked-only local changes still pull fine — a bulk pull only skips modified/staged files.)
 - **Disabled** — frozen, in conflict, diverged from remote, or missing on disk
 
-**Remote Δ** (`↑ N`, `↓ N`, or `—`) reflects your *last fetch*, not live remote state. If the counts look stale, pull (or run `git fetch --all` manually) to refresh them.
+**Remote Δ** (`↑ N`, `↓ N`, or `—`) reflects your *last fetch*, not live remote state. If the counts look stale, pull (or run `git fetch --all` manually) to refresh them. A `local` badge means the repo has no upstream remote — bulk pulls and fetches skip it.
 
 **Auto-refresh every 30s** re-reads local state only:
 

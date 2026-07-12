@@ -91,8 +91,15 @@ def _present(state: RepoState) -> tuple[str, str, str]:
     return "clean", "clean", "ghost"
 
 
-def _delta(ahead: int, behind: int) -> tuple[str, str, str]:
-    """Return (css_class, display_label, tooltip)."""
+def _delta(state: RepoState) -> tuple[str, str, str]:
+    """Return (css_class, display_label, tooltip) for the Remote Δ column."""
+    if state.presence == "ok" and not state.has_upstream:
+        return (
+            "local",
+            "local",
+            "Local-only — no upstream remote. Pull and fetch don't apply to this repo.",
+        )
+    ahead, behind = state.ahead, state.behind
     if ahead and behind:
         return (
             "down",
@@ -176,9 +183,12 @@ async def _build_repos_data(settings, store) -> tuple[list, dict]:
         elif status_class in counts:
             counts[status_class] += 1
 
-        ahead_n = status.ahead if status else 0
         behind_n = status.behind if status else 0
-        delta_cls, delta_txt, delta_tip = _delta(ahead_n, behind_n)
+        delta_cls, delta_txt, delta_tip = _delta(state)
+
+        pull_tooltip = _pull_tooltip(pull_variant, status_class, behind_n, status_label)
+        if state.presence == "ok" and not state.has_upstream:
+            pull_tooltip = "Pull not applicable — local-only repo with no upstream. Bulk pulls skip it."
 
         ws_path = ws.path if ws else ""
         ws_layout = ws.layout if ws else ""
@@ -209,7 +219,7 @@ async def _build_repos_data(settings, store) -> tuple[list, dict]:
             "status_tooltip": f"{_STATUS_TOOLTIPS.get(status_class, status_label)} ({state.local_summary})",
             "frozen": repo.frozen,
             "pull_variant": pull_variant,
-            "pull_tooltip": _pull_tooltip(pull_variant, status_class, behind_n, status_label),
+            "pull_tooltip": pull_tooltip,
             "behind": behind_n,
             "repo_link_tooltip": f"Open details for {repo.key}",
         })

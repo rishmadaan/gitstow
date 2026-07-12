@@ -385,6 +385,7 @@ select {
 .delta.up    { color: var(--c-ahead); }
 .delta.down  { color: var(--c-behind); }
 .delta.even  { color: var(--muted-soft); }
+.delta.local { color: var(--muted); font-style: italic; }
 
 /* ---------- Workspace — small caps + colored leading dot ---------- */
 .ws {

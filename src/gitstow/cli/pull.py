@@ -46,6 +46,12 @@ def _pull_one_repo(repo: Repo, ws: Workspace) -> dict:
             "status": "skipped",
             "detail": "Diverged from remote — resolve manually (rebase or merge)",
         }
+    if state.pull_action == "skip-no-upstream":
+        return {
+            "repo": repo.key,
+            "status": "skipped",
+            "detail": "Local-only repo — no upstream configured",
+        }
 
     result = git_pull(path)
     if result.success:

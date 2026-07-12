@@ -477,6 +477,23 @@ class TestPullSemantics:
         assert row["status"] == "skipped"
         assert "iverged" in row["detail"]
 
+    def test_local_only_repo_skipped_not_failed(self, tmp_path, monkeypatch):
+        import json
+        from unittest.mock import patch
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.git import RepoStatus
+
+        self._one_repo_setup(tmp_path, monkeypatch)
+        with patch("gitstow.cli.pull.get_status",
+                   return_value=RepoStatus(branch="main", has_upstream=False)), \
+             patch("gitstow.cli.pull.git_pull") as mock_pull:
+            result = CliRunner().invoke(app, ["pull", "--json"])
+        assert not mock_pull.called
+        row = json.loads(result.output)["results"][0]
+        assert row["status"] == "skipped"
+        assert "no upstream" in row["detail"].lower()
+
 
 class TestRepoInfoStatusModel:
     def test_info_json_uses_model_local_summary(self, tmp_path, monkeypatch):

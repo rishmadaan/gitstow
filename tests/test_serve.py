@@ -703,3 +703,30 @@ class TestParallelDashboardStatus:
         r = client.get("/dashboard/rows")
         assert r.status_code == 200
         assert concurrent["max"] >= 2  # serial implementation never exceeds 1
+
+
+class TestLocalOnlyRepos:
+    def test_pull_all_skips_local_only(self, client, configured, workspace_dir, monkeypatch):
+        from gitstow.core.repo import Repo, RepoStore
+
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="", workspace="test-ws"))
+        monkeypatch.setattr("gitstow.web.routes.repos.get_status",
+                            lambda p: _fake_status(has_upstream=False))
+        called = []
+        monkeypatch.setattr("gitstow.web.routes.repos.git_pull", lambda p: called.append(p))
+
+        r = client.post("/repos/pull-all")
+        assert called == []
+        assert "no upstream" in r.text.lower()
+
+    def test_delta_shows_local_for_no_upstream(self, client, configured, workspace_dir, monkeypatch):
+        from gitstow.core.repo import Repo, RepoStore
+
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="", workspace="test-ws"))
+        monkeypatch.setattr("gitstow.web.routes.dashboard.get_status",
+                            lambda p: _fake_status(has_upstream=False))
+        r = client.get("/dashboard/rows")
+        assert ">local<" in r.text or "delta local" in r.text
+        assert "no upstream remote" in r.text.lower()
