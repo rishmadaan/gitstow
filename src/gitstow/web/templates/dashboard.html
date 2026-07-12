@@ -47,14 +47,14 @@
             hx-post="/repos/fetch-all"
             hx-target="#pull-summary"
             hx-swap="outerHTML"
-            hx-disabled-elt="this">⟳ Fetch all</button>
+            hx-sync="this:drop">⟳ Fetch all</button>
     <a href="/add" class="btn btn-outline btn-sm" title="Clone a new repo into a workspace">+ Add repo</a>
     <button class="btn btn-primary btn-sm"
             title="Pull every non-frozen repo in parallel. Shows a summary panel with per-repo results."
             hx-post="/repos/pull-all"
             hx-target="#pull-summary"
             hx-swap="outerHTML"
-            hx-disabled-elt="this"
+            hx-sync="this:drop"
             hx-confirm="Pull every non-frozen repo?">↓ Pull all</button>
   </div>
 
