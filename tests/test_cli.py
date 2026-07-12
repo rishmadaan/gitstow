@@ -1,5 +1,6 @@
 """CLI smoke tests using Typer's CliRunner."""
 
+import pytest
 from typer.testing import CliRunner
 
 from gitstow.cli.main import app
@@ -202,3 +203,20 @@ class TestRemoveContainment:
         assert outside.exists()  # nothing was deleted
         # A refused delete must not untrack either — guard runs before store.remove
         assert RepoStore(path=repos_file).get("../outside-target", workspace="ws") is not None
+
+
+class TestWorkspaceLabelValidation:
+    @pytest.mark.parametrize("bad_label", ["has:colon", "has/slash", "Has Space", "UPPER", ""])
+    def test_workspace_add_rejects_invalid_labels(self, bad_label, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+
+        config_file = tmp_path / "config.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", tmp_path / "repos.yaml")
+        save_config(Settings(workspaces=[Workspace(path=str(tmp_path / "w"), label="oss", layout="structured")]))
+
+        result = CliRunner().invoke(app, ["workspace", "add", str(tmp_path / "x"), "--label", bad_label])
+        assert result.exit_code == 1

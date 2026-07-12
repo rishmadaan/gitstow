@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -20,6 +21,13 @@ workspace_app = typer.Typer(
 
 console = Console()
 err_console = Console(stderr=True)
+
+_LABEL_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+
+
+def is_valid_label(label: str) -> bool:
+    """Labels appear in global keys (workspace:key) and URLs — restrict the charset."""
+    return bool(_LABEL_RE.match(label))
 
 
 @workspace_app.command("list")
@@ -82,6 +90,13 @@ def workspace_add(
 ) -> None:
     """[bold green]Add[/bold green] a new workspace."""
     settings = load_config()
+
+    if not is_valid_label(label):
+        err_console.print(
+            f"[red]Error:[/red] Invalid label '{label}'. "
+            "Use lowercase letters, digits, '-' or '_' (must start with a letter or digit)."
+        )
+        raise typer.Exit(code=1)
 
     # Validate label uniqueness
     if settings.get_workspace(label):
