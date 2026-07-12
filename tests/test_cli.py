@@ -671,3 +671,42 @@ class TestImportRoundTrip:
         result = CliRunner().invoke(app, ["collection", "import", str(f)])
         assert result.exit_code == 1
         assert "version 99" in result.output or "version 99" in str(result.exception or "")
+
+    def test_newer_version_fails_loudly_json(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+
+        self._two_ws(tmp_path, monkeypatch)
+        f = tmp_path / "coll.json"
+        f.write_text('{"version": 99, "repos": []}\n')
+
+        result = CliRunner().invoke(app, ["collection", "import", str(f)])
+        assert result.exit_code == 1
+        assert "version 99" in result.output or "version 99" in str(result.exception or "")
+
+    def test_same_key_in_other_workspace_still_imports(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.repo import Repo, RepoStore
+
+        repos_file = self._two_ws(tmp_path, monkeypatch)
+        # 'dotfiles' already tracked in workspace a...
+        RepoStore(path=repos_file).add(Repo(owner="", name="dotfiles", remote_url="u", workspace="a"))
+        # ...but the collection entry targets workspace b
+        f = tmp_path / "coll.yaml"
+        f.write_text(
+            "version: 1\nrepos:\n  dotfiles:\n    remote_url: https://github.com/x/dotfiles.git\n    workspace: b\n"
+        )
+
+        def fake_clone(url, target, **kw):
+            (target / ".git").mkdir(parents=True)
+            return True, ""
+
+        with patch("gitstow.cli.export_cmd.git_clone", side_effect=fake_clone):
+            result = CliRunner().invoke(app, ["collection", "import", str(f)])
+
+        assert result.exit_code == 0
+        store = RepoStore(path=repos_file)
+        assert store.get("dotfiles", workspace="b") is not None  # imported, not skipped
+        assert store.get("dotfiles", workspace="a") is not None  # untouched

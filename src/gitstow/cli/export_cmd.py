@@ -153,20 +153,6 @@ def import_collection(
 
     store = RepoStore()
 
-    # Check which already exist
-    new_repos = []
-    existing = []
-    for entry in repos_to_import:
-        if store.get(entry.get("key", "")):
-            existing.append(entry)
-        else:
-            new_repos.append(entry)
-
-    console.print(f"\n  Found {len(repos_to_import)} repos in file")
-    if existing:
-        console.print(f"  [dim]{len(existing)} already tracked (will skip)[/dim]")
-    console.print(f"  {len(new_repos)} new repos to import\n")
-
     from gitstow.cli.helpers import resolve_workspaces
 
     settings = load_config()
@@ -183,13 +169,32 @@ def import_collection(
             return ws, f"workspace '{recorded}' not configured — importing into '{ws.label}'"
         return ws, None
 
+    # Resolve each entry's target workspace, then check which already exist
+    # there (workspace-aware — the same key in another workspace doesn't block).
+    new_repos = []
+    existing = []
+    for entry in repos_to_import:
+        entry_ws, note = resolve_entry_workspace(entry)
+        entry["_resolved_ws"] = entry_ws
+        entry["_ws_note"] = note
+        key = entry.get("key", "")
+        if key and store.get(key, workspace=entry_ws.label):
+            existing.append(entry)
+        else:
+            new_repos.append(entry)
+
+    console.print(f"\n  Found {len(repos_to_import)} repos in file")
+    if existing:
+        console.print(f"  [dim]{len(existing)} already tracked (will skip)[/dim]")
+    console.print(f"  {len(new_repos)} new repos to import\n")
+
     if dry_run:
         for entry in new_repos:
-            entry_ws, note = resolve_entry_workspace(entry)
+            entry_ws = entry["_resolved_ws"]
             key_display = entry.get("key", entry.get("url", "unknown"))
             console.print(f"    [dim]Would add:[/dim] {key_display} [dim]→ {entry_ws.label}[/dim]")
-            if note:
-                console.print(f"      [dim]{note}[/dim]")
+            if entry["_ws_note"]:
+                console.print(f"      [dim]{entry['_ws_note']}[/dim]")
         console.print("\n  [dim]Dry run — nothing was changed.[/dim]\n")
         return
 
@@ -206,9 +211,9 @@ def import_collection(
 
     for entry in new_repos:
         url = entry.get("url") or entry.get("remote_url", "")
-        entry_ws, note = resolve_entry_workspace(entry)
-        if note:
-            console.print(f"  [dim]{note}[/dim]")
+        entry_ws = entry["_resolved_ws"]
+        if entry["_ws_note"]:
+            console.print(f"  [dim]{entry['_ws_note']}[/dim]")
         root = entry_ws.get_path()
         entry_tags = entry.get("tags", []) + tags + list(entry_ws.auto_tags)
         frozen = entry.get("frozen", False)
