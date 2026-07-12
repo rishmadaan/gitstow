@@ -273,6 +273,7 @@ class TestTuiRetired:
 
         result = CliRunner().invoke(app, ["tui"])
         assert result.exit_code != 0
+        assert "no such command" in result.output.lower()
 
     def test_help_does_not_mention_tui(self):
         from typer.testing import CliRunner
