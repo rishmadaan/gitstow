@@ -527,6 +527,8 @@ Completes:
 
 Launch a local browser dashboard — a dark-themed web UI for daily repo management. Binds to `127.0.0.1` only; auto-opens your default browser.
 
+> Requires the `ui` extra: `pip install "gitstow[ui]"` (or `pipx install "gitstow[ui]"`). Running `gitstow ui` without it prints an install hint and exits.
+
 ```bash
 gitstow ui                     # http://127.0.0.1:7853
 gitstow ui --port 8080         # custom port

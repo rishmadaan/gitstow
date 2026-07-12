@@ -17,8 +17,8 @@ Existing tools solve parts of this:
 ## Quick Start
 
 ```bash
-pipx install gitstow   # recommended
-# or: pip install gitstow
+pipx install "gitstow[ui]"   # recommended — CLI + browser dashboard
+# or: pip install gitstow    # CLI only; add [ui] for the dashboard
 
 # First-run setup (optional — works without it)
 gitstow onboard
@@ -137,7 +137,8 @@ gsp                              # gitstow pull shorthand
 
 ### Browser Dashboard
 ```bash
-gitstow ui             # opens http://127.0.0.1:7853 in your browser
+pip install "gitstow[ui]"   # if you installed CLI-only
+gitstow ui                  # opens http://127.0.0.1:7853 in your browser
 gitstow ui --port 8080
 gitstow ui --no-browser
 ```

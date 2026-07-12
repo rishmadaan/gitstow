@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Changed
 
+- **The web dashboard's dependencies (FastAPI, uvicorn, Jinja2) moved to the optional `[ui]` extra.** Existing installs keep working; fresh CLI-only installs are ~15 packages lighter. Install with `pip install "gitstow[ui]"` to keep the dashboard.
 - **Bulk pull rule unified and refined (behavior change).** CLI `pull` and the dashboard's Pull-all now follow one rule: repos with modified or staged files are skipped (with the composition shown), diverged repos are skipped (fast-forward pull cannot succeed), and repos with only untracked files ARE pulled — previously the CLI skipped them forever while the web pulled everything.
 
 ### Removed

@@ -43,7 +43,7 @@ gitstow -w active add owner/repo    # clone into a specific workspace
 gitstow --version
 ```
 
-If not installed: suggest `pip install gitstow` or `pipx install gitstow`.
+If not installed: suggest `pip install gitstow` or `pipx install gitstow` (add the `[ui]` extra — e.g. `pipx install "gitstow[ui]"` — if they also want the browser dashboard via `gitstow ui`).
 If installed but not configured (no `~/.gitstow/config.yaml`): guide with `gitstow onboard`.
 
 ## Core Principle: Use --json for Machine Output

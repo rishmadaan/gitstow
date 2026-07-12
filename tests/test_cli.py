@@ -762,3 +762,22 @@ class TestOpenEditorPreference:
             _open_in_editor("/some/path")
         assert mock_run.called        # vim needs the terminal — foreground
         assert not mock_popen.called
+
+
+class TestUiExtra:
+    def test_ui_import_error_prints_install_hint(self, monkeypatch):
+        from typer.testing import CliRunner
+        import builtins
+        from gitstow.cli.main import app
+
+        real_import = builtins.__import__
+
+        def blocked(name, *args, **kwargs):
+            if name.startswith("gitstow.web"):
+                raise ImportError("No module named 'fastapi'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", blocked)
+        result = CliRunner().invoke(app, ["ui", "--no-browser"])
+        assert result.exit_code == 1
+        assert "gitstow[ui]" in result.output.replace("\\", "")

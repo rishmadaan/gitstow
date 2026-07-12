@@ -26,8 +26,9 @@ def ui(
         from gitstow.web.server import run
     except ImportError as exc:
         err_console.print(
-            f"[red]Error:[/red] Web dependencies not available: {exc}\n"
-            "Reinstall gitstow: [bold]pip install --upgrade gitstow[/bold]"
+            f"[red]Error:[/red] Web dependencies not installed: {exc}\n"
+            "The browser dashboard is an optional extra. Install it with:\n"
+            "  [bold]pip install \"gitstow\\[ui]\"[/bold]   (or: pipx install \"gitstow\\[ui]\")"
         )
         raise typer.Exit(code=1)
 
