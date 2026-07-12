@@ -81,6 +81,84 @@ class TestAddErrorHandling:
         assert result.exit_code != 0
 
 
+class TestAddParallelAndConflicts:
+    def _setup(self, tmp_path, monkeypatch):
+        from gitstow.core.config import Settings, Workspace, save_config
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"; ws_dir.mkdir()
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+        return ws_dir
+
+    def test_multiple_clones_run_concurrently(self, tmp_path, monkeypatch):
+        import threading, time
+        from unittest.mock import patch
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+
+        self._setup(tmp_path, monkeypatch)
+        concurrent = {"now": 0, "max": 0}
+        lock = threading.Lock()
+
+        def slow_clone(url, target, **kw):
+            with lock:
+                concurrent["now"] += 1
+                concurrent["max"] = max(concurrent["max"], concurrent["now"])
+            time.sleep(0.05)
+            (target / ".git").mkdir(parents=True)
+            with lock:
+                concurrent["now"] -= 1
+            return True, ""
+
+        with patch("gitstow.cli.add.git_clone", side_effect=slow_clone):
+            result = CliRunner().invoke(app, ["add", "a/one", "b/two", "c/three", "--quiet"])
+
+        assert result.exit_code == 0
+        assert concurrent["max"] >= 2  # sequential implementation never exceeds 1
+
+    def test_remote_mismatch_errors_instead_of_silent_register(self, tmp_path, monkeypatch):
+        import json
+        from unittest.mock import patch
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+
+        ws_dir = self._setup(tmp_path, monkeypatch)
+        # On-disk untracked repo whose remote is a DIFFERENT project
+        target = ws_dir / "owner" / "repo"
+        (target / ".git").mkdir(parents=True)
+
+        with patch("gitstow.cli.add.get_remote_url", return_value="https://github.com/someone-else/other.git"):
+            result = CliRunner().invoke(app, ["add", "owner/repo", "--json"])
+
+        payload = json.loads(result.output)
+        assert result.exit_code == 1
+        assert payload["results"][0]["status"] == "error"
+        assert "mismatch" in payload["results"][0]["error"]
+
+    def test_add_json_is_pure_json(self, tmp_path, monkeypatch):
+        import json
+        from unittest.mock import patch
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+
+        self._setup(tmp_path, monkeypatch)
+
+        def fake_clone(url, target, **kw):
+            (target / ".git").mkdir(parents=True)
+            return True, ""
+
+        with patch("gitstow.cli.add.git_clone", side_effect=fake_clone):
+            result = CliRunner().invoke(app, ["add", "a/one", "b/two", "--json"])
+
+        payload = json.loads(result.output)  # must be pure JSON — no banners, no progress lines
+        assert payload["cloned"] == 2
+        assert {r["status"] for r in payload["results"]} == {"cloned"}
+
+
 class TestManageWorkspaceResolution:
     def _seed_two_workspaces(self, tmp_path, monkeypatch):
         from gitstow.core.config import Settings, Workspace, save_config
