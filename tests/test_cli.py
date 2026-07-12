@@ -733,3 +733,32 @@ class TestOrphanedWorkspaces:
         result = CliRunner().invoke(app, ["doctor", "--json"])
         payload = json.loads(result.output)
         assert payload["orphaned_workspaces"] == {"removed-ws": 1}
+
+
+class TestOpenEditorPreference:
+    def test_editor_env_wins_over_code(self, monkeypatch):
+        from unittest.mock import patch
+        from gitstow.cli.open_cmd import _open_in_editor
+
+        monkeypatch.delenv("VISUAL", raising=False)
+        monkeypatch.setenv("EDITOR", "myeditor")
+        # open_cmd imports `shutil` at module level, so patch it there rather
+        # than the global shutil module (the brief's patch.object(_shutil, ...)
+        # target doesn't apply once shutil is a module-level import).
+        with patch("gitstow.cli.open_cmd.subprocess.Popen") as mock_popen, \
+             patch("gitstow.cli.open_cmd.shutil.which", return_value="/usr/bin/whatever"):
+            _open_in_editor("/some/path")
+        cmd = mock_popen.call_args.args[0]
+        assert cmd[0] == "myeditor"   # $EDITOR was ignored in favor of code/cursor before
+
+    def test_terminal_editor_runs_foreground(self, monkeypatch):
+        from unittest.mock import patch
+        from gitstow.cli.open_cmd import _open_in_editor
+
+        monkeypatch.delenv("VISUAL", raising=False)
+        monkeypatch.setenv("EDITOR", "vim")
+        with patch("gitstow.cli.open_cmd.subprocess.run") as mock_run, \
+             patch("gitstow.cli.open_cmd.subprocess.Popen") as mock_popen:
+            _open_in_editor("/some/path")
+        assert mock_run.called        # vim needs the terminal — foreground
+        assert not mock_popen.called

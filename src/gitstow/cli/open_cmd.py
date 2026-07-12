@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import platform
+import shutil
 import subprocess
 import webbrowser
 
@@ -22,7 +24,8 @@ def open_repo(
     ctx: typer.Context,
     repo_key: str = typer.Argument(help="Repo to open (owner/repo or name)."),
     editor: bool = typer.Option(
-        False, "--editor", "-e", help="Open in default editor (VS Code, etc.).",
+        False, "--editor", "-e",
+        help="Open in your editor ($VISUAL/$EDITOR, then VS Code/Cursor). This is the default.",
     ),
     browser: bool = typer.Option(
         False, "--browser", "-b", help="Open on GitHub/GitLab in browser.",
@@ -80,9 +83,9 @@ def open_repo(
         console.print(f"  [green]✓[/green] Opened {repo_path} in file manager")
         return
 
-    # Editor mode (default)
+    # Editor mode — the default, and what --editor/-e explicitly requests.
     _open_in_editor(repo_path)
-    console.print(f"  [green]✓[/green] Opened {repo_key} in editor")
+    console.print(f"  [green]✓[/green] Opened {repo.key} in editor")
 
 
 def _remote_to_web_url(remote: str) -> str:
@@ -113,22 +116,33 @@ def _remote_to_web_url(remote: str) -> str:
     return url
 
 
-def _open_in_editor(path) -> None:
-    """Open a directory in the default editor."""
-    import os
-    import shutil
+_TERMINAL_EDITORS = {"vi", "vim", "nvim", "nano", "emacs", "hx", "kak", "micro"}
 
-    # Try common editors in order
-    editor = os.environ.get("EDITOR") or os.environ.get("VISUAL")
+
+def _open_in_editor(path) -> None:
+    """Open a directory in the user's editor.
+
+    Preference order: $VISUAL / $EDITOR (the user said so explicitly),
+    then VS Code / Cursor, then the platform opener. Terminal editors
+    need the TTY, so they run in the foreground.
+    """
+    editor = os.environ.get("VISUAL") or os.environ.get("EDITOR")
+
+    if editor:
+        base = os.path.basename(editor.split()[0])
+        if base in _TERMINAL_EDITORS:
+            subprocess.run([*editor.split(), str(path)])
+        else:
+            subprocess.Popen([*editor.split(), str(path)],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return
 
     if shutil.which("code"):
         subprocess.Popen(["code", str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     elif shutil.which("cursor"):
         subprocess.Popen(["cursor", str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    elif editor:
-        subprocess.Popen([editor, str(path)])
     elif platform.system() == "Darwin":
-        subprocess.Popen(["open", "-a", "TextEdit", str(path)])
+        subprocess.Popen(["open", str(path)])
     else:
         subprocess.Popen(["xdg-open", str(path)])
 
