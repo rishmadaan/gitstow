@@ -615,6 +615,26 @@ class TestReconciliationHints:
         payload = json.loads(result.output)
         assert isinstance(payload, list)  # still a bare array — no shape change
 
+    def test_status_quiet_suppresses_hint(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"
+        (ws_dir / "a" / "tracked" / ".git").mkdir(parents=True)
+        (ws_dir / "b" / "untracked" / ".git").mkdir(parents=True)
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+        RepoStore(path=repos_file).add(Repo(owner="a", name="tracked", remote_url="u", workspace="ws"))
+
+        result = CliRunner().invoke(app, ["status", "--quiet"])
+        assert "untracked" not in result.output.lower()
+
 
 class TestImportRoundTrip:
     def _two_ws(self, tmp_path, monkeypatch):

@@ -219,4 +219,5 @@ def status(
 
     console.print(f"\n  {len(statuses)} repos: {', '.join(summary_parts)}\n")
 
-    print_untracked_hint(settings, store, ws_label)
+    if not quiet:
+        print_untracked_hint(settings, store, ws_label)
