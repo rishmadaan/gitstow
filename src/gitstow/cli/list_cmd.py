@@ -101,6 +101,7 @@ def list_repos(
                     "tags": r.tags,
                     "added": r.added,
                     "last_pulled": r.last_pulled,
+                    "last_fetched": r.last_fetched,
                 }
                 for r, ws in repo_ws_pairs
             ],

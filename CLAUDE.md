@@ -133,6 +133,6 @@ ruff check src/
 **Optional: MCP server** (`src/gitstow/mcp/server.py`)
 - For non-Claude-Code AI tools (Claude Desktop, Cursor, Windsurf)
 - Install: `pip install gitstow[mcp]`, entry point: `gitstow-mcp`
-- 13 tools + 3 resources, wraps same `core/` modules as CLI
+- 14 tools + 3 resources, wraps same `core/` modules as CLI
 - **Tradeoff:** MCP tools are always loaded into context (costs tokens even when idle).
   The skill has no such cost. Only use MCP for dedicated repo-management setups.

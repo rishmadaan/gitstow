@@ -545,3 +545,27 @@ class TestSearchParallel:
 
         assert result.exit_code == 0
         assert concurrent["max"] >= 2
+
+
+class TestListJsonLastFetched:
+    def test_list_json_includes_last_fetched(self, tmp_path, monkeypatch):
+        import json
+
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"
+        ws_dir.mkdir()
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="flat")]))
+        RepoStore(path=repos_file).add(
+            Repo(owner="", name="x", remote_url="u", workspace="ws", last_fetched="2026-07-01T00:00:00")
+        )
+
+        result = CliRunner().invoke(app, ["list", "--json"])
+        payload = json.loads(result.output)
+        assert payload[0]["last_fetched"] == "2026-07-01T00:00:00"

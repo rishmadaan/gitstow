@@ -765,13 +765,14 @@ Then add to your AI tool's config:
 
 Or use `gitstow setup-ai` to auto-detect and configure.
 
-### MCP Tools (12)
+### MCP Tools (14)
 
 | Tool | Description |
 |------|-------------|
 | `list_repos` | List repos with tag/owner/query filters |
 | `add_repo` | Clone a repo (shorthand or full URL) |
 | `pull_repos` | Bulk pull with tag/exclude/frozen filters |
+| `fetch_repos` | Bulk fetch (updates ahead/behind, no merge; includes frozen) |
 | `repo_status` | Git status dashboard across repos |
 | `repo_info` | Detailed single repo info |
 | `freeze_repo` | Freeze a repo (skip during pull) |
@@ -781,6 +782,7 @@ Or use `gitstow setup-ai` to auto-detect and configure.
 | `remove_repo` | Remove from tracking (optionally delete) |
 | `search_repos` | Grep across repos with pattern and glob |
 | `collection_stats` | Disk usage, owner breakdown, tag counts |
+| `list_workspaces` | List configured workspaces with repo counts |
 
 ### MCP Resources (3)
 
