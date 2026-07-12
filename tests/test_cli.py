@@ -614,3 +614,60 @@ class TestReconciliationHints:
         result = CliRunner().invoke(app, ["list", "--json"])
         payload = json.loads(result.output)
         assert isinstance(payload, list)  # still a bare array — no shape change
+
+
+class TestImportRoundTrip:
+    def _two_ws(self, tmp_path, monkeypatch):
+        from gitstow.core.config import Settings, Workspace, save_config
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        a = tmp_path / "a"; a.mkdir()
+        b = tmp_path / "b"; b.mkdir()
+        save_config(Settings(workspaces=[
+            Workspace(path=str(a), label="a", layout="flat"),
+            Workspace(path=str(b), label="b", layout="flat"),
+        ]))
+        return repos_file
+
+    def test_import_honors_recorded_workspace(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.repo import RepoStore
+
+        repos_file = self._two_ws(tmp_path, monkeypatch)
+        f = tmp_path / "coll.yaml"
+        f.write_text(
+            "version: 1\n"
+            "repos:\n"
+            "  one:\n    remote_url: https://github.com/x/one.git\n    workspace: a\n"
+            "  two:\n    remote_url: https://github.com/x/two.git\n    workspace: b\n"
+        )
+
+        def fake_clone(url, target, **kw):
+            (target / ".git").mkdir(parents=True)
+            return True, ""
+
+        with patch("gitstow.cli.export_cmd.git_clone", side_effect=fake_clone):
+            result = CliRunner().invoke(app, ["collection", "import", str(f)])
+
+        assert result.exit_code == 0
+        store = RepoStore(path=repos_file)
+        assert store.get("one", workspace="a") is not None
+        assert store.get("two", workspace="b") is not None
+
+    def test_newer_version_fails_loudly(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+
+        self._two_ws(tmp_path, monkeypatch)
+        f = tmp_path / "coll.yaml"
+        f.write_text("version: 99\nrepos: {}\n")
+
+        result = CliRunner().invoke(app, ["collection", "import", str(f)])
+        assert result.exit_code == 1
+        assert "version 99" in result.output or "version 99" in str(result.exception or "")
