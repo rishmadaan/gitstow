@@ -14,7 +14,7 @@ from rich.table import Table
 from gitstow.core.config import load_config, Workspace
 from gitstow.core.git import pull as git_pull, get_status, is_git_repo
 from gitstow.core.repo import Repo, RepoStore
-from gitstow.core.parallel import run_parallel_sync
+from gitstow.core.operations import filter_repo_pairs, run_bulk
 from gitstow.core.status_model import classify
 from gitstow.cli.helpers import iter_repos_with_workspace
 
@@ -120,20 +120,10 @@ def pull(
     # Apply filters
     if not include_frozen:
         frozen_repos = [r for r, _ in targets if r.frozen]
-        targets = [(r, ws) for r, ws in targets if not r.frozen]
+        targets = filter_repo_pairs(targets, frozen=False)
     else:
         frozen_repos = []
-
-    if tag:
-        tag_set = set(tag)
-        targets = [(r, ws) for r, ws in targets if tag_set.intersection(r.tags)]
-
-    if exclude_tag:
-        exclude_set = set(exclude_tag)
-        targets = [(r, ws) for r, ws in targets if not exclude_set.intersection(r.tags)]
-
-    if owner:
-        targets = [(r, ws) for r, ws in targets if r.owner == owner]
+    targets = filter_repo_pairs(targets, tags=tag, exclude_tags=exclude_tag, owner=owner)
 
     if not targets and not frozen_repos:
         if not quiet and not output_json:
@@ -147,68 +137,38 @@ def pull(
     if not quiet and not output_json and targets:
         console.print(f"\n  Pulling {total_count} repo{'s' if total_count != 1 else ''}...\n")
 
-    # Run pulls in parallel (with retry)
-    remaining_targets = list(targets)
-    result_dicts: list[dict] = []
+    # Run pulls in parallel (with retry), delegating the fan-out to the shared
+    # bulk-operation layer so pull/fetch/MCP can't drift.
+    progress_count = [0]
 
-    for attempt in range(1 + retry):
-        if attempt > 0 and not quiet and not output_json:
-            console.print(f"\n  [dim]Retry {attempt}/{retry} — {len(remaining_targets)} failed repos...[/dim]\n")
-
-        tasks = [
-            (repo.global_key, lambda r=repo, w=ws: _pull_one_repo(r, w))
-            for repo, ws in remaining_targets
-        ]
-
-        progress_count = [0]
-
-        def _on_progress(key: str, success: bool, message: str) -> None:
-            progress_count[0] += 1
-            if not quiet and not output_json:
-                console.print(
-                    f"  [{progress_count[0]}/{len(tasks)}] {key.split(':', 1)[-1]}",
-                    end="\r",
-                    highlight=False,
-                )
-
-        results = run_parallel_sync(
-            tasks,
-            max_concurrent=settings.parallel_limit,
-            on_progress=None if (quiet or output_json) else _on_progress,
+    def _on_progress(key: str, success: bool, message: str) -> None:
+        progress_count[0] += 1
+        console.print(
+            f"  [{progress_count[0]}/{len(targets)}] {key.split(':', 1)[-1]}",
+            end="\r",
+            highlight=False,
         )
 
-        # Process results and update timestamps — batch the N stamps into one
-        # locked read-modify-write cycle instead of a full rewrite per repo.
-        failed_keys: set[str] = set()
-        with store.bulk():
-            for task_result in results:
-                if task_result.success and task_result.data:
-                    data = task_result.data
-                    if data["status"] in ("pulled", "up_to_date", "skipped"):
-                        result_dicts.append(data)
-                        if data["status"] in ("pulled", "up_to_date"):
-                            parts = task_result.key.split(":", 1)
-                            if len(parts) == 2:
-                                store.update(parts[1], workspace=parts[0], last_pulled=datetime.now().isoformat())
-                    else:
-                        # error or missing — candidate for retry
-                        if attempt < retry:
-                            failed_keys.add(task_result.key)
-                        else:
-                            result_dicts.append(data)
-                else:
-                    if attempt < retry:
-                        failed_keys.add(task_result.key)
-                    else:
-                        result_dicts.append({
-                            "repo": task_result.key,
-                            "status": "error",
-                            "detail": task_result.error,
-                        })
+    def _on_attempt(attempt: int, remaining: int) -> None:
+        console.print(f"\n  [dim]Retry {attempt}/{retry} — {remaining} failed repos...[/dim]\n")
 
-        if not failed_keys:
-            break
-        remaining_targets = [(r, ws) for r, ws in remaining_targets if r.global_key in failed_keys]
+    result_dicts = run_bulk(
+        targets,
+        _pull_one_repo,
+        parallel_limit=settings.parallel_limit,
+        retry=retry,
+        on_attempt=None if (quiet or output_json) else _on_attempt,
+        on_progress=None if (quiet or output_json) else _on_progress,
+    )
+
+    # Stamp successful pulls in one locked write. run_bulk returns one outcome
+    # per target IN TARGET ORDER, so zip is the collision-safe pairing (matching
+    # on outcome["repo"] would confuse same-named repos in two workspaces).
+    now_iso = datetime.now().isoformat()
+    with store.bulk():
+        for (repo, _ws), outcome in zip(targets, result_dicts):
+            if outcome["status"] in ("pulled", "up_to_date"):
+                store.update(repo.key, workspace=repo.workspace, last_pulled=now_iso)
 
     # Add frozen repos to results for completeness
     for r in sorted(frozen_repos, key=lambda x: x.global_key):
