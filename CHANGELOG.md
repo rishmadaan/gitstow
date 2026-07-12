@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added
+
+- **Composition-aware status everywhere.** `gitstow status` now shows a Local Changes column (modified/staged/untracked counts) and a separate Remote column (in-sync/ahead/behind/diverged). The web dashboard rows, repo drawer, and help legend all use the same shared classifier — a repo with only staged or untracked files can no longer display as "clean". JSON output gains additive `local` and `remote` keys (all existing keys preserved).
+
+### Changed
+
+- **Bulk pull rule unified and refined (behavior change).** CLI `pull` and the dashboard's Pull-all now follow one rule: repos with modified or staged files are skipped (with the composition shown), diverged repos are skipped (fast-forward pull cannot succeed), and repos with only untracked files ARE pulled — previously the CLI skipped them forever while the web pulled everything.
+
 ### Removed
 
 - **The Textual TUI (`gitstow tui`).** The web dashboard (`gitstow ui`) replaced it as the visual surface in v0.2.0; the TUI had been broken and parked since. Git history preserves it.
