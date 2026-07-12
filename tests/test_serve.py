@@ -600,6 +600,40 @@ class TestStatusModelInWeb:
         assert ">clean<" not in r.text
 
 
+class TestSplitChips:
+    def test_diverged_and_missing_get_own_chips(self, client, configured, workspace_dir, monkeypatch):
+        # A diverged repo and a missing repo used to be lumped into "conflict".
+        # Now each gets its own honest chip.
+        _make_repo_on_disk(workspace_dir, "a", "diverged-one")
+        RepoStore().add(Repo(owner="a", name="diverged-one", remote_url="u", workspace="test-ws"))
+        RepoStore().add(Repo(owner="a", name="gone", remote_url="u", workspace="test-ws"))  # no dir → missing
+        monkeypatch.setattr(
+            "gitstow.web.routes.dashboard.get_status",
+            lambda p: _fake_status(ahead=1, behind=1),
+        )
+        html = client.get("/").text
+        # diverged and missing each render their own chip (pip + label span)
+        assert "pip diverged" in html
+        assert 'lbl">diverged' in html
+        assert "pip missing" in html
+        assert 'lbl">missing' in html
+        # the old combined bucket no longer claims them
+        assert "pip conflict" not in html
+
+    def test_summary_wording(self, client, configured, workspace_dir, monkeypatch):
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws"))
+        monkeypatch.setattr("gitstow.web.routes.repos.get_status", lambda p: _fake_status())
+        monkeypatch.setattr(
+            "gitstow.web.routes.repos.git_pull",
+            lambda p: PullResult(success=True, already_up_to_date=True),
+        )
+        html = client.post("/repos/pull-all").text
+        assert "attempted" in html
+        assert "processed" not in html
+        assert "frozen and missing excluded" in html
+
+
 # ---------- bulk pull skips local changes (same rule as the CLI) ----------
 
 

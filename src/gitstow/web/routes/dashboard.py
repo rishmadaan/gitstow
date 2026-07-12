@@ -167,7 +167,10 @@ async def _build_repos_data(settings, store) -> tuple[list, dict]:
 
     # Phase 2 — assemble rows in stable order.
     repos_data = []
-    counts = {"clean": 0, "dirty": 0, "conflict": 0, "behind": 0, "ahead": 0, "frozen": 0}
+    counts = {
+        "clean": 0, "dirty": 0, "conflict": 0, "diverged": 0,
+        "missing": 0, "behind": 0, "ahead": 0, "frozen": 0,
+    }
 
     for i, repo in enumerate(repos, start=1):
         ws = ws_by_label[repo.workspace]
@@ -178,8 +181,16 @@ async def _build_repos_data(settings, store) -> tuple[list, dict]:
         state = classify(exists=exists, frozen=repo.frozen, status=status)
         status_class, status_label, pull_variant = _present(state)
 
+        # Counts ladder — disambiguate the buckets that _present collapses onto
+        # the "conflict" css class (missing/unreadable, dirty+behind, diverged)
+        # so the chips row stays honest. Presence and the "diverged" label are
+        # checked before falling through to status_class.
         if repo.frozen:
             counts["frozen"] += 1
+        elif state.presence != "ok":
+            counts["missing"] += 1
+        elif status_label == "diverged":
+            counts["diverged"] += 1
         elif status_class in counts:
             counts[status_class] += 1
 
@@ -250,6 +261,10 @@ async def dashboard(
         bits.append(f"{counts['dirty']} with local changes")
     if counts["conflict"]:
         bits.append(f"{counts['conflict']} conflict")
+    if counts["diverged"]:
+        bits.append(f"{counts['diverged']} diverged")
+    if counts["missing"]:
+        bits.append(f"{counts['missing']} missing")
     if counts["behind"]:
         bits.append(f"{counts['behind']} behind")
 

@@ -255,9 +255,14 @@ nav.primary ul.links a.active::after {
 .metrics-strip .m .pip.clean    { background: var(--c-clean); box-shadow: 0 0 8px rgba(74, 222, 128, 0.4); }
 .metrics-strip .m .pip.dirty    { background: var(--c-dirty); box-shadow: 0 0 8px rgba(251, 191, 36, 0.4); }
 .metrics-strip .m .pip.conflict { background: var(--c-conflict); box-shadow: 0 0 8px rgba(248, 113, 113, 0.4); }
+.metrics-strip .m .pip.diverged { background: var(--c-ahead); box-shadow: 0 0 8px rgba(192, 132, 252, 0.4); }
+.metrics-strip .m .pip.missing  { background: var(--c-conflict); box-shadow: 0 0 8px rgba(248, 113, 113, 0.4); }
 .metrics-strip .m .pip.behind   { background: var(--c-behind); box-shadow: 0 0 8px rgba(96, 165, 250, 0.4); }
 .metrics-strip .m .pip.ahead    { background: var(--c-ahead); box-shadow: 0 0 8px rgba(192, 132, 252, 0.4); }
 .metrics-strip .m .pip.frozen   { background: var(--c-frozen); }
+
+/* Utility — dimmer inline note (e.g. summary exclusion caveat). */
+.muted { color: var(--muted-soft); }
 
 /* ---------- Action bar ---------- */
 .action-bar {
@@ -862,6 +867,7 @@ details:not(.menu)[open] summary::before { transform: rotate(90deg); }
 .help-form {
   display: flex; flex-direction: column;
   max-height: calc(100vh - 3rem);
+  overflow-y: auto;
 }
 .help-head {
   display: flex; justify-content: space-between; align-items: center;
@@ -884,7 +890,6 @@ details:not(.menu)[open] summary::before { transform: rotate(90deg); }
 .help-close:hover { color: var(--text); background: var(--surface-hi); }
 .help-form > section {
   padding: 1.15rem 1.5rem;
-  overflow-y: auto;
 }
 .help-form > section + section { border-top: 1px solid var(--border); }
 .help-form section h4 { margin-bottom: 0.65rem; color: var(--text); font-size: 0.72rem; }
