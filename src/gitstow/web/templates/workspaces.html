@@ -48,7 +48,7 @@
             <form method="POST" action="/workspaces/{{ ws.label }}/scan" style="margin: 0;">
               <button type="submit" class="btn btn-ghost btn-sm">Scan</button>
             </form>
-            <form method="POST" action="/workspaces/{{ ws.label }}/remove" style="margin: 0;" onsubmit="return confirm('Remove workspace {{ ws.label }}? Files on disk are untouched.');">
+            <form method="POST" action="/workspaces/{{ ws.label }}/remove" style="margin: 0;" data-confirm="Remove workspace {{ ws.label }}? Files on disk are untouched.">
               <button type="submit" class="btn btn-danger btn-sm">Remove</button>
             </form>
           </div></td>

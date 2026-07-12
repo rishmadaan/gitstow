@@ -730,3 +730,27 @@ class TestLocalOnlyRepos:
         r = client.get("/dashboard/rows")
         assert ">local<" in r.text or "delta local" in r.text
         assert "no upstream remote" in r.text.lower()
+
+
+class TestStyledConfirm:
+    def test_no_native_dialogs_in_templates(self, client, configured):
+        for path in ("/", "/workspaces", "/settings"):
+            html = client.get(path).text
+            assert "return confirm(" not in html
+            assert "alert(" not in html
+
+    def test_confirm_dialog_present(self, client, configured):
+        r = client.get("/")
+        assert 'id="confirm-dialog"' in r.text
+        assert "htmx:confirm" in r.text  # the interceptor script
+
+    def test_drawer_uses_data_confirm(self, client, configured, workspace_dir, monkeypatch):
+        from gitstow.core.repo import Repo, RepoStore
+
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws"))
+        monkeypatch.setattr("gitstow.web.routes.pages.get_status", lambda p: _fake_status())
+        r = client.get("/repo/test-ws/a/one")
+        assert "data-confirm=" in r.text
+        assert "data-danger" in r.text  # the delete-from-disk form
+        assert "return confirm(" not in r.text
