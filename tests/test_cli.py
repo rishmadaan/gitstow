@@ -280,3 +280,37 @@ class TestTuiRetired:
 
         result = CliRunner().invoke(app, ["--help"])
         assert "tui" not in result.output.lower()
+
+
+class TestStatusModelInCli:
+    def test_status_json_includes_composition(self, tmp_path, monkeypatch):
+        import json
+        from unittest.mock import patch
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.git import RepoStatus
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+
+        ws_dir = tmp_path / "ws"
+        (ws_dir / "a" / "one" / ".git").mkdir(parents=True)
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+        RepoStore(path=repos_file).add(Repo(owner="a", name="one", remote_url="u", workspace="ws"))
+
+        fake = RepoStatus(branch="main", staged=2, untracked=1, behind=3)
+        with patch("gitstow.cli.status.get_status", return_value=fake):
+            result = CliRunner().invoke(app, ["status", "--json"])
+
+        payload = json.loads(result.output)
+        entry = payload[0]
+        # New model keys (additive)
+        assert entry["local"] == {"modified": 0, "staged": 2, "untracked": 1, "summary": "2 staged · 1 untracked"}
+        assert entry["remote"]["state"] == "behind"
+        # Legacy keys preserved
+        assert entry["staged"] == 2 and entry["behind"] == 3 and entry["clean"] is False
