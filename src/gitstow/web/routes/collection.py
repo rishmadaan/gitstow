@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 from datetime import datetime
 
@@ -223,7 +224,10 @@ async def import_collection(
             continue
 
         target.parent.mkdir(parents=True, exist_ok=True)
-        ok, _err = await asyncio.to_thread(git_clone, parsed.clone_url, target)
+        clone_fn = functools.partial(
+            git_clone, parsed.clone_url, target, timeout=settings.clone_timeout,
+        )
+        ok, _err = await asyncio.to_thread(clone_fn)
         if ok:
             store.add(Repo(
                 owner=repo_owner,

@@ -182,7 +182,10 @@ def add_repo(
 
     # Clone
     target.parent.mkdir(parents=True, exist_ok=True)
-    success, error = git_clone(url=parsed.clone_url, target=target, shallow=shallow)
+    success, error = git_clone(
+        url=parsed.clone_url, target=target, shallow=shallow,
+        timeout=settings.clone_timeout,
+    )
 
     if success:
         repo = Repo(

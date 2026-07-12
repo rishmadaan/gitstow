@@ -398,6 +398,30 @@ class TestCollection:
         assert r.status_code == 303
         assert "imported=1" in r.headers["location"]
 
+    def test_import_passes_clone_timeout(self, client, isolated, workspace_dir, monkeypatch):
+        # Regression: the import route must pass the configured clone_timeout
+        # through to git_clone (it was missed when the setting was introduced).
+        ws = Workspace(path=str(workspace_dir), label="test-ws", layout="structured")
+        save_config(Settings(workspaces=[ws], clone_timeout=777))
+
+        captured = {}
+        def _fake_clone(url, target, **kw):
+            captured.update(kw)
+            target.mkdir(parents=True, exist_ok=True)
+            (target / ".git").mkdir()
+            return True, ""
+        monkeypatch.setattr("gitstow.web.routes.collection.git_clone", _fake_clone)
+
+        files = {"file": ("repos.txt", b"https://example.com/foo/bar.git\n", "text/plain")}
+        r = client.post(
+            "/collection/import",
+            files=files,
+            follow_redirects=False,
+        )
+        assert r.status_code == 303
+        assert "imported=1" in r.headers["location"]
+        assert captured["timeout"] == 777
+
     def test_import_empty(self, client, configured):
         files = {"file": ("empty.txt", b"", "text/plain")}
         r = client.post(

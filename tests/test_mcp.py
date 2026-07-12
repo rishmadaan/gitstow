@@ -49,6 +49,26 @@ def test_repo_info_includes_last_fetched(isolated):
     assert payload["last_fetched"] == "2026-07-01T00:00:00"
 
 
+def test_add_repo_passes_clone_timeout(isolated):
+    """Regression: the MCP add_repo tool must pass the configured clone_timeout
+    through to git_clone (it was missed when the setting was introduced)."""
+    from gitstow.core.config import Settings, Workspace, save_config
+    from gitstow.mcp.server import add_repo
+
+    ws_dir = isolated / "ws"
+    ws_dir.mkdir()
+    save_config(Settings(
+        workspaces=[Workspace(path=str(ws_dir), label="ws", layout="flat")],
+        clone_timeout=777,
+    ))
+
+    with patch("gitstow.mcp.server.git_clone", return_value=(True, "")) as mock_clone:
+        payload = json.loads(add_repo("https://example.com/foo/bar.git"))
+
+    assert payload["success"] is True
+    assert mock_clone.call_args.kwargs["timeout"] == 777
+
+
 def test_pull_repos_follows_unified_rule(isolated):
     """Staged-only repos are skipped; untracked-only repos are pulled —
     the same Wave 2 rule the CLI enforces, since MCP now shares the worker."""
