@@ -476,3 +476,43 @@ class TestPullSemantics:
         row = payload["results"][0]
         assert row["status"] == "skipped"
         assert "iverged" in row["detail"]
+
+
+class TestSearchParallel:
+    def test_searches_run_concurrently(self, tmp_path, monkeypatch):
+        import threading, time
+        from unittest.mock import patch
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+        store = RepoStore(path=repos_file)
+        for i in range(4):
+            (ws_dir / "o" / f"r{i}").mkdir(parents=True)
+            store.add(Repo(owner="o", name=f"r{i}", remote_url="u", workspace="ws"))
+
+        concurrent = {"now": 0, "max": 0}
+        lock = threading.Lock()
+
+        def slow_search(path, *a, **kw):
+            with lock:
+                concurrent["now"] += 1
+                concurrent["max"] = max(concurrent["max"], concurrent["now"])
+            time.sleep(0.05)
+            with lock:
+                concurrent["now"] -= 1
+            return [{"file": "x.py", "line_number": "1", "text": "hit"}]
+
+        with patch("gitstow.cli.search._search_repo", side_effect=slow_search):
+            result = CliRunner().invoke(app, ["search", "hit", "--quiet"])
+
+        assert result.exit_code == 0
+        assert concurrent["max"] >= 2
