@@ -18,7 +18,6 @@ from mcp.server.fastmcp import FastMCP
 from gitstow.core.config import load_config, Workspace
 from gitstow.core.git import (
     clone as git_clone,
-    pull as git_pull,
     get_status,
     get_last_commit,
     get_disk_size,
@@ -30,7 +29,7 @@ from gitstow.core.url_parser import parse_git_url
 
 mcp = FastMCP(
     "gitstow",
-    instructions="Git repository library manager — clone, organize, and maintain collections of repos across multiple workspaces. Use list_repos to see what's tracked, add_repo to clone new repos, pull_repos to update, search_repos to grep, and list_workspaces to see configured workspaces.",
+    instructions="Git repository library manager — clone, organize, and maintain collections of repos across multiple workspaces. Use list_repos to see what's tracked, add_repo to clone new repos, pull_repos to update, fetch_repos to refresh ahead/behind without merging, search_repos to grep, and list_workspaces to see configured workspaces.",
 )
 
 
@@ -75,7 +74,7 @@ def list_repos(
         frozen_only: If true, show only frozen repos.
 
     Returns:
-        JSON array of repo objects with key, workspace, remote_url, frozen, tags, added, last_pulled.
+        JSON array of repo objects with key, workspace, remote_url, frozen, tags, added, last_pulled, last_fetched.
     """
     settings, store = _get_settings_and_store()
     repos = store.list_all()
@@ -102,6 +101,7 @@ def list_repos(
             "tags": r.tags,
             "added": r.added,
             "last_pulled": r.last_pulled,
+            "last_fetched": r.last_fetched,
         }
         for r in repos
     ], indent=2)
@@ -182,7 +182,10 @@ def add_repo(
 
     # Clone
     target.parent.mkdir(parents=True, exist_ok=True)
-    success, error = git_clone(url=parsed.clone_url, target=target, shallow=shallow)
+    success, error = git_clone(
+        url=parsed.clone_url, target=target, shallow=shallow,
+        timeout=settings.clone_timeout,
+    )
 
     if success:
         repo = Repo(
@@ -214,8 +217,9 @@ def pull_repos(
 ) -> str:
     """Pull latest changes for all (or filtered) repos.
 
-    Frozen repos are skipped unless include_frozen is true.
-    Dirty repos are always skipped (never risks losing local changes).
+    Frozen repos are skipped unless include_frozen is true. Repos with modified
+    or staged changes are skipped (never risk losing local work); untracked-only
+    repos are pulled. Diverged repos are skipped — resolve manually.
 
     Args:
         tag: Only pull repos with this tag.
@@ -226,50 +230,43 @@ def pull_repos(
     Returns:
         JSON with per-repo results and summary counts.
     """
+    from gitstow.cli.pull import _pull_one_repo
+    from gitstow.core.operations import filter_repo_pairs, run_bulk
+
     settings, store = _get_settings_and_store()
-    repos = store.list_all()
 
-    if workspace:
-        repos = [r for r in repos if r.workspace == workspace]
-    if not include_frozen:
-        frozen_keys = {r.key for r in repos if r.frozen}
-        repos = [r for r in repos if not r.frozen]
+    pairs = []
+    for r in store.list_all():
+        ws = settings.get_workspace(r.workspace)
+        if ws and (not workspace or r.workspace == workspace):
+            pairs.append((r, ws))
+
+    # Split off frozen repos (reported as skipped_frozen) unless include_frozen.
+    if include_frozen:
+        frozen_pairs = []
     else:
-        frozen_keys = set()
-    if tag:
-        repos = [r for r in repos if tag in r.tags]
-    if exclude_tag:
-        repos = [r for r in repos if exclude_tag not in r.tags]
+        frozen_pairs = filter_repo_pairs(pairs, frozen=True)
+        pairs = filter_repo_pairs(pairs, frozen=False)
 
-    results = []
+    pairs = filter_repo_pairs(
+        pairs,
+        tags=[tag] if tag else None,
+        exclude_tags=[exclude_tag] if exclude_tag else None,
+    )
 
-    for repo in repos:
-        ws = _get_workspace_for_repo(repo, settings)
-        if not ws:
-            results.append({"repo": repo.key, "status": "error", "error": "workspace not found"})
-            continue
+    results = run_bulk(pairs, _pull_one_repo, parallel_limit=settings.parallel_limit)
 
-        path = repo.get_path(ws.get_path())
+    # Stamp successful pulls in one locked write. run_bulk returns one outcome
+    # per target in input order, so zip is the collision-safe pairing (matching
+    # on outcome["repo"] would confuse same-named repos in two workspaces).
+    now = datetime.now().isoformat()
+    with store.bulk():
+        for outcome, (r, _ws) in zip(results, pairs):
+            if outcome.get("status") in ("pulled", "up_to_date"):
+                store.update(r.key, workspace=r.workspace, last_pulled=now)
 
-        if not path.exists() or not is_git_repo(path):
-            results.append({"repo": repo.key, "status": "missing"})
-            continue
-
-        status = get_status(path)
-        if not status.clean:
-            results.append({"repo": repo.key, "status": "skipped_dirty", "detail": status.status_symbol})
-            continue
-
-        pull_result = git_pull(path)
-        if pull_result.success:
-            status_str = "up_to_date" if pull_result.already_up_to_date else "pulled"
-            store.update(repo.key, workspace=repo.workspace, last_pulled=datetime.now().isoformat())
-            results.append({"repo": repo.key, "status": status_str})
-        else:
-            results.append({"repo": repo.key, "status": "error", "error": pull_result.error})
-
-    for key in sorted(frozen_keys):
-        results.append({"repo": key, "status": "skipped_frozen"})
+    for r, _ws in sorted(frozen_pairs, key=lambda p: p[0].global_key):
+        results.append({"repo": r.key, "status": "skipped_frozen", "detail": "Skipped (frozen)"})
 
     pulled = sum(1 for r in results if r["status"] == "pulled")
     up_to_date = sum(1 for r in results if r["status"] == "up_to_date")
@@ -284,6 +281,50 @@ def pull_repos(
         "errors": errors,
         "results": results,
     }, indent=2)
+
+
+@mcp.tool()
+def fetch_repos(
+    tag: Optional[str] = None,
+    owner: Optional[str] = None,
+    workspace: Optional[str] = None,
+) -> str:
+    """Fetch all remotes (git fetch --all --prune) without merging — updates
+    ahead/behind counts. Includes frozen repos (fetch is non-destructive).
+
+    Args:
+        tag: Only fetch repos with this tag.
+        owner: Only fetch repos from this owner.
+        workspace: Only fetch repos in this workspace.
+
+    Returns:
+        JSON summary {total, fetched, errors, results}.
+    """
+    from gitstow.cli.fetch import _fetch_one_repo
+    from gitstow.core.operations import filter_repo_pairs, run_bulk
+
+    settings, store = _get_settings_and_store()
+    pairs = []
+    for r in store.list_all():
+        ws = settings.get_workspace(r.workspace)
+        if ws and (not workspace or r.workspace == workspace):
+            pairs.append((r, ws))
+    pairs = filter_repo_pairs(pairs, tags=[tag] if tag else None, owner=owner)
+
+    results = run_bulk(pairs, _fetch_one_repo, parallel_limit=settings.parallel_limit)
+
+    now = datetime.now().isoformat()
+    with store.bulk():
+        for outcome, (r, _ws) in zip(results, pairs):
+            if outcome.get("status") == "fetched":
+                store.update(r.key, workspace=r.workspace, last_fetched=now)
+
+    fetched = sum(1 for r in results if r["status"] == "fetched")
+    errors = sum(1 for r in results if r["status"] in ("error", "missing"))
+    return json.dumps(
+        {"total": len(results), "fetched": fetched, "errors": errors, "results": results},
+        indent=2,
+    )
 
 
 @mcp.tool()
@@ -383,6 +424,7 @@ def repo_info(repo_key: str) -> str:
         "tags": repo.tags,
         "added": repo.added,
         "last_pulled": repo.last_pulled,
+        "last_fetched": repo.last_fetched,
         "exists_on_disk": path.exists() if path else False,
     }
 

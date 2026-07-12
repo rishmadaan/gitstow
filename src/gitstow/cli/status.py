@@ -15,7 +15,7 @@ from gitstow.core.git import get_status, is_git_repo, get_last_commit
 from gitstow.core.repo import Repo, RepoStore
 from gitstow.core.parallel import run_parallel_sync
 from gitstow.core.status_model import classify
-from gitstow.cli.helpers import iter_repos_with_workspace
+from gitstow.cli.helpers import iter_repos_with_workspace, print_untracked_hint
 
 console = Console()
 err_console = Console(stderr=True)
@@ -101,7 +101,10 @@ def status(
         repo_ws_pairs = [(r, ws) for r, ws in repo_ws_pairs if r.owner == owner]
 
     if not repo_ws_pairs:
-        if not quiet:
+        if output_json:
+            json.dump([], sys.stdout, indent=2)
+            print()
+        elif not quiet:
             console.print("[dim]No repos tracked.[/dim]")
         return
 
@@ -218,3 +221,6 @@ def status(
         summary_parts.append(f"[red]{errors} errors[/red]")
 
     console.print(f"\n  {len(statuses)} repos: {', '.join(summary_parts)}\n")
+
+    if not quiet:
+        print_untracked_hint(settings, store, ws_label)

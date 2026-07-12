@@ -81,6 +81,106 @@ class TestAddErrorHandling:
         assert result.exit_code != 0
 
 
+class TestAddParallelAndConflicts:
+    def _setup(self, tmp_path, monkeypatch):
+        from gitstow.core.config import Settings, Workspace, save_config
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"; ws_dir.mkdir()
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+        return ws_dir
+
+    def test_multiple_clones_run_concurrently(self, tmp_path, monkeypatch):
+        import threading, time
+        from unittest.mock import patch
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+
+        self._setup(tmp_path, monkeypatch)
+        concurrent = {"now": 0, "max": 0}
+        lock = threading.Lock()
+
+        def slow_clone(url, target, **kw):
+            with lock:
+                concurrent["now"] += 1
+                concurrent["max"] = max(concurrent["max"], concurrent["now"])
+            time.sleep(0.05)
+            (target / ".git").mkdir(parents=True)
+            with lock:
+                concurrent["now"] -= 1
+            return True, ""
+
+        with patch("gitstow.cli.add.git_clone", side_effect=slow_clone):
+            result = CliRunner().invoke(app, ["add", "a/one", "b/two", "c/three", "--quiet"])
+
+        assert result.exit_code == 0
+        assert concurrent["max"] >= 2  # sequential implementation never exceeds 1
+
+    def test_remote_mismatch_errors_instead_of_silent_register(self, tmp_path, monkeypatch):
+        import json
+        from unittest.mock import patch
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+
+        ws_dir = self._setup(tmp_path, monkeypatch)
+        # On-disk untracked repo whose remote is a DIFFERENT project
+        target = ws_dir / "owner" / "repo"
+        (target / ".git").mkdir(parents=True)
+
+        with patch("gitstow.cli.add.get_remote_url", return_value="https://github.com/someone-else/other.git"):
+            result = CliRunner().invoke(app, ["add", "owner/repo", "--json"])
+
+        payload = json.loads(result.output)
+        assert result.exit_code == 1
+        assert payload["results"][0]["status"] == "error"
+        assert "mismatch" in payload["results"][0]["error"]
+
+    def test_equivalent_urls_dedup_to_one_clone(self, tmp_path, monkeypatch):
+        import json
+        from unittest.mock import patch
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+
+        self._setup(tmp_path, monkeypatch)  # structured ws
+        calls = []
+
+        def fake_clone(url, target, **kw):
+            calls.append(str(target))
+            (target / ".git").mkdir(parents=True)
+            return True, ""
+
+        with patch("gitstow.cli.add.git_clone", side_effect=fake_clone):
+            result = CliRunner().invoke(app, ["add", "owner/repo", "git@github.com:owner/repo.git", "--json"])
+
+        payload = json.loads(result.output)
+        assert len(calls) == 1                      # one clone, not a race
+        statuses = sorted(r["status"] for r in payload["results"])
+        assert statuses == ["cloned", "exists"]     # second reported as duplicate
+
+    def test_add_json_is_pure_json(self, tmp_path, monkeypatch):
+        import json
+        from unittest.mock import patch
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+
+        self._setup(tmp_path, monkeypatch)
+
+        def fake_clone(url, target, **kw):
+            (target / ".git").mkdir(parents=True)
+            return True, ""
+
+        with patch("gitstow.cli.add.git_clone", side_effect=fake_clone):
+            result = CliRunner().invoke(app, ["add", "a/one", "b/two", "--json"])
+
+        payload = json.loads(result.output)  # must be pure JSON — no banners, no progress lines
+        assert payload["cloned"] == 2
+        assert {r["status"] for r in payload["results"]} == {"cloned"}
+
+
 class TestManageWorkspaceResolution:
     def _seed_two_workspaces(self, tmp_path, monkeypatch):
         from gitstow.core.config import Settings, Workspace, save_config
@@ -376,3 +476,410 @@ class TestPullSemantics:
         row = payload["results"][0]
         assert row["status"] == "skipped"
         assert "iverged" in row["detail"]
+
+
+class TestRepoInfoStatusModel:
+    def test_info_json_uses_model_local_summary(self, tmp_path, monkeypatch):
+        import json
+        from unittest.mock import patch
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.git import RepoStatus
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"
+        (ws_dir / "a" / "one" / ".git").mkdir(parents=True)
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+        RepoStore(path=repos_file).add(Repo(owner="a", name="one", remote_url="u", workspace="ws"))
+
+        with patch("gitstow.cli.manage.get_status", return_value=RepoStatus(branch="main", staged=1)):
+            result = CliRunner().invoke(app, ["repo", "info", "a/one", "--json"])
+        payload = json.loads(result.output)
+        assert payload["status"] == "1 staged"
+        assert payload["local"]["summary"] == "1 staged"
+        assert payload["local"]["staged"] == 1
+        assert "remote" in payload
+
+
+class TestSearchParallel:
+    def test_searches_run_concurrently(self, tmp_path, monkeypatch):
+        import threading, time
+        from unittest.mock import patch
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+        store = RepoStore(path=repos_file)
+        for i in range(4):
+            (ws_dir / "o" / f"r{i}").mkdir(parents=True)
+            store.add(Repo(owner="o", name=f"r{i}", remote_url="u", workspace="ws"))
+
+        concurrent = {"now": 0, "max": 0}
+        lock = threading.Lock()
+
+        def slow_search(path, *a, **kw):
+            with lock:
+                concurrent["now"] += 1
+                concurrent["max"] = max(concurrent["max"], concurrent["now"])
+            time.sleep(0.05)
+            with lock:
+                concurrent["now"] -= 1
+            return [{"file": "x.py", "line_number": "1", "text": "hit"}]
+
+        with patch("gitstow.cli.search._search_repo", side_effect=slow_search):
+            result = CliRunner().invoke(app, ["search", "hit", "--quiet"])
+
+        assert result.exit_code == 0
+        assert concurrent["max"] >= 2
+
+
+class TestListJsonLastFetched:
+    def test_list_json_includes_last_fetched(self, tmp_path, monkeypatch):
+        import json
+
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"
+        ws_dir.mkdir()
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="flat")]))
+        RepoStore(path=repos_file).add(
+            Repo(owner="", name="x", remote_url="u", workspace="ws", last_fetched="2026-07-01T00:00:00")
+        )
+
+        result = CliRunner().invoke(app, ["list", "--json"])
+        payload = json.loads(result.output)
+        assert payload[0]["last_fetched"] == "2026-07-01T00:00:00"
+
+
+class TestReconciliationHints:
+    def test_list_hints_untracked_repos(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"
+        (ws_dir / "a" / "tracked" / ".git").mkdir(parents=True)
+        (ws_dir / "b" / "untracked" / ".git").mkdir(parents=True)
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+        RepoStore(path=repos_file).add(Repo(owner="a", name="tracked", remote_url="u", workspace="ws"))
+
+        result = CliRunner().invoke(app, ["list"])
+        assert "1 untracked" in result.output
+        assert "workspace scan" in result.output
+
+    def test_list_json_shape_unchanged(self, tmp_path, monkeypatch):
+        import json
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"
+        (ws_dir / "b" / "untracked" / ".git").mkdir(parents=True)
+        (ws_dir / "a" / "tracked").mkdir(parents=True)
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+        RepoStore(path=repos_file).add(Repo(owner="a", name="tracked", remote_url="u", workspace="ws"))
+
+        result = CliRunner().invoke(app, ["list", "--json"])
+        payload = json.loads(result.output)
+        assert isinstance(payload, list)  # still a bare array — no shape change
+
+    def test_status_quiet_suppresses_hint(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"
+        (ws_dir / "a" / "tracked" / ".git").mkdir(parents=True)
+        (ws_dir / "b" / "untracked" / ".git").mkdir(parents=True)
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+        RepoStore(path=repos_file).add(Repo(owner="a", name="tracked", remote_url="u", workspace="ws"))
+
+        result = CliRunner().invoke(app, ["status", "--quiet"])
+        assert "untracked" not in result.output.lower()
+
+
+class TestImportRoundTrip:
+    def _two_ws(self, tmp_path, monkeypatch):
+        from gitstow.core.config import Settings, Workspace, save_config
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        a = tmp_path / "a"; a.mkdir()
+        b = tmp_path / "b"; b.mkdir()
+        save_config(Settings(workspaces=[
+            Workspace(path=str(a), label="a", layout="flat"),
+            Workspace(path=str(b), label="b", layout="flat"),
+        ]))
+        return repos_file
+
+    def test_import_honors_recorded_workspace(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.repo import RepoStore
+
+        repos_file = self._two_ws(tmp_path, monkeypatch)
+        f = tmp_path / "coll.yaml"
+        f.write_text(
+            "version: 1\n"
+            "repos:\n"
+            "  one:\n    remote_url: https://github.com/x/one.git\n    workspace: a\n"
+            "  two:\n    remote_url: https://github.com/x/two.git\n    workspace: b\n"
+        )
+
+        def fake_clone(url, target, **kw):
+            (target / ".git").mkdir(parents=True)
+            return True, ""
+
+        with patch("gitstow.cli.export_cmd.git_clone", side_effect=fake_clone):
+            result = CliRunner().invoke(app, ["collection", "import", str(f)])
+
+        assert result.exit_code == 0
+        store = RepoStore(path=repos_file)
+        assert store.get("one", workspace="a") is not None
+        assert store.get("two", workspace="b") is not None
+
+    def test_newer_version_fails_loudly(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+
+        self._two_ws(tmp_path, monkeypatch)
+        f = tmp_path / "coll.yaml"
+        f.write_text("version: 99\nrepos: {}\n")
+
+        result = CliRunner().invoke(app, ["collection", "import", str(f)])
+        assert result.exit_code == 1
+        assert "version 99" in result.output or "version 99" in str(result.exception or "")
+
+    def test_newer_version_fails_loudly_json(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+
+        self._two_ws(tmp_path, monkeypatch)
+        f = tmp_path / "coll.json"
+        f.write_text('{"version": 99, "repos": []}\n')
+
+        result = CliRunner().invoke(app, ["collection", "import", str(f)])
+        assert result.exit_code == 1
+        assert "version 99" in result.output or "version 99" in str(result.exception or "")
+
+    def test_same_key_in_other_workspace_still_imports(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.repo import Repo, RepoStore
+
+        repos_file = self._two_ws(tmp_path, monkeypatch)
+        # 'dotfiles' already tracked in workspace a...
+        RepoStore(path=repos_file).add(Repo(owner="", name="dotfiles", remote_url="u", workspace="a"))
+        # ...but the collection entry targets workspace b
+        f = tmp_path / "coll.yaml"
+        f.write_text(
+            "version: 1\nrepos:\n  dotfiles:\n    remote_url: https://github.com/x/dotfiles.git\n    workspace: b\n"
+        )
+
+        def fake_clone(url, target, **kw):
+            (target / ".git").mkdir(parents=True)
+            return True, ""
+
+        with patch("gitstow.cli.export_cmd.git_clone", side_effect=fake_clone):
+            result = CliRunner().invoke(app, ["collection", "import", str(f)])
+
+        assert result.exit_code == 0
+        store = RepoStore(path=repos_file)
+        assert store.get("dotfiles", workspace="b") is not None  # imported, not skipped
+        assert store.get("dotfiles", workspace="a") is not None  # untouched
+
+
+class TestOrphanedWorkspaces:
+    def test_doctor_reports_orphaned_workspace(self, tmp_path, monkeypatch):
+        import json
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"; ws_dir.mkdir()
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="live", layout="flat")]))
+        store = RepoStore(path=repos_file)
+        store.add(Repo(owner="", name="ghost", remote_url="u", workspace="removed-ws"))
+
+        result = CliRunner().invoke(app, ["doctor", "--json"])
+        payload = json.loads(result.output)
+        assert payload["orphaned_workspaces"] == {"removed-ws": 1}
+
+
+class TestOpenEditorPreference:
+    def test_editor_env_wins_over_code(self, monkeypatch):
+        from unittest.mock import patch
+        from gitstow.cli.open_cmd import _open_in_editor
+
+        monkeypatch.delenv("VISUAL", raising=False)
+        monkeypatch.setenv("EDITOR", "myeditor")
+        # open_cmd imports `shutil` at module level, so patch it there rather
+        # than the global shutil module (the brief's patch.object(_shutil, ...)
+        # target doesn't apply once shutil is a module-level import).
+        with patch("gitstow.cli.open_cmd.subprocess.Popen") as mock_popen, \
+             patch("gitstow.cli.open_cmd.shutil.which", return_value="/usr/bin/whatever"):
+            _open_in_editor("/some/path")
+        cmd = mock_popen.call_args.args[0]
+        assert cmd[0] == "myeditor"   # $EDITOR was ignored in favor of code/cursor before
+
+    def test_terminal_editor_runs_foreground(self, monkeypatch):
+        from unittest.mock import patch
+        from gitstow.cli.open_cmd import _open_in_editor
+
+        monkeypatch.delenv("VISUAL", raising=False)
+        monkeypatch.setenv("EDITOR", "vim")
+        with patch("gitstow.cli.open_cmd.subprocess.run") as mock_run, \
+             patch("gitstow.cli.open_cmd.subprocess.Popen") as mock_popen:
+            _open_in_editor("/some/path")
+        assert mock_run.called        # vim needs the terminal — foreground
+        assert not mock_popen.called
+
+
+class TestUiExtra:
+    def test_ui_import_error_prints_install_hint(self, monkeypatch):
+        from typer.testing import CliRunner
+        import builtins
+        from gitstow.cli.main import app
+
+        real_import = builtins.__import__
+
+        def blocked(name, *args, **kwargs):
+            if name.startswith("gitstow.web"):
+                raise ImportError("No module named 'fastapi'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", blocked)
+        result = CliRunner().invoke(app, ["ui", "--no-browser"])
+        assert result.exit_code == 1
+        assert "gitstow[ui]" in result.output.replace("\\", "")
+
+
+class TestFetchCommand:
+    def test_fetch_includes_frozen_and_stamps_last_fetched(self, tmp_path, monkeypatch):
+        import json
+        from unittest.mock import patch
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.git import FetchResult
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"
+        (ws_dir / "a" / "frozen-one" / ".git").mkdir(parents=True)
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+        RepoStore(path=repos_file).add(
+            Repo(owner="a", name="frozen-one", remote_url="u", workspace="ws", frozen=True)
+        )
+
+        with patch("gitstow.cli.fetch.git_fetch", return_value=FetchResult(success=True, output="ok")):
+            result = CliRunner().invoke(app, ["fetch", "--json"])
+
+        payload = json.loads(result.output)
+        assert payload["fetched"] == 1  # frozen repos ARE fetched
+        store = RepoStore(path=repos_file)
+        assert store.get("a/frozen-one", workspace="ws").last_fetched != ""
+
+
+class TestEmptyFilterJsonPurity:
+    """search/exec/status --json must emit pure JSON even when no repos match."""
+
+    def _empty_config(self, tmp_path, monkeypatch):
+        from gitstow.core.config import Settings, Workspace, save_config
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"
+        ws_dir.mkdir()
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="flat")]))
+
+    def test_search_empty_filter_json_is_pure(self, tmp_path, monkeypatch):
+        import json
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+
+        self._empty_config(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["search", "TODO", "--json"])
+        payload = json.loads(result.output)
+        assert payload == {
+            "pattern": "TODO",
+            "total_matches": 0,
+            "repos_with_matches": 0,
+            "results": [],
+        }
+
+    def test_exec_empty_filter_json_is_pure(self, tmp_path, monkeypatch):
+        import json
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+
+        self._empty_config(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["exec", "--json", "--", "true"])
+        payload = json.loads(result.output)
+        assert payload == []
+
+    def test_status_empty_filter_json_is_pure(self, tmp_path, monkeypatch):
+        import json
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+
+        self._empty_config(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["status", "--json"])
+        payload = json.loads(result.output)
+        assert payload == []

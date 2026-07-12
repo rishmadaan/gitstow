@@ -92,7 +92,10 @@ def exec_cmd(
         repo_ws_pairs = [(r, ws) for r, ws in repo_ws_pairs if r.frozen]
 
     if not repo_ws_pairs:
-        if not quiet:
+        if output_json:
+            json.dump([], sys.stdout, indent=2)
+            print()
+        elif not quiet:
             console.print("[dim]No repos match the filter.[/dim]")
         return
 

@@ -17,8 +17,8 @@ Existing tools solve parts of this:
 ## Quick Start
 
 ```bash
-pipx install gitstow   # recommended
-# or: pip install gitstow
+pipx install "gitstow[ui]"   # recommended — CLI + browser dashboard
+# or: pip install gitstow    # CLI only; add [ui] for the dashboard
 
 # First-run setup (optional — works without it)
 gitstow onboard
@@ -54,6 +54,8 @@ gitstow workspace scan active
 ```bash
 gitstow add anthropic/claude-code facebook/react torvalds/linux
 ```
+Multiple URLs clone concurrently (bounded by `parallel_limit`, default 6) — a mismatched remote on an existing path errors instead of silently registering, and duplicate URLs in the same invocation are deduped.
+
 Creates (in a structured workspace):
 ```
 ~/oss/
@@ -72,8 +74,9 @@ gitstow -w oss pull             # Only update oss workspace
 gitstow pull --tag ai           # Only repos tagged 'ai'
 gitstow pull --exclude-tag stale # Everything except stale repos
 gitstow status                  # Git status dashboard
-gitstow -w active status --dirty # Dirty repos in active workspace
+gitstow -w active status --dirty # Repos with local changes in active workspace
 ```
+`status` shows local changes as a composition (e.g. "2 modified · 1 staged · 3 untracked") rather than a single "dirty" bucket, and keeps the remote relationship (ahead/behind/diverged) in its own column.
 
 ### Freeze & Tags
 ```bash
@@ -137,7 +140,8 @@ gsp                              # gitstow pull shorthand
 
 ### Browser Dashboard
 ```bash
-gitstow ui             # opens http://127.0.0.1:7853 in your browser
+pip install "gitstow[ui]"   # if you installed CLI-only
+gitstow ui                  # opens http://127.0.0.1:7853 in your browser
 gitstow ui --port 8080
 gitstow ui --no-browser
 ```

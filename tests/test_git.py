@@ -7,6 +7,7 @@ from pathlib import Path
 from gitstow.core.git import (
     clone,
     fetch,
+    get_disk_size,
     get_status,
     is_git_installed,
     is_git_repo,
@@ -92,6 +93,27 @@ class TestClone:
         ok, err = clone("https://example.com/repo.git", Path("/tmp/repo"))
         assert ok is False
         assert "timed out" in err.lower()
+
+
+class TestDiskSize:
+    def test_du_fast_path(self, tmp_path):
+        (tmp_path / "f.txt").write_text("x" * 4096)
+        size = get_disk_size(tmp_path)
+        assert size >= 4096  # du reports blocks; must be at least the content
+
+    @patch("gitstow.core.git.shutil.which", return_value=None)
+    def test_rglob_fallback_when_du_absent(self, mock_which, tmp_path):
+        (tmp_path / "f.txt").write_text("x" * 4096)
+        size = get_disk_size(tmp_path)
+        assert size == 4096
+
+
+class TestCloneTimeout:
+    @patch("gitstow.core.git._run_git")
+    def test_clone_passes_timeout(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0)
+        clone("https://example.com/r.git", Path("/tmp/r"), timeout=900)
+        assert mock_run.call_args.kwargs["timeout"] == 900
 
 
 class TestPull:

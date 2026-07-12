@@ -11,6 +11,7 @@ import typer
 from rich.console import Console
 
 from gitstow.core.config import load_config
+from gitstow.core.parallel import run_parallel_sync
 from gitstow.core.repo import RepoStore
 from gitstow.cli.helpers import iter_repos_with_workspace
 
@@ -70,44 +71,56 @@ def search(
         repo_ws_pairs = [(r, ws) for r, ws in repo_ws_pairs if r.owner == owner]
 
     if not repo_ws_pairs:
-        if not quiet:
+        if output_json:
+            json.dump({
+                "pattern": pattern,
+                "total_matches": 0,
+                "repos_with_matches": 0,
+                "results": [],
+            }, sys.stdout, indent=2)
+            print()
+        elif not quiet:
             console.print("[dim]No repos match the filter.[/dim]")
         return
 
     # Detect search tool
     use_rg = _has_ripgrep()
+
+    searchable = [
+        (repo, ws) for repo, ws in repo_ws_pairs
+        if repo.get_path(ws.get_path()).exists()
+    ]
+
+    tasks = [
+        (
+            repo.global_key,
+            lambda r=repo, w=ws: _search_repo(
+                r.get_path(w.get_path()), pattern, use_rg,
+                glob_filter=glob_filter, case_insensitive=case_insensitive,
+                files_only=files_only, max_results=max_results,
+            ),
+        )
+        for repo, ws in searchable
+    ]
+    task_results = run_parallel_sync(tasks, max_concurrent=settings.parallel_limit)
+    matches_by_key = {r.key: (r.data or []) for r in task_results if r.success}
+
     all_results = []
     total_matches = 0
-
-    for repo, ws in repo_ws_pairs:
-        path = repo.get_path(ws.get_path())
-        if not path.exists():
+    for repo, _ws in sorted(searchable, key=lambda p: p[0].global_key):
+        matches = matches_by_key.get(repo.global_key, [])
+        if not matches:
             continue
+        total_matches += len(matches)
+        all_results.append({"repo": repo.key, "matches": matches, "count": len(matches)})
 
-        matches = _search_repo(
-            path, pattern, use_rg,
-            glob_filter=glob_filter,
-            case_insensitive=case_insensitive,
-            files_only=files_only,
-            max_results=max_results,
-        )
-
-        if matches:
-            total_matches += len(matches)
-            repo_result = {
-                "repo": repo.key,
-                "matches": matches,
-                "count": len(matches),
-            }
-            all_results.append(repo_result)
-
-            if not output_json and not quiet:
-                console.print(f"\n  [bold]{repo.key}[/bold] [dim]({len(matches)} matches)[/dim]")
-                for match in matches:
-                    if files_only:
-                        console.print(f"    {match['file']}")
-                    else:
-                        console.print(f"    [dim]{match['file']}:{match.get('line_number', '')}:[/dim] {match.get('text', '')}")
+        if not output_json and not quiet:
+            console.print(f"\n  [bold]{repo.key}[/bold] [dim]({len(matches)} matches)[/dim]")
+            for match in matches:
+                if files_only:
+                    console.print(f"    {match['file']}")
+                else:
+                    console.print(f"    [dim]{match['file']}:{match.get('line_number', '')}:[/dim] {match.get('text', '')}")
 
     if output_json:
         json.dump({

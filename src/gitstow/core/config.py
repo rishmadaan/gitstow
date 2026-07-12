@@ -48,6 +48,7 @@ class Settings:
     default_host: str = "github.com"
     prefer_ssh: bool = False
     parallel_limit: int = 6
+    clone_timeout: int = 300  # seconds; large repos may need more
 
     # Legacy field — only used for migration from pre-workspace configs
     root_path: str = ""
@@ -81,6 +82,7 @@ class Settings:
             "default_host": self.default_host,
             "prefer_ssh": self.prefer_ssh,
             "parallel_limit": self.parallel_limit,
+            "clone_timeout": self.clone_timeout,
         }
         # Don't serialize root_path if workspaces are configured
         if not self.workspaces and self.root_path:
@@ -96,6 +98,7 @@ class Settings:
             default_host=data.get("default_host", "github.com"),
             prefer_ssh=data.get("prefer_ssh", False),
             parallel_limit=data.get("parallel_limit", 6),
+            clone_timeout=data.get("clone_timeout", 300),
             root_path=data.get("root_path", ""),
         )
 

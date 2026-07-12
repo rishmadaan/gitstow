@@ -12,7 +12,7 @@ from rich.console import Console
 
 from gitstow.core.config import load_config
 from gitstow.core.repo import RepoStore
-from gitstow.cli.helpers import iter_repos_with_workspace
+from gitstow.cli.helpers import iter_repos_with_workspace, print_untracked_hint
 
 console = Console()
 
@@ -101,6 +101,7 @@ def list_repos(
                     "tags": r.tags,
                     "added": r.added,
                     "last_pulled": r.last_pulled,
+                    "last_fetched": r.last_fetched,
                 }
                 for r, ws in repo_ws_pairs
             ],
@@ -151,6 +152,8 @@ def list_repos(
 
         max_name_len = max(len(r.name) for r in repos) if repos else 0
         _print_repos_grouped(repos, ws_map, max_name_len, show_paths)
+
+    print_untracked_hint(settings, store, ws_label)
 
 
 def _print_repos_grouped(repos, ws_map, max_name_len, show_paths):

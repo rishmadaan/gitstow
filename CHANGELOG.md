@@ -4,15 +4,32 @@ All notable changes to gitstow will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.3.0] - 2026-07-12
 
 ### Added
 
 - **Composition-aware status everywhere.** `gitstow status` now shows a Local Changes column (modified/staged/untracked counts) and a separate Remote column (in-sync/ahead/behind/diverged). The web dashboard rows, repo drawer, and help legend all use the same shared classifier — a repo with only staged or untracked files can no longer display as "clean". JSON output gains additive `local` and `remote` keys (all existing keys preserved).
+- **`gitstow fetch_repos` MCP tool** and a `last_fetched` timestamp in all JSON outputs — MCP clients can now see fetch state, matching the CLI and web dashboard.
+- **Untracked-repo hints on `list` and `status`.** Repos found on disk but not in the registry are now surfaced with a hint pointing at `workspace scan`, instead of being silently invisible.
+- **`doctor` detects orphaned workspaces**, and `workspace remove` now warns when repos would be left pointing at a removed workspace.
+- **`clone_timeout` setting** (`gitstow config set clone_timeout <seconds>`) — clone operations on very large repos no longer fail on a hardcoded 300s limit.
+- **macOS added to the CI test matrix**, matching the packaging classifiers.
+- **CHANGELOG gate in the release script** — `scripts/release.sh` now refuses to cut a release without a corresponding changelog entry.
 
 ### Changed
 
+- **`add` clones multiple repos in parallel** and now detects remote mismatches and duplicate URLs before cloning, instead of silently registering whatever is already on disk.
+- **`search` now runs across repos in parallel**, matching `exec`.
+- **Pull, fetch, and the MCP server share one operations layer.** The MCP server now follows the same bulk-pull rule as the CLI and web dashboard (modified/staged skip, diverged skip, untracked-only pulls).
+- **`open` prefers `$VISUAL`/`$EDITOR`** over guessing an editor, and runs terminal editors in the foreground so they actually get a usable TTY.
+- **Disk sizing (`stats`, `repo info`) now shells out to `du`** instead of walking every file in Python — much faster on large repos.
+- **`collection import` honors each entry's recorded workspace** instead of dumping everything into one workspace, and now fails loudly (with a printed error) on newer file versions instead of exiting silently.
+- **The web dashboard's dependencies (FastAPI, uvicorn, Jinja2) moved to the optional `[ui]` extra.** Existing installs keep working; fresh CLI-only installs are ~15 packages lighter. Install with `pip install "gitstow[ui]"` to keep the dashboard.
 - **Bulk pull rule unified and refined (behavior change).** CLI `pull` and the dashboard's Pull-all now follow one rule: repos with modified or staged files are skipped (with the composition shown), diverged repos are skipped (fast-forward pull cannot succeed), and repos with only untracked files ARE pulled — previously the CLI skipped them forever while the web pulled everything.
+
+### Fixed
+
+- **`search`, `exec`, and `status` `--json` now emit pure JSON on an empty filter match** — previously they printed a "no repos match" banner and no payload at all, even with `--json` set.
 
 ### Removed
 

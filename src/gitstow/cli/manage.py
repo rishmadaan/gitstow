@@ -18,6 +18,7 @@ from gitstow.core.git import (
     is_git_repo,
 )
 from gitstow.core.repo import RepoStore
+from gitstow.core.status_model import classify
 from gitstow.cli.helpers import resolve_repo
 
 manage_app = typer.Typer(
@@ -236,10 +237,11 @@ def info(
         status = get_status(path)
         commit = get_last_commit(path)
         size = get_disk_size(path)
+        state = classify(exists=True, frozen=repo.frozen, status=status)
 
         info_data.update({
             "branch": status.branch,
-            "status": "clean" if status.clean else status.status_symbol,
+            "status": state.local_summary,
             "ahead": status.ahead,
             "behind": status.behind,
             "last_commit_hash": commit.hash,
@@ -248,6 +250,7 @@ def info(
             "last_commit_author": commit.author,
             "disk_size": size,
             "disk_size_human": format_size(size),
+            **state.to_dict(),
         })
 
     if output_json:

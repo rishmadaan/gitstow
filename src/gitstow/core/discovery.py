@@ -25,22 +25,26 @@ class DiscoveredRepo:
     remote_url: str | None
 
 
-def discover_repos(root: Path, layout: str = "structured") -> list[DiscoveredRepo]:
+def discover_repos(
+    root: Path, layout: str = "structured", include_remotes: bool = True
+) -> list[DiscoveredRepo]:
     """Walk a workspace directory looking for git repos.
 
     Args:
         root: The workspace path to scan.
         layout: "structured" (root/owner/repo/.git) or "flat" (root/repo/.git).
+        include_remotes: If False, skips the per-repo `get_remote_url` git
+            subprocess call — a cheap walk suitable for reconciliation hints.
     """
     if not root.is_dir():
         return []
 
     if layout == "flat":
-        return _discover_flat(root)
-    return _discover_structured(root)
+        return _discover_flat(root, include_remotes)
+    return _discover_structured(root, include_remotes)
 
 
-def _discover_structured(root: Path) -> list[DiscoveredRepo]:
+def _discover_structured(root: Path, include_remotes: bool = True) -> list[DiscoveredRepo]:
     """Two-level walk: root/owner/repo/.git. Skips hidden directories."""
     found = []
     for owner_dir in sorted(root.iterdir()):
@@ -50,7 +54,7 @@ def _discover_structured(root: Path) -> list[DiscoveredRepo]:
             if not repo_dir.is_dir() or repo_dir.name.startswith("."):
                 continue
             if is_git_repo(repo_dir):
-                remote = get_remote_url(repo_dir)
+                remote = get_remote_url(repo_dir) if include_remotes else None
                 found.append(DiscoveredRepo(
                     key=f"{owner_dir.name}/{repo_dir.name}",
                     owner=owner_dir.name,
@@ -61,14 +65,14 @@ def _discover_structured(root: Path) -> list[DiscoveredRepo]:
     return found
 
 
-def _discover_flat(root: Path) -> list[DiscoveredRepo]:
+def _discover_flat(root: Path, include_remotes: bool = True) -> list[DiscoveredRepo]:
     """One-level walk: root/repo/.git. Skips hidden directories."""
     found = []
     for repo_dir in sorted(root.iterdir()):
         if not repo_dir.is_dir() or repo_dir.name.startswith("."):
             continue
         if is_git_repo(repo_dir):
-            remote = get_remote_url(repo_dir)
+            remote = get_remote_url(repo_dir) if include_remotes else None
             found.append(DiscoveredRepo(
                 key=repo_dir.name,
                 owner="",

@@ -12,6 +12,7 @@ import yaml
 from rich.console import Console
 
 from gitstow.core.config import load_config
+from gitstow.core.git import clone as git_clone
 from gitstow.core.repo import Repo, RepoStore
 
 export_app = typer.Typer(
@@ -140,7 +141,11 @@ def import_collection(
     tags = list(tag) if tag else []
 
     # Detect format
-    repos_to_import = _parse_import_file(content, path.suffix)
+    try:
+        repos_to_import = _parse_import_file(content, path.suffix)
+    except ValueError as e:
+        err_console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1)
 
     if not repos_to_import:
         err_console.print("[dim]No repos found in file.[/dim]")
@@ -148,11 +153,32 @@ def import_collection(
 
     store = RepoStore()
 
-    # Check which already exist
+    from gitstow.cli.helpers import resolve_workspaces
+
+    settings = load_config()
+    ws_label = (ctx.obj or {}).get("workspace")
+    ws_list = resolve_workspaces(settings, ws_label)
+    ws = ws_list[0]
+
+    def resolve_entry_workspace(entry: dict):
+        recorded = entry.get("workspace", "")
+        if recorded:
+            candidate = settings.get_workspace(recorded)
+            if candidate is not None:
+                return candidate, None
+            return ws, f"workspace '{recorded}' not configured — importing into '{ws.label}'"
+        return ws, None
+
+    # Resolve each entry's target workspace, then check which already exist
+    # there (workspace-aware — the same key in another workspace doesn't block).
     new_repos = []
     existing = []
     for entry in repos_to_import:
-        if store.get(entry.get("key", "")):
+        entry_ws, note = resolve_entry_workspace(entry)
+        entry["_resolved_ws"] = entry_ws
+        entry["_ws_note"] = note
+        key = entry.get("key", "")
+        if key and store.get(key, workspace=entry_ws.label):
             existing.append(entry)
         else:
             new_repos.append(entry)
@@ -164,7 +190,11 @@ def import_collection(
 
     if dry_run:
         for entry in new_repos:
-            console.print(f"    [dim]Would add:[/dim] {entry.get('key', entry.get('url', 'unknown'))}")
+            entry_ws = entry["_resolved_ws"]
+            key_display = entry.get("key", entry.get("url", "unknown"))
+            console.print(f"    [dim]Would add:[/dim] {key_display} [dim]→ {entry_ws.label}[/dim]")
+            if entry["_ws_note"]:
+                console.print(f"      [dim]{entry['_ws_note']}[/dim]")
         console.print("\n  [dim]Dry run — nothing was changed.[/dim]\n")
         return
 
@@ -174,21 +204,18 @@ def import_collection(
 
     # Build add commands
     from gitstow.core.url_parser import parse_git_url
-    from gitstow.core.git import clone as git_clone
-    from gitstow.cli.helpers import resolve_workspaces
     from datetime import datetime
 
-    settings = load_config()
-    ws_label = (ctx.obj or {}).get("workspace")
-    ws_list = resolve_workspaces(settings, ws_label)
-    ws = ws_list[0]
-    root = ws.get_path()
     succeeded = 0
     failed = 0
 
     for entry in new_repos:
         url = entry.get("url") or entry.get("remote_url", "")
-        entry_tags = entry.get("tags", []) + tags + list(ws.auto_tags)
+        entry_ws = entry["_resolved_ws"]
+        if entry["_ws_note"]:
+            console.print(f"  [dim]{entry['_ws_note']}[/dim]")
+        root = entry_ws.get_path()
+        entry_tags = entry.get("tags", []) + tags + list(entry_ws.auto_tags)
         frozen = entry.get("frozen", False)
 
         try:
@@ -198,7 +225,7 @@ def import_collection(
             failed += 1
             continue
 
-        if ws.layout == "flat":
+        if entry_ws.layout == "flat":
             target = root / parsed.repo
             repo_owner = ""
         else:
@@ -207,7 +234,7 @@ def import_collection(
 
         if target.exists():
             console.print(f"  [yellow]○[/yellow] {parsed.key} already on disk, registering")
-            repo = Repo(owner=repo_owner, name=parsed.repo, remote_url=url, workspace=ws.label, tags=entry_tags, frozen=frozen)
+            repo = Repo(owner=repo_owner, name=parsed.repo, remote_url=url, workspace=entry_ws.label, tags=entry_tags, frozen=frozen)
             store.add(repo)
             succeeded += 1
             continue
@@ -215,13 +242,16 @@ def import_collection(
         console.print(f"  [dim]Cloning[/dim] {parsed.key}...")
         target.parent.mkdir(parents=True, exist_ok=True)
 
-        success, error = git_clone(url=parsed.clone_url, target=target, shallow=shallow)
+        success, error = git_clone(
+            url=parsed.clone_url, target=target, shallow=shallow,
+            timeout=settings.clone_timeout,
+        )
         if success:
             repo = Repo(
                 owner=repo_owner,
                 name=parsed.repo,
                 remote_url=parsed.clone_url,
-                workspace=ws.label,
+                workspace=entry_ws.label,
                 tags=entry_tags,
                 frozen=frozen,
                 last_pulled=datetime.now().isoformat(),
@@ -255,17 +285,32 @@ def _parse_import_file(content: str, suffix: str) -> list[dict]:
             if "version" in data and "repos" in data:
                 version = data["version"]
                 if version > EXPORT_FORMAT_VERSION:
-                    raise typer.Exit(code=1)  # Caller should print error
+                    raise ValueError(
+                        f"collection file version {version} is newer than supported "
+                        f"{EXPORT_FORMAT_VERSION} — run 'gitstow update' first"
+                    )
                 repos_data = data["repos"]
                 if isinstance(repos_data, dict):
                     return [
-                        {"key": k, "url": v.get("remote_url", ""), "tags": v.get("tags", []), "frozen": v.get("frozen", False)}
+                        {
+                            "key": k,
+                            "url": v.get("remote_url", ""),
+                            "tags": v.get("tags", []),
+                            "frozen": v.get("frozen", False),
+                            "workspace": v.get("workspace", ""),
+                        }
                         for k, v in repos_data.items()
                         if isinstance(v, dict)
                     ]
             # Legacy unversioned format: {key: {remote_url: ...}}
             return [
-                {"key": k, "url": v.get("remote_url", ""), "tags": v.get("tags", []), "frozen": v.get("frozen", False)}
+                {
+                    "key": k,
+                    "url": v.get("remote_url", ""),
+                    "tags": v.get("tags", []),
+                    "frozen": v.get("frozen", False),
+                    "workspace": v.get("workspace", ""),
+                }
                 for k, v in data.items()
                 if isinstance(v, dict)
             ]
@@ -279,11 +324,20 @@ def _parse_import_file(content: str, suffix: str) -> list[dict]:
         if isinstance(data, dict) and "version" in data and "repos" in data:
             version = data["version"]
             if version > EXPORT_FORMAT_VERSION:
-                raise typer.Exit(code=1)
+                raise ValueError(
+                    f"collection file version {version} is newer than supported "
+                    f"{EXPORT_FORMAT_VERSION} — run 'gitstow update' first"
+                )
             data = data["repos"]
         if isinstance(data, list):
             return [
-                {"key": item.get("key", ""), "url": item.get("remote_url", item.get("url", "")), "tags": item.get("tags", []), "frozen": item.get("frozen", False)}
+                {
+                    "key": item.get("key", ""),
+                    "url": item.get("remote_url", item.get("url", "")),
+                    "tags": item.get("tags", []),
+                    "frozen": item.get("frozen", False),
+                    "workspace": item.get("workspace", ""),
+                }
                 for item in data
                 if isinstance(item, dict)
             ]
