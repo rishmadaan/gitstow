@@ -27,6 +27,12 @@ if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
     exit 1
 fi
 
+if ! grep -q "^## \[$VERSION\]" CHANGELOG.md; then
+    echo "Error: CHANGELOG.md has no '## [$VERSION]' section."
+    echo "Document the release before shipping it (this is how 0.2.6 went missing)."
+    exit 1
+fi
+
 if ! git diff --quiet || ! git diff --cached --quiet; then
     echo "Error: Tracked working tree is not clean. Commit or stash changes first."
     git status --short --untracked-files=no

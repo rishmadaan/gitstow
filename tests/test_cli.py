@@ -781,3 +781,34 @@ class TestUiExtra:
         result = CliRunner().invoke(app, ["ui", "--no-browser"])
         assert result.exit_code == 1
         assert "gitstow[ui]" in result.output.replace("\\", "")
+
+
+class TestFetchCommand:
+    def test_fetch_includes_frozen_and_stamps_last_fetched(self, tmp_path, monkeypatch):
+        import json
+        from unittest.mock import patch
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.git import FetchResult
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"
+        (ws_dir / "a" / "frozen-one" / ".git").mkdir(parents=True)
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+        RepoStore(path=repos_file).add(
+            Repo(owner="a", name="frozen-one", remote_url="u", workspace="ws", frozen=True)
+        )
+
+        with patch("gitstow.cli.fetch.git_fetch", return_value=FetchResult(success=True, output="ok")):
+            result = CliRunner().invoke(app, ["fetch", "--json"])
+
+        payload = json.loads(result.output)
+        assert payload["fetched"] == 1  # frozen repos ARE fetched
+        store = RepoStore(path=repos_file)
+        assert store.get("a/frozen-one", workspace="ws").last_fetched != ""
