@@ -46,6 +46,13 @@
     // Auto-refresh (and pull row-swaps) replace rows — re-apply the active filters.
     document.body.addEventListener("htmx:afterSwap", applyFilters);
     applyFilters();
+
+    // Escape closes any open row-actions menu, regardless of focus location.
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") {
+        document.querySelectorAll("details.menu[open]").forEach(function (d) { d.removeAttribute("open"); });
+      }
+    });
   }
 
   if (document.readyState === "loading") {

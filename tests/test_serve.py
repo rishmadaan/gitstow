@@ -823,3 +823,29 @@ class TestResponsiveMarkup:
         css = client.get("/static/app.css").text
         assert "@media" in css
         assert "overflow-x: auto" in css
+
+
+class TestA11y:
+    def test_disabled_pull_is_really_disabled(self, client, configured, workspace_dir, monkeypatch):
+        from gitstow.core.repo import Repo, RepoStore
+
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws", frozen=True))
+        monkeypatch.setattr("gitstow.web.routes.dashboard.get_status", lambda p: _fake_status())
+        html = client.get("/dashboard/rows").text
+        import re
+        pull_btn = re.search(r"<button[^>]*Pull disabled[^>]*>", html)
+        assert pull_btn and "disabled" in pull_btn.group(0)
+
+    def test_summary_has_menu_semantics(self, client, configured, workspace_dir, monkeypatch):
+        from gitstow.core.repo import Repo, RepoStore
+
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws"))
+        monkeypatch.setattr("gitstow.web.routes.dashboard.get_status", lambda p: _fake_status())
+        html = client.get("/dashboard/rows").text
+        assert 'aria-haspopup="menu"' in html
+
+    def test_focus_visible_rules(self, client, configured):
+        css = client.get("/static/app.css").text
+        assert ":focus-visible" in css

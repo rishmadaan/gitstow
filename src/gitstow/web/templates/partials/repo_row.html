@@ -10,7 +10,7 @@
   <td><span class="delta {{ repo.delta_class }}" title="{{ repo.delta_tooltip }}">{{ repo.delta_text }}</span></td>
   <td class="col-tags">{% for tag in repo.tags %}<span class="tag" title="Tag: {{ tag }}">{{ tag }}</span>{% endfor %}</td>
   <td class="col-lastpull"><span class="last-pull" title="{{ repo.last_pull_tooltip }}">{{ repo.last_pull }}</span></td>
-  <td><div class="row-actions">
+  <td title="{{ repo.pull_tooltip }}"><div class="row-actions">
     {% if repo.pull_variant == "primary" %}
       <button class="btn btn-primary btn-sm"
               title="{{ repo.pull_tooltip }}"
@@ -29,7 +29,7 @@
               hx-disabled-elt="this">Pull</button>
     {% endif %}
     <details class="menu">
-      <summary title="More actions for {{ repo.key }}">⋯</summary>
+      <summary title="More actions for {{ repo.key }}" aria-haspopup="menu" aria-label="More actions for {{ repo.key }}">⋯</summary>
       <div class="menu-pop">
         <a href="/repo/{{ repo.workspace }}/{{ repo.key }}" title="Open the repo detail page">View details</a>
         <button type="button"
