@@ -46,6 +46,8 @@ def _row_context(repo, settings, sorted_labels, num: int | None) -> dict | None:
     status_class, status_label, pull_variant = _present(state)
     behind_n = status.behind if status else 0
     delta_cls, delta_txt, delta_tip = _delta(state)
+    if repo.last_fetched:
+        delta_tip += f" Counts as of last fetch, {_relative_time(repo.last_fetched)}."
 
     pull_tooltip = _pull_tooltip(pull_variant, status_class, behind_n, status_label)
     if state.presence == "ok" and not state.has_upstream:

@@ -776,6 +776,31 @@ class TestLocalOnlyRepos:
         assert "no upstream remote" in r.text.lower()
 
 
+class TestHonestTimestamps:
+    def _seed(self, workspace_dir):
+        from gitstow.core.repo import Repo, RepoStore
+
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws",
+                             last_pulled="2026-07-12T10:00:00.123456",
+                             last_fetched="2026-07-12T09:00:00"))
+
+    def test_detail_page_humanizes_and_shows_fetched(self, client, configured, workspace_dir, monkeypatch):
+        self._seed(workspace_dir)
+        monkeypatch.setattr("gitstow.web.routes.pages.get_status", lambda p: _fake_status())
+        html = client.get("/repo/test-ws/a/one").text
+        assert "2026-07-12T10:00:00.123456" not in html.replace('title="2026-07-12T10:00:00.123456"', "")
+        assert "LAST FETCHED" in html.upper()
+        assert 'title="2026-07-12T10:00:00.123456"' in html
+
+    def test_delta_tooltip_mentions_fetch_age(self, client, configured, workspace_dir, monkeypatch):
+        self._seed(workspace_dir)
+        monkeypatch.setattr("gitstow.web.routes.dashboard.get_status",
+                            lambda p: _fake_status(behind=2))
+        html = client.get("/dashboard/rows").text
+        assert "as of last fetch" in html.lower()
+
+
 class TestStyledConfirm:
     def test_no_native_dialogs_in_templates(self, client, configured):
         for path in ("/", "/workspaces", "/settings"):
