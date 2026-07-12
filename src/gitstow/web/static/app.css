@@ -1,7 +1,7 @@
 /* gitstow — dark precision instrument
    Bricolage Grotesque (variable) · JetBrains Mono */
 
-@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,300..700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('/static/fonts/fonts.css');
 
 :root {
   /* Canvas */
@@ -333,6 +333,8 @@ label {
   font-size: 0.86rem; color: var(--muted);
   margin-top: 0.55rem; line-height: 1.55;
 }
+.form-flash { color: var(--c-clean); }
+.form-error { color: var(--c-conflict); }
 .form-row { margin-bottom: 1.5rem; }
 input[type=checkbox] {
   width: 15px; height: 15px;
@@ -383,6 +385,7 @@ select {
 .delta.up    { color: var(--c-ahead); }
 .delta.down  { color: var(--c-behind); }
 .delta.even  { color: var(--muted-soft); }
+.delta.local { color: var(--muted); font-style: italic; }
 
 /* ---------- Workspace — small caps + colored leading dot ---------- */
 .ws {
@@ -416,6 +419,7 @@ select {
 .tag + .tag { margin-left: 0.3rem; }
 
 /* ---------- Ledger table ---------- */
+.filter-empty { color: var(--muted); font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; padding: 1.2rem 0.5rem; }
 .table-wrap { margin: 1.5rem 0 0; animation: fadeUp 0.5s ease 0.15s both; overflow: visible; }
 table.ledger { width: 100%; border-collapse: collapse; background: transparent; }
 .ledger th {
@@ -828,6 +832,28 @@ details:not(.menu)[open] summary::before { transform: rotate(90deg); }
   background: rgba(10, 10, 12, 0.7);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
+}
+
+/* Styled confirm dialog — shares the help-dialog visual language. */
+.confirm-dialog {
+  max-width: 420px; width: calc(100vw - 2rem);
+  padding: 1.35rem 1.5rem; margin: auto;
+  background: var(--bg-panel);
+  color: var(--text-soft);
+  border: 1px solid var(--border-hi);
+  border-radius: 10px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+}
+.confirm-dialog::backdrop {
+  background: rgba(10, 10, 12, 0.7);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.confirm-dialog #confirm-message {
+  margin: 0; font-size: 0.95rem; line-height: 1.5; color: var(--text);
+}
+.confirm-actions {
+  display: flex; gap: 0.6rem; justify-content: flex-end; margin-top: 1.25rem;
 }
 .help-form {
   display: flex; flex-direction: column;

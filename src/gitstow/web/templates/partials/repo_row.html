@@ -1,4 +1,4 @@
-<tr{% if repo.frozen %} class="frozen"{% endif %}>
+<tr{% if repo.frozen %} class="frozen"{% endif %} data-key="{{ repo.key|lower }}" data-workspace="{{ repo.workspace }}" data-tags="{{ repo.tags|join(' ')|lower }}" data-status="{{ repo.status_class }}" data-frozen="{{ '1' if repo.frozen else '' }}">
   <td class="row-num" title="Row {{ repo.num }}">{{ repo.num }}</td>
   <td>
     <span class="status status-{{ repo.status_class }}" title="{{ repo.status_tooltip }}"><span class="dot"></span>{{ repo.status_label }}</span>

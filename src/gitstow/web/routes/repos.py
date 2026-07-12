@@ -44,9 +44,12 @@ def _row_context(repo, settings, sorted_labels, num: int | None) -> dict | None:
     status = get_status(repo_path) if exists else None
     state = classify(exists=exists, frozen=repo.frozen, status=status)
     status_class, status_label, pull_variant = _present(state)
-    ahead_n = status.ahead if status else 0
     behind_n = status.behind if status else 0
-    delta_cls, delta_txt, delta_tip = _delta(ahead_n, behind_n)
+    delta_cls, delta_txt, delta_tip = _delta(state)
+
+    pull_tooltip = _pull_tooltip(pull_variant, status_class, behind_n, status_label)
+    if state.presence == "ok" and not state.has_upstream:
+        pull_tooltip = "Pull not applicable — local-only repo with no upstream. Bulk pulls skip it."
 
     return {
         "num": f"{num:02d}" if num else "—",
@@ -77,7 +80,7 @@ def _row_context(repo, settings, sorted_labels, num: int | None) -> dict | None:
         "status_tooltip": f"{_STATUS_TOOLTIPS.get(status_class, status_label)} ({state.local_summary})",
         "frozen": repo.frozen,
         "pull_variant": pull_variant,
-        "pull_tooltip": _pull_tooltip(pull_variant, status_class, behind_n, status_label),
+        "pull_tooltip": pull_tooltip,
         "behind": behind_n,
         "repo_link_tooltip": f"Open details for {repo.key}",
     }
@@ -160,6 +163,8 @@ def _pull_if_safe(path):
         return {"skipped_local": True, "detail": state.local_summary}
     if state.pull_action == "skip-diverged":
         return {"skipped_local": True, "detail": "diverged — resolve manually"}
+    if state.pull_action == "skip-no-upstream":
+        return {"skipped_local": True, "detail": "local-only — no upstream"}
     return git_pull(path)
 
 

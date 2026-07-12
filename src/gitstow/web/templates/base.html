@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>gitstow{% block title_suffix %}{% endblock %}</title>
   <link rel="stylesheet" href="/static/app.css">
-  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+  <script src="/static/vendor/htmx.min.js"></script>
   {% block head_extra %}{% endblock %}
 </head>
 <body{% block body_attrs %}{% endblock %}>
@@ -46,6 +46,14 @@
               hx-confirm="Shut down the gitstow server?">Shutdown</button>
     </div>
   </footer>
+
+  <dialog id="confirm-dialog" class="confirm-dialog">
+    <p id="confirm-message"></p>
+    <div class="confirm-actions">
+      <button type="button" class="btn btn-ghost btn-sm" id="confirm-cancel">Cancel</button>
+      <button type="button" class="btn btn-primary btn-sm" id="confirm-ok">Confirm</button>
+    </div>
+  </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
@@ -124,6 +132,48 @@
           showToast(errMsg, 'error');
         }
       });
+
+      // Styled confirmations — one dialog for htmx (hx-confirm) and plain forms (data-confirm).
+      var dlg = document.getElementById('confirm-dialog');
+      var msgEl = document.getElementById('confirm-message');
+      var okBtn = document.getElementById('confirm-ok');
+      var onConfirm = null;
+
+      function askConfirm(message, danger, proceed) {
+        msgEl.textContent = message;
+        okBtn.classList.toggle('btn-danger-solid', !!danger);
+        onConfirm = proceed;
+        dlg.showModal();
+      }
+      okBtn.addEventListener('click', function () {
+        var f = onConfirm;           // capture + clear before close so a double-click can't re-fire
+        onConfirm = null;
+        dlg.close();
+        if (f) f();
+      });
+      document.getElementById('confirm-cancel').addEventListener('click', function () {
+        onConfirm = null; dlg.close();
+      });
+      dlg.addEventListener('click', function (e) { if (e.target === dlg) { onConfirm = null; dlg.close(); } });
+      // Escape (native 'cancel'→'close') or any other close discards the pending action.
+      dlg.addEventListener('close', function () { onConfirm = null; });
+
+      document.body.addEventListener('htmx:confirm', function (evt) {
+        if (!evt.detail.question) return;      // no hx-confirm on this element
+        evt.preventDefault();
+        var danger = evt.detail.elt && evt.detail.elt.hasAttribute('data-danger');
+        askConfirm(evt.detail.question, danger, function () { evt.detail.issueRequest(true); });
+      });
+
+      document.addEventListener('submit', function (e) {
+        var form = e.target.closest('form[data-confirm]');
+        if (!form || form.dataset.confirmed === '1') return;
+        e.preventDefault();
+        askConfirm(form.dataset.confirm, form.hasAttribute('data-danger'), function () {
+          form.dataset.confirmed = '1';
+          form.requestSubmit ? form.requestSubmit() : form.submit();
+        });
+      }, true);
     })();
   </script>
 

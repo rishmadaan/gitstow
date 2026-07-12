@@ -29,12 +29,12 @@
   </section>
 
   <div class="action-bar">
-    <select title="Filter the ledger to one workspace">
-      <option>All workspaces</option>
-      {% for ws in workspaces %}<option>{{ ws.label }}</option>{% endfor %}
+    <select id="ws-filter" title="Show only one workspace's repos">
+      <option value="">All workspaces</option>
+      {% for ws in workspaces %}<option value="{{ ws.label }}">{{ ws.label }}</option>{% endfor %}
     </select>
-    <input type="search" placeholder="Search repos, tags…" title="Filter rows by repo name or tag">
-    <label class="inline" title="Collapse rows for frozen repos"><input type="checkbox"> Hide frozen</label>
+    <input type="search" id="repo-search" placeholder="Search repos, tags…" aria-label="Search repos and tags" title="Filter rows by repo name or tag">
+    <label class="inline" title="Hide rows for frozen repos"><input type="checkbox" id="hide-frozen" aria-label="Hide frozen repos"> Hide frozen</label>
     <div class="spacer"></div>
     <button class="btn btn-ghost btn-sm"
             title="Re-read local state now — re-reads repos.yaml and runs 'git status' on each repo. Does NOT run 'git fetch'."
@@ -47,14 +47,14 @@
             hx-post="/repos/fetch-all"
             hx-target="#pull-summary"
             hx-swap="outerHTML"
-            hx-disabled-elt="this">⟳ Fetch all</button>
+            hx-sync="this:drop">⟳ Fetch all</button>
     <a href="/add" class="btn btn-outline btn-sm" title="Clone a new repo into a workspace">+ Add repo</a>
     <button class="btn btn-primary btn-sm"
             title="Pull every non-frozen repo in parallel. Shows a summary panel with per-repo results."
             hx-post="/repos/pull-all"
             hx-target="#pull-summary"
             hx-swap="outerHTML"
-            hx-disabled-elt="this"
+            hx-sync="this:drop"
             hx-confirm="Pull every non-frozen repo?">↓ Pull all</button>
   </div>
 
@@ -83,6 +83,8 @@
       </tbody>
     </table>
   </div>
+
+  <p id="filter-empty" class="filter-empty" hidden>No repos match the current filters.</p>
 
   <small style="display: block; margin-top: 1.2rem; color: var(--muted-soft); font-family: 'JetBrains Mono', monospace; font-size: 0.78rem;">
     auto-refresh 30s · click repo name → details · pull runs in place · <a href="#" onclick="document.getElementById('help-dialog').showModal(); return false;" style="color: var(--muted); text-decoration: underline;">what does this dashboard show?</a>
@@ -144,7 +146,7 @@
 
       <section class="section">
         <h4>The Remote Δ column</h4>
-        <p>Ahead (<code>↑ N</code>), behind (<code>↓ N</code>), or even (<code>—</code>) relative to upstream. <strong>These counts reflect your last <code>git fetch</code>, not live remote state.</strong> Click <strong>Fetch all</strong> to refresh them without merging, or <strong>Pull all</strong> to fetch and merge.</p>
+        <p>Ahead (<code>↑ N</code>), behind (<code>↓ N</code>), or even (<code>—</code>) relative to upstream. <strong>These counts reflect your last <code>git fetch</code>, not live remote state.</strong> Click <strong>Fetch all</strong> to refresh them without merging, or <strong>Pull all</strong> to fetch and merge. A <code>local</code> badge means the repo has no upstream remote at all — bulk pulls skip it.</p>
       </section>
 
       <section class="section">
@@ -179,6 +181,7 @@
 
 {% endblock %}
 {% block body_extra %}
+  <script src="/static/dashboard.js"></script>
   <script>
     document.addEventListener('click', (e) => {
       document.querySelectorAll('details.menu[open]').forEach(d => {

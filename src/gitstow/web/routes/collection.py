@@ -6,11 +6,13 @@ import asyncio
 import functools
 import json
 from datetime import datetime
+from pathlib import Path
 
 import yaml
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import RedirectResponse, Response
 
+from gitstow.core.collection_io import parse_collection_file, resolve_entry_workspace
 from gitstow.core.config import load_config
 from gitstow.core.git import clone as git_clone
 from gitstow.core.repo import Repo, RepoStore
@@ -79,71 +81,6 @@ async def export_collection(fmt: str = "yaml"):
     )
 
 
-def _parse_import(content: str, filename: str) -> list[dict]:
-    """Parse an uploaded collection into a list of {key, url, tags, frozen} dicts."""
-    suffix = ""
-    if "." in filename:
-        suffix = "." + filename.rsplit(".", 1)[-1].lower()
-
-    # YAML
-    if suffix in (".yaml", ".yml"):
-        data = yaml.safe_load(content)
-        if isinstance(data, dict):
-            if "version" in data and "repos" in data:
-                if data["version"] > EXPORT_FORMAT_VERSION:
-                    raise ValueError(
-                        f"unsupported export version {data['version']} (max {EXPORT_FORMAT_VERSION})"
-                    )
-                repos_data = data["repos"]
-                if isinstance(repos_data, dict):
-                    return [
-                        {
-                            "key": k,
-                            "url": v.get("remote_url", ""),
-                            "tags": v.get("tags", []),
-                            "frozen": v.get("frozen", False),
-                        }
-                        for k, v in repos_data.items()
-                        if isinstance(v, dict)
-                    ]
-            # Legacy flat yaml
-            return [
-                {
-                    "key": k,
-                    "url": v.get("remote_url", ""),
-                    "tags": v.get("tags", []),
-                    "frozen": v.get("frozen", False),
-                }
-                for k, v in data.items()
-                if isinstance(v, dict)
-            ]
-
-    # JSON
-    if suffix == ".json":
-        data = json.loads(content)
-        if isinstance(data, dict) and "version" in data and "repos" in data:
-            if data["version"] > EXPORT_FORMAT_VERSION:
-                raise ValueError(
-                    f"unsupported export version {data['version']} (max {EXPORT_FORMAT_VERSION})"
-                )
-            data = data["repos"]
-        if isinstance(data, list):
-            return [
-                {
-                    "key": item.get("key", ""),
-                    "url": item.get("remote_url", item.get("url", "")),
-                    "tags": item.get("tags", []),
-                    "frozen": item.get("frozen", False),
-                }
-                for item in data
-                if isinstance(item, dict)
-            ]
-
-    # Plain text — one URL per line
-    lines = [ln.strip() for ln in content.splitlines() if ln.strip() and not ln.strip().startswith("#")]
-    return [{"url": ln, "key": "", "tags": [], "frozen": False} for ln in lines]
-
-
 @router.post("/collection/import")
 async def import_collection(
     request: Request,
@@ -170,16 +107,18 @@ async def import_collection(
         raise HTTPException(status_code=400, detail="file is not UTF-8 text")
 
     try:
-        entries = _parse_import(content, file.filename or "")
+        suffix = Path(file.filename or "").suffix.lower()
+        entries = parse_collection_file(content, suffix)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=422, detail=str(exc))
 
     # Filter out already-tracked
-    root = ws.get_path()
     new_entries = []
     for e in entries:
+        entry_ws, _note = resolve_entry_workspace(e, settings, fallback=ws)
+        e["_resolved_ws"] = entry_ws
         key = e.get("key", "")
-        if key and store.get(key):
+        if key and store.get(key, workspace=entry_ws.label):
             continue
         new_entries.append(e)
 
@@ -187,6 +126,7 @@ async def import_collection(
     succeeded = 0
     failed = 0
     for e in new_entries:
+        entry_ws = e["_resolved_ws"]
         url = e.get("url", "")
         if not url:
             failed += 1
@@ -201,14 +141,15 @@ async def import_collection(
             failed += 1
             continue
 
-        if ws.layout == "flat":
+        root = entry_ws.get_path()
+        if entry_ws.layout == "flat":
             target = root / parsed.repo
             repo_owner = ""
         else:
             target = root / parsed.owner / parsed.repo
             repo_owner = parsed.owner
 
-        all_tags = list(dict.fromkeys(list(e.get("tags", [])) + list(ws.auto_tags)))
+        all_tags = list(dict.fromkeys(list(e.get("tags", [])) + list(entry_ws.auto_tags)))
 
         if target.exists():
             # Already on disk — just register
@@ -216,7 +157,7 @@ async def import_collection(
                 owner=repo_owner,
                 name=parsed.repo,
                 remote_url=parsed.clone_url,
-                workspace=ws.label,
+                workspace=entry_ws.label,
                 tags=all_tags,
                 frozen=e.get("frozen", False),
             ))
@@ -233,7 +174,7 @@ async def import_collection(
                 owner=repo_owner,
                 name=parsed.repo,
                 remote_url=parsed.clone_url,
-                workspace=ws.label,
+                workspace=entry_ws.label,
                 tags=all_tags,
                 frozen=e.get("frozen", False),
                 last_pulled=datetime.now().isoformat(timespec="seconds"),

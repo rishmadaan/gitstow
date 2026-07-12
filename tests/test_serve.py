@@ -104,6 +104,82 @@ class TestSmoke:
         assert r.status_code == 200
 
 
+class TestVendoredAssets:
+    def test_no_external_urls_in_pages(self, client, configured):
+        for path in ("/", "/workspaces", "/settings", "/add"):
+            html = client.get(path).text
+            assert "unpkg.com" not in html
+            assert "googleapis.com" not in html
+            assert "https://" not in (
+                html.replace("https://github.com", "").replace("https:// URLs", "")
+            )
+
+    def test_no_external_urls_in_css(self, client, configured):
+        css = client.get("/static/app.css").text
+        assert "googleapis.com" not in css and "@import url('https" not in css
+
+    def test_vendored_files_served(self, client, configured):
+        assert client.get("/static/vendor/htmx.min.js").status_code == 200
+        fonts_css = client.get("/static/fonts/fonts.css")
+        assert fonts_css.status_code == 200
+        assert "@font-face" in fonts_css.text
+
+
+# ---------- settings ----------
+
+
+class TestSettingsSave:
+    def test_post_persists_all_fields(self, client, configured):
+        from gitstow.core.config import load_config
+
+        r = client.post("/settings", data={
+            "default_host": "gitlab.com",
+            "prefer_ssh": "on",
+            "parallel_limit": "9",
+            "clone_timeout": "600",
+        }, follow_redirects=False)
+        assert r.status_code == 303
+        s = load_config()
+        assert s.default_host == "gitlab.com"
+        assert s.prefer_ssh is True
+        assert s.parallel_limit == 9
+        assert s.clone_timeout == 600
+
+    def test_unchecked_ssh_saves_false(self, client, configured):
+        from gitstow.core.config import load_config
+
+        client.post("/settings", data={
+            "default_host": "github.com", "parallel_limit": "6", "clone_timeout": "300",
+        })
+        assert load_config().prefer_ssh is False
+
+    def test_invalid_int_rerenders_with_error(self, client, configured):
+        r = client.post("/settings", data={
+            "default_host": "github.com", "parallel_limit": "zero", "clone_timeout": "300",
+        })
+        assert r.status_code == 422
+        assert "whole number" in r.text
+
+    def test_get_shows_current_values_and_no_alert(self, client, configured):
+        from gitstow.core.config import load_config, save_config
+        s = load_config(); s.parallel_limit = 11; save_config(s)
+        r = client.get("/settings")
+        assert 'name="parallel_limit"' in r.text and 'value="11"' in r.text
+        assert 'name="clone_timeout"' in r.text
+        assert "alert(" not in r.text
+
+    def test_no_nested_forms_on_settings_page(self, client, configured):
+        import re
+        html = client.get("/settings").text
+        # Walk form open/close tags — depth must never exceed 1 (nested forms are
+        # dropped by browsers, breaking both the outer and inner form).
+        depth = 0
+        for tag in re.findall(r"<form\b|</form>", html):
+            depth += 1 if tag.startswith("<form") else -1
+            assert depth in (0, 1), "nested <form> detected on settings page"
+        assert depth == 0
+
+
 # ---------- add-repo ----------
 
 
@@ -433,6 +509,31 @@ class TestCollection:
         assert "imported=0" in r.headers["location"]
 
 
+class TestWebImportWorkspaces:
+    def test_web_import_honors_recorded_workspace(self, client, isolated, monkeypatch):
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import RepoStore
+
+        a = isolated / "a"; a.mkdir()
+        b = isolated / "b"; b.mkdir()
+        save_config(Settings(workspaces=[
+            Workspace(path=str(a), label="a", layout="flat"),
+            Workspace(path=str(b), label="b", layout="flat"),
+        ]))
+
+        def fake_clone(url, target, **kw):
+            (target / ".git").mkdir(parents=True)
+            return True, ""
+        monkeypatch.setattr("gitstow.web.routes.collection.git_clone", fake_clone)
+
+        payload = b"version: 1\nrepos:\n  one:\n    remote_url: https://github.com/x/one.git\n    workspace: b\n"
+        r = client.post("/collection/import", files={"file": ("coll.yaml", payload, "text/yaml")})
+        assert r.status_code in (200, 303)
+        store = RepoStore()
+        assert store.get("one", workspace="b") is not None
+        assert (b / "one" / ".git").exists()
+
+
 # ---------- shared status model in web ----------
 
 
@@ -566,6 +667,49 @@ class TestCrossOriginProtection:
         assert r.status_code == 200
 
 
+# ---------- dashboard filter wiring ----------
+
+
+class TestFilterWiring:
+    def _seed_one(self, workspace_dir):
+        from gitstow.core.repo import Repo, RepoStore
+
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="u",
+                             workspace="test-ws", tags=["ai", "demo"]))
+
+    def test_rows_carry_filter_data_attributes(self, client, configured, workspace_dir, monkeypatch):
+        self._seed_one(workspace_dir)
+        monkeypatch.setattr("gitstow.web.routes.dashboard.get_status", lambda p: _fake_status())
+        r = client.get("/")
+        assert 'data-key="a/one"' in r.text
+        assert 'data-workspace="test-ws"' in r.text
+        assert 'data-tags="ai demo"' in r.text
+        assert 'data-status="clean"' in r.text
+
+    def test_frozen_row_carries_data_frozen(self, client, configured, workspace_dir, monkeypatch):
+        from gitstow.core.repo import Repo, RepoStore
+
+        _make_repo_on_disk(workspace_dir, "a", "icy")
+        RepoStore().add(Repo(owner="a", name="icy", remote_url="u",
+                             workspace="test-ws", frozen=True))
+        monkeypatch.setattr("gitstow.web.routes.dashboard.get_status", lambda p: _fake_status())
+        r = client.get("/")
+        assert 'data-frozen="1"' in r.text
+
+    def test_controls_have_ids_and_script_included(self, client, configured):
+        r = client.get("/")
+        assert 'id="ws-filter"' in r.text
+        assert 'id="repo-search"' in r.text
+        assert 'id="hide-frozen"' in r.text
+        assert "/static/dashboard.js" in r.text
+
+    def test_dashboard_js_served(self, client, configured):
+        r = client.get("/static/dashboard.js")
+        assert r.status_code == 200
+        assert "applyFilters" in r.text
+
+
 # ---------- parallel status gathering ----------
 
 
@@ -595,3 +739,54 @@ class TestParallelDashboardStatus:
         r = client.get("/dashboard/rows")
         assert r.status_code == 200
         assert concurrent["max"] >= 2  # serial implementation never exceeds 1
+
+
+class TestLocalOnlyRepos:
+    def test_pull_all_skips_local_only(self, client, configured, workspace_dir, monkeypatch):
+        from gitstow.core.repo import Repo, RepoStore
+
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="", workspace="test-ws"))
+        monkeypatch.setattr("gitstow.web.routes.repos.get_status",
+                            lambda p: _fake_status(has_upstream=False))
+        called = []
+        monkeypatch.setattr("gitstow.web.routes.repos.git_pull", lambda p: called.append(p))
+
+        r = client.post("/repos/pull-all")
+        assert called == []
+        assert "no upstream" in r.text.lower()
+
+    def test_delta_shows_local_for_no_upstream(self, client, configured, workspace_dir, monkeypatch):
+        from gitstow.core.repo import Repo, RepoStore
+
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="", workspace="test-ws"))
+        monkeypatch.setattr("gitstow.web.routes.dashboard.get_status",
+                            lambda p: _fake_status(has_upstream=False))
+        r = client.get("/dashboard/rows")
+        assert ">local<" in r.text or "delta local" in r.text
+        assert "no upstream remote" in r.text.lower()
+
+
+class TestStyledConfirm:
+    def test_no_native_dialogs_in_templates(self, client, configured):
+        for path in ("/", "/workspaces", "/settings"):
+            html = client.get(path).text
+            assert "return confirm(" not in html
+            assert "alert(" not in html
+
+    def test_confirm_dialog_present(self, client, configured):
+        r = client.get("/")
+        assert 'id="confirm-dialog"' in r.text
+        assert "htmx:confirm" in r.text  # the interceptor script
+
+    def test_drawer_uses_data_confirm(self, client, configured, workspace_dir, monkeypatch):
+        from gitstow.core.repo import Repo, RepoStore
+
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws"))
+        monkeypatch.setattr("gitstow.web.routes.pages.get_status", lambda p: _fake_status())
+        r = client.get("/repo/test-ws/a/one")
+        assert "data-confirm=" in r.text
+        assert "data-danger" in r.text  # the delete-from-disk form
+        assert "return confirm(" not in r.text

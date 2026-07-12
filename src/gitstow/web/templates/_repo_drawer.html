@@ -91,10 +91,10 @@
     <h4>Danger zone</h4>
     <p>Remove this repo from gitstow. Choose whether to also delete it from disk.</p>
     <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-      <form method="POST" action="/repos/{{ repo.workspace }}/{{ repo.key }}/remove" style="margin: 0;" onsubmit="return confirm('Remove {{ repo.key }} from the registry? Files on disk will NOT be deleted.');">
+      <form method="POST" action="/repos/{{ repo.workspace }}/{{ repo.key }}/remove" style="margin: 0;" data-confirm="Remove {{ repo.key }} from the registry? Files on disk will NOT be deleted.">
         <button type="submit" class="btn btn-danger">Remove from registry only</button>
       </form>
-      <form method="POST" action="/repos/{{ repo.workspace }}/{{ repo.key }}/delete" style="margin: 0;" onsubmit="return confirm('DELETE {{ repo.key }} from disk AND unregister?\n\nThis cannot be undone.');">
+      <form method="POST" action="/repos/{{ repo.workspace }}/{{ repo.key }}/delete" style="margin: 0;" data-confirm="DELETE {{ repo.key }} from disk AND unregister? This cannot be undone." data-danger>
         <button type="submit" class="btn btn-danger-solid">Remove + delete folder</button>
       </form>
     </div>

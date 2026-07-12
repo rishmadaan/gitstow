@@ -68,9 +68,13 @@ class TestClassify:
         state = classify(exists=True, frozen=False, status=_status(ahead=2))
         assert state.pull_action == "noop"
 
-    def test_no_upstream_clean_is_noop(self):
+    def test_no_upstream_skips_pull(self):
         state = classify(exists=True, frozen=False, status=_status(has_upstream=False))
-        assert state.pull_action == "noop"
+        assert state.pull_action == "skip-no-upstream"
+
+    def test_no_upstream_with_local_changes_still_reports_local_first(self):
+        state = classify(exists=True, frozen=False, status=_status(has_upstream=False, dirty=1))
+        assert state.pull_action == "skip-local"
 
     def test_behind_pulls(self):
         state = classify(exists=True, frozen=False, status=_status(behind=5))

@@ -66,7 +66,11 @@ class RepoState:
 
     @property
     def pull_action(self) -> str:
-        """What a bulk pull should do with this repo."""
+        """What a bulk pull should do with this repo.
+
+        One of: pull | noop | skip-local | skip-frozen | skip-missing |
+        skip-diverged | skip-no-upstream.
+        """
         if self.presence != "ok":
             return "skip-missing"
         if self.frozen:
@@ -77,6 +81,9 @@ class RepoState:
             # ff-only pull always fails on divergence — skip with a clear
             # reason instead of commanding a doomed pull.
             return "skip-diverged"
+        if not self.has_upstream:
+            # A repo you `git init`ed locally — there is nothing to pull from.
+            return "skip-no-upstream"
         if self.behind:
             return "pull"
         return "noop"

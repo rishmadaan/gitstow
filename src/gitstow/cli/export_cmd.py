@@ -11,6 +11,7 @@ import typer
 import yaml
 from rich.console import Console
 
+from gitstow.core.collection_io import parse_collection_file, resolve_entry_workspace
 from gitstow.core.config import load_config
 from gitstow.core.git import clone as git_clone
 from gitstow.core.repo import Repo, RepoStore
@@ -142,7 +143,7 @@ def import_collection(
 
     # Detect format
     try:
-        repos_to_import = _parse_import_file(content, path.suffix)
+        repos_to_import = parse_collection_file(content, path.suffix)
     except ValueError as e:
         err_console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(code=1)
@@ -160,21 +161,12 @@ def import_collection(
     ws_list = resolve_workspaces(settings, ws_label)
     ws = ws_list[0]
 
-    def resolve_entry_workspace(entry: dict):
-        recorded = entry.get("workspace", "")
-        if recorded:
-            candidate = settings.get_workspace(recorded)
-            if candidate is not None:
-                return candidate, None
-            return ws, f"workspace '{recorded}' not configured — importing into '{ws.label}'"
-        return ws, None
-
     # Resolve each entry's target workspace, then check which already exist
     # there (workspace-aware — the same key in another workspace doesn't block).
     new_repos = []
     existing = []
     for entry in repos_to_import:
-        entry_ws, note = resolve_entry_workspace(entry)
+        entry_ws, note = resolve_entry_workspace(entry, settings, fallback=ws)
         entry["_resolved_ws"] = entry_ws
         entry["_ws_note"] = note
         key = entry.get("key", "")
@@ -267,81 +259,3 @@ def import_collection(
     if failed:
         console.print(f", [red]{failed} failed[/red]", end="")
     console.print("\n")
-
-
-EXPORT_FORMAT_VERSION = 1
-
-
-def _parse_import_file(content: str, suffix: str) -> list[dict]:
-    """Parse an import file into a list of repo dicts.
-
-    Supports versioned format (version: 1) and legacy unversioned format.
-    """
-    # Try YAML first
-    if suffix in (".yaml", ".yml"):
-        data = yaml.safe_load(content)
-        if isinstance(data, dict):
-            # Versioned format: {"version": 1, "repos": {...}}
-            if "version" in data and "repos" in data:
-                version = data["version"]
-                if version > EXPORT_FORMAT_VERSION:
-                    raise ValueError(
-                        f"collection file version {version} is newer than supported "
-                        f"{EXPORT_FORMAT_VERSION} — run 'gitstow update' first"
-                    )
-                repos_data = data["repos"]
-                if isinstance(repos_data, dict):
-                    return [
-                        {
-                            "key": k,
-                            "url": v.get("remote_url", ""),
-                            "tags": v.get("tags", []),
-                            "frozen": v.get("frozen", False),
-                            "workspace": v.get("workspace", ""),
-                        }
-                        for k, v in repos_data.items()
-                        if isinstance(v, dict)
-                    ]
-            # Legacy unversioned format: {key: {remote_url: ...}}
-            return [
-                {
-                    "key": k,
-                    "url": v.get("remote_url", ""),
-                    "tags": v.get("tags", []),
-                    "frozen": v.get("frozen", False),
-                    "workspace": v.get("workspace", ""),
-                }
-                for k, v in data.items()
-                if isinstance(v, dict)
-            ]
-        elif isinstance(data, list):
-            return [{"url": item} if isinstance(item, str) else item for item in data]
-
-    # Try JSON
-    if suffix == ".json":
-        data = json.loads(content)
-        # Versioned format: {"version": 1, "repos": [...]}
-        if isinstance(data, dict) and "version" in data and "repos" in data:
-            version = data["version"]
-            if version > EXPORT_FORMAT_VERSION:
-                raise ValueError(
-                    f"collection file version {version} is newer than supported "
-                    f"{EXPORT_FORMAT_VERSION} — run 'gitstow update' first"
-                )
-            data = data["repos"]
-        if isinstance(data, list):
-            return [
-                {
-                    "key": item.get("key", ""),
-                    "url": item.get("remote_url", item.get("url", "")),
-                    "tags": item.get("tags", []),
-                    "frozen": item.get("frozen", False),
-                    "workspace": item.get("workspace", ""),
-                }
-                for item in data
-                if isinstance(item, dict)
-            ]
-
-    # Plain text: one URL per line
-    lines = [line.strip() for line in content.splitlines() if line.strip() and not line.startswith("#")]
-    return [{"url": line} for line in lines]
