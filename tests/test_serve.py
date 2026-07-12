@@ -168,6 +168,17 @@ class TestSettingsSave:
         assert 'name="clone_timeout"' in r.text
         assert "alert(" not in r.text
 
+    def test_no_nested_forms_on_settings_page(self, client, configured):
+        import re
+        html = client.get("/settings").text
+        # Walk form open/close tags — depth must never exceed 1 (nested forms are
+        # dropped by browsers, breaking both the outer and inner form).
+        depth = 0
+        for tag in re.findall(r"<form\b|</form>", html):
+            depth += 1 if tag.startswith("<form") else -1
+            assert depth in (0, 1), "nested <form> detected on settings page"
+        assert depth == 0
+
 
 # ---------- add-repo ----------
 

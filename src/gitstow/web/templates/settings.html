@@ -56,6 +56,12 @@
       </dl>
     </section>
 
+    <div style="display: flex; gap: 0.5rem; margin-top: 2rem;">
+      <button type="submit" class="btn btn-primary">Save preferences</button>
+      <a href="/" class="btn btn-ghost">Cancel</a>
+    </div>
+  </form>
+
     <section class="section">
       <h4>Paths</h4>
       <dl class="settings-grid">
@@ -112,11 +118,5 @@
       <strong>gitstow v{{ version }}</strong><br>
       <small style="color: var(--muted); font-size: 0.82rem;">Run <code>gitstow doctor</code> from the CLI for a full environment report.</small>
     </article>
-
-    <div style="display: flex; gap: 0.5rem; margin-top: 2rem;">
-      <button type="submit" class="btn btn-primary">Save preferences</button>
-      <a href="/" class="btn btn-ghost">Cancel</a>
-    </div>
-  </form>
 
 {% endblock %}
