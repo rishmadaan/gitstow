@@ -586,6 +586,16 @@ class TestFilterWiring:
         assert 'data-tags="ai demo"' in r.text
         assert 'data-status="clean"' in r.text
 
+    def test_frozen_row_carries_data_frozen(self, client, configured, workspace_dir, monkeypatch):
+        from gitstow.core.repo import Repo, RepoStore
+
+        _make_repo_on_disk(workspace_dir, "a", "icy")
+        RepoStore().add(Repo(owner="a", name="icy", remote_url="u",
+                             workspace="test-ws", frozen=True))
+        monkeypatch.setattr("gitstow.web.routes.dashboard.get_status", lambda p: _fake_status())
+        r = client.get("/")
+        assert 'data-frozen="1"' in r.text
+
     def test_controls_have_ids_and_script_included(self, client, configured):
         r = client.get("/")
         assert 'id="ws-filter"' in r.text

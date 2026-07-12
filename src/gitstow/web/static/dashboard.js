@@ -27,20 +27,22 @@
     if (empty) empty.hidden = visible > 0 || rows.length === 0;
   }
 
+  /* Event delegation on document.body: the "↻ Refresh" button swaps the
+     ENTIRE <main> (hx-select/hx-target "main", outerHTML), replacing the
+     filter controls themselves — direct per-element listeners would die
+     after one Refresh. Delegated listeners survive any swap. */
   function bind() {
-    var search = document.getElementById("repo-search");
-    var wsSel = document.getElementById("ws-filter");
-    var frozen = document.getElementById("hide-frozen");
-    if (!search && !wsSel && !frozen) return;
-
-    var debounce = null;
-    if (search) search.addEventListener("input", function () {
-      clearTimeout(debounce);
-      debounce = setTimeout(applyFilters, 120);
+    document.body.addEventListener("input", function (e) {
+      if (e.target && e.target.id === "repo-search") {
+        clearTimeout(bind._debounce);
+        bind._debounce = setTimeout(applyFilters, 120);
+      }
     });
-    if (wsSel) wsSel.addEventListener("change", applyFilters);
-    if (frozen) frozen.addEventListener("change", applyFilters);
-
+    document.body.addEventListener("change", function (e) {
+      if (e.target && (e.target.id === "ws-filter" || e.target.id === "hide-frozen")) {
+        applyFilters();
+      }
+    });
     // Auto-refresh (and pull row-swaps) replace rows — re-apply the active filters.
     document.body.addEventListener("htmx:afterSwap", applyFilters);
     applyFilters();
