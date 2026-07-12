@@ -498,6 +498,31 @@ class TestCollection:
         assert "imported=0" in r.headers["location"]
 
 
+class TestWebImportWorkspaces:
+    def test_web_import_honors_recorded_workspace(self, client, isolated, monkeypatch):
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import RepoStore
+
+        a = isolated / "a"; a.mkdir()
+        b = isolated / "b"; b.mkdir()
+        save_config(Settings(workspaces=[
+            Workspace(path=str(a), label="a", layout="flat"),
+            Workspace(path=str(b), label="b", layout="flat"),
+        ]))
+
+        def fake_clone(url, target, **kw):
+            (target / ".git").mkdir(parents=True)
+            return True, ""
+        monkeypatch.setattr("gitstow.web.routes.collection.git_clone", fake_clone)
+
+        payload = b"version: 1\nrepos:\n  one:\n    remote_url: https://github.com/x/one.git\n    workspace: b\n"
+        r = client.post("/collection/import", files={"file": ("coll.yaml", payload, "text/yaml")})
+        assert r.status_code in (200, 303)
+        store = RepoStore()
+        assert store.get("one", workspace="b") is not None
+        assert (b / "one" / ".git").exists()
+
+
 # ---------- shared status model in web ----------
 
 
