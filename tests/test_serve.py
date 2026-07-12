@@ -409,6 +409,50 @@ class TestCollection:
         assert "imported=0" in r.headers["location"]
 
 
+# ---------- shared status model in web ----------
+
+
+class TestStatusModelInWeb:
+    def _seed(self, workspace_dir, repos_file_status, monkeypatch):
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        store = RepoStore()
+        store.add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws"))
+        monkeypatch.setattr(
+            "gitstow.web.routes.dashboard.get_status", lambda p: repos_file_status
+        )
+
+    def test_staged_only_is_not_clean(self, client, configured, workspace_dir, monkeypatch):
+        # The audit's headline web bug: staged-only rendered as "clean".
+        self._seed(workspace_dir, _fake_status(staged=2), monkeypatch)
+        r = client.get("/dashboard/rows")
+        assert r.status_code == 200
+        # Composition label surfaces the staged count.
+        assert "2 staged" in r.text
+        # And the row is NOT presented as clean.
+        assert "status-clean" not in r.text
+        assert ">clean<" not in r.text
+
+    def test_untracked_only_behind_keeps_primary_pull(self, client, configured, workspace_dir, monkeypatch):
+        # Untracked files never block pull — behind still drives a live Pull.
+        self._seed(workspace_dir, _fake_status(untracked=1, behind=3), monkeypatch)
+        r = client.get("/dashboard/rows")
+        assert r.status_code == 200
+        assert "status-behind" in r.text
+        # A primary (live) pull button, not a disabled one.
+        assert "↓ Pull 3" in r.text
+        assert "Pull disabled" not in r.text
+
+    def test_diverged_disables_pull(self, client, configured, workspace_dir, monkeypatch):
+        # Diverged + clean local: ff-only pull can't succeed, so Pull is disabled.
+        self._seed(workspace_dir, _fake_status(ahead=2, behind=3), monkeypatch)
+        r = client.get("/dashboard/rows")
+        assert r.status_code == 200
+        assert "status-conflict" in r.text
+        assert ">diverged<" in r.text
+        # Disabled pull button + a tooltip explaining the divergence.
+        assert "Pull disabled — local and remote have diverged" in r.text
+
+
 # ---------- cross-origin write protection ----------
 
 

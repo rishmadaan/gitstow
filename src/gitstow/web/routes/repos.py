@@ -19,11 +19,12 @@ from gitstow.core.config import load_config
 from gitstow.core.git import clone as git_clone, fetch as git_fetch, get_status, is_git_repo, pull as git_pull
 from gitstow.core.parallel import run_parallel
 from gitstow.core.repo import Repo, RepoStore
+from gitstow.core.status_model import classify
 from gitstow.core.url_parser import parse_git_url
 from gitstow.web.routes.dashboard import (
     _STATUS_TOOLTIPS,
-    _classify,
     _delta,
+    _present,
     _pull_tooltip,
     _relative_time,
     _workspace_slot,
@@ -41,7 +42,8 @@ def _row_context(repo, settings, sorted_labels, num: int | None) -> dict | None:
     repo_path = repo.get_path(ws.get_path())
     exists = repo_path.exists() and is_git_repo(repo_path)
     status = get_status(repo_path) if exists else None
-    status_class, status_label, pull_variant = _classify(repo.frozen, status, exists)
+    state = classify(exists=exists, frozen=repo.frozen, status=status)
+    status_class, status_label, pull_variant = _present(state)
     ahead_n = status.ahead if status else 0
     behind_n = status.behind if status else 0
     delta_cls, delta_txt, delta_tip = _delta(ahead_n, behind_n)
@@ -72,10 +74,10 @@ def _row_context(repo, settings, sorted_labels, num: int | None) -> dict | None:
         ),
         "status_class": status_class,
         "status_label": status_label,
-        "status_tooltip": _STATUS_TOOLTIPS.get(status_class, status_label),
+        "status_tooltip": f"{_STATUS_TOOLTIPS.get(status_class, status_label)} ({state.local_summary})",
         "frozen": repo.frozen,
         "pull_variant": pull_variant,
-        "pull_tooltip": _pull_tooltip(pull_variant, status_class, behind_n),
+        "pull_tooltip": _pull_tooltip(pull_variant, status_class, behind_n, status_label),
         "behind": behind_n,
         "repo_link_tooltip": f"Open details for {repo.key}",
     }
