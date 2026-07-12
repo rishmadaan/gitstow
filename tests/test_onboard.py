@@ -95,3 +95,28 @@ def test_scan_workspace_uses_beaupy_confirmation_default(monkeypatch, tmp_path):
     assert len(added_repos) == 1
     assert added_repos[0].key == "owner/repo"
     assert added_repos[0].tags == ["ai"]
+
+
+def test_setup_workspace_reprompts_until_label_valid(monkeypatch):
+    """The label prompt loops until is_valid_label passes (after strip/lower)."""
+    prompts = iter([
+        "/some/path",   # workspace path prompt
+        "BAD LABEL!",   # label attempt 1 — invalid even after lower/strip
+        "good-label",   # label attempt 2 — valid
+        "",             # auto-tags prompt
+    ])
+    monkeypatch.setattr(
+        onboard_module,
+        "console",
+        Console(file=StringIO(), force_terminal=False),
+    )
+    monkeypatch.setattr("gitstow.cli.onboard.typer.prompt", lambda *a, **k: next(prompts))
+    monkeypatch.setattr(
+        onboard_module,
+        "bselect",
+        lambda *a, **k: onboard_module.LAYOUT_OPTIONS[0],
+    )
+
+    ws = onboard_module._setup_workspace(default_path="", default_label="", step_num=None)
+
+    assert ws.label == "good-label"

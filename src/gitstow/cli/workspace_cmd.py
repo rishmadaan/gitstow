@@ -27,7 +27,7 @@ _LABEL_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 def is_valid_label(label: str) -> bool:
     """Labels appear in global keys (workspace:key) and URLs — restrict the charset."""
-    return bool(_LABEL_RE.match(label))
+    return bool(_LABEL_RE.fullmatch(label))
 
 
 @workspace_app.command("list")

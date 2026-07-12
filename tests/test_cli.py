@@ -206,7 +206,7 @@ class TestRemoveContainment:
 
 
 class TestWorkspaceLabelValidation:
-    @pytest.mark.parametrize("bad_label", ["has:colon", "has/slash", "Has Space", "UPPER", ""])
+    @pytest.mark.parametrize("bad_label", ["has:colon", "has/slash", "Has Space", "UPPER", "", "foo\n"])
     def test_workspace_add_rejects_invalid_labels(self, bad_label, tmp_path, monkeypatch):
         from typer.testing import CliRunner
         from gitstow.cli.main import app
