@@ -44,6 +44,7 @@ def config_show(
         ("default_host", settings.default_host),
         ("prefer_ssh", str(settings.prefer_ssh).lower()),
         ("parallel_limit", str(settings.parallel_limit)),
+        ("clone_timeout", str(settings.clone_timeout)),
     ]
 
     max_label = max(len(r[0]) for r in rows)
@@ -70,7 +71,7 @@ def config_show(
 
 @config_app.command("set")
 def config_set(
-    key: str = typer.Argument(help="Setting key (default_host, prefer_ssh, parallel_limit)."),
+    key: str = typer.Argument(help="Setting key (default_host, prefer_ssh, parallel_limit, clone_timeout)."),
     value: str = typer.Argument(help="New value."),
 ) -> None:
     """Set a configuration value.
@@ -80,13 +81,14 @@ def config_set(
       gitstow config set default_host gitlab.com
       gitstow config set prefer_ssh true
       gitstow config set parallel_limit 8
+      gitstow config set clone_timeout 900
 
     Workspace paths are managed with 'gitstow workspace add/remove'
     and 'gitstow config migrate-root'.
     """
     settings = load_config()
 
-    valid_keys = {"default_host", "prefer_ssh", "parallel_limit"}
+    valid_keys = {"default_host", "prefer_ssh", "parallel_limit", "clone_timeout"}
     if key not in valid_keys:
         err_console.print(
             f"[red]Error:[/red] Unknown key '{key}'. Valid keys: {', '.join(sorted(valid_keys))}\n"
@@ -102,11 +104,11 @@ def config_set(
         else:
             err_console.print("[red]Error:[/red] prefer_ssh must be true or false.")
             raise typer.Exit(code=1)
-    elif key == "parallel_limit":
+    elif key in ("parallel_limit", "clone_timeout"):
         try:
             setattr(settings, key, int(value))
         except ValueError:
-            err_console.print("[red]Error:[/red] parallel_limit must be a number.")
+            err_console.print(f"[red]Error:[/red] {key} must be a number.")
             raise typer.Exit(code=1)
     else:
         setattr(settings, key, value)

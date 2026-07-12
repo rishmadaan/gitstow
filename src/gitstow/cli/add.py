@@ -229,6 +229,7 @@ def add(
                 shallow=shallow,
                 branch=branch,
                 recursive=recursive,
+                timeout=settings.clone_timeout,
             )
             if success:
                 break

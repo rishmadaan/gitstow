@@ -105,6 +105,15 @@ class TestSettings:
         assert settings.workspaces == []
 
 
+def test_clone_timeout_roundtrip(tmp_path, monkeypatch):
+    from gitstow.core.config import Settings, load_config, save_config
+
+    config_file = tmp_path / "config.yaml"
+    monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+    save_config(Settings(clone_timeout=900))
+    assert load_config().clone_timeout == 900
+
+
 class TestConfigPersistence:
     """Tests for save/load config with real files."""
 

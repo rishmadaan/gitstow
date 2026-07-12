@@ -6,6 +6,7 @@ All git interaction goes through this module. Nothing else shells out to git.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -130,6 +131,7 @@ def clone(
     shallow: bool = False,
     branch: str | None = None,
     recursive: bool = False,
+    timeout: int = 300,
 ) -> tuple[bool, str]:
     """Clone a repository.
 
@@ -146,12 +148,15 @@ def clone(
     args.extend(["--", url, str(target)])
 
     try:
-        result = _run_git(args, timeout=300)  # 5 min for large repos
+        result = _run_git(args, timeout=timeout)
         if result.returncode == 0:
             return True, ""
         return False, result.stderr.strip()
     except subprocess.TimeoutExpired:
-        return False, "Clone timed out (5 minutes)"
+        return False, (
+            f"Clone timed out ({timeout // 60} minutes) — raise it with: "
+            f"gitstow config set clone_timeout <seconds>"
+        )
 
 
 def pull(repo_path: Path) -> PullResult:
@@ -286,9 +291,21 @@ def get_branch(repo_path: Path) -> str:
 
 
 def get_disk_size(path: Path) -> int:
-    """Get total disk size of a directory in bytes."""
-    total = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
-    return total
+    """Total disk size of a directory in bytes.
+
+    Uses `du -sk` when available — a single subprocess call regardless of
+    tree size — falling back to a Python rglob walk (slow on large repos).
+    """
+    if shutil.which("du"):
+        result = subprocess.run(
+            ["du", "-sk", str(path)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return int(result.stdout.split()[0]) * 1024
+    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
 
 
 def format_size(size_bytes: int) -> str:

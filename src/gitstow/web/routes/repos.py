@@ -343,7 +343,10 @@ async def add_repo(
     else:
         # Clone
         target.parent.mkdir(parents=True, exist_ok=True)
-        success, err = await asyncio.to_thread(git_clone, parsed.clone_url, target)
+        clone_fn = functools.partial(
+            git_clone, parsed.clone_url, target, timeout=settings.clone_timeout,
+        )
+        success, err = await asyncio.to_thread(clone_fn)
         if not success:
             return _render_add_form(
                 request, settings, form_values,
