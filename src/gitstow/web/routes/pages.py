@@ -138,7 +138,6 @@ async def repo_detail(workspace: str, key: str, request: Request):
         "branch": status.branch if status else "—",
         "commit": commit,
         "disk_size": size_str,
-        "last_pulled": repo.last_pulled or "—",
         "tags": repo.tags,
         "frozen": repo.frozen,
         "status_class": status_class,

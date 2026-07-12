@@ -800,6 +800,17 @@ class TestHonestTimestamps:
         html = client.get("/dashboard/rows").text
         assert "as of last fetch" in html.lower()
 
+    def test_local_only_delta_tooltip_omits_fetch_age(
+        self, client, configured, workspace_dir, monkeypatch
+    ):
+        self._seed(workspace_dir)
+        monkeypatch.setattr(
+            "gitstow.web.routes.dashboard.get_status",
+            lambda p: _fake_status(has_upstream=False),
+        )
+        html = client.get("/dashboard/rows").text
+        assert "as of last fetch" not in html.lower()
+
 
 class TestStyledConfirm:
     def test_no_native_dialogs_in_templates(self, client, configured):

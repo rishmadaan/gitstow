@@ -185,7 +185,7 @@ async def _build_repos_data(settings, store) -> tuple[list, dict]:
 
         behind_n = status.behind if status else 0
         delta_cls, delta_txt, delta_tip = _delta(state)
-        if repo.last_fetched:
+        if repo.last_fetched and state.has_upstream:
             delta_tip += f" Counts as of last fetch, {_relative_time(repo.last_fetched)}."
 
         pull_tooltip = _pull_tooltip(pull_variant, status_class, behind_n, status_label)
