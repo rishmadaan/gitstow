@@ -78,3 +78,49 @@ class TestAddErrorHandling:
         # With no args and a TTY-like runner, should fail gracefully
         result = runner.invoke(app, ["add"])
         assert result.exit_code != 0
+
+
+class TestManageWorkspaceResolution:
+    def _seed_two_workspaces(self, tmp_path, monkeypatch):
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+
+        ws_a = tmp_path / "a"; ws_a.mkdir()
+        ws_b = tmp_path / "b"; ws_b.mkdir()
+        save_config(Settings(workspaces=[
+            Workspace(path=str(ws_a), label="a", layout="flat"),
+            Workspace(path=str(ws_b), label="b", layout="flat"),
+        ]))
+        store = RepoStore(path=repos_file)
+        store.add(Repo(owner="", name="dupe", remote_url="https://github.com/x/dupe.git", workspace="a"))
+        store.add(Repo(owner="", name="dupe", remote_url="https://github.com/y/dupe.git", workspace="b"))
+        return repos_file
+
+    def test_freeze_with_workspace_flag_targets_right_repo(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.repo import RepoStore
+
+        repos_file = self._seed_two_workspaces(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["-w", "b", "repo", "freeze", "dupe"])
+        assert result.exit_code == 0
+
+        store = RepoStore(path=repos_file)
+        assert store.get("dupe", workspace="b").frozen is True
+        assert store.get("dupe", workspace="a").frozen is False
+
+    def test_freeze_ambiguous_without_flag_errors_clearly(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+
+        self._seed_two_workspaces(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["repo", "freeze", "dupe"])
+        assert result.exit_code == 1
+        combined = (result.output or "") + str(result.exception or "")
+        assert "multiple workspaces" in combined or "multiple workspaces" in (result.stderr or "")

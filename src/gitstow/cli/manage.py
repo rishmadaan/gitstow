@@ -31,6 +31,7 @@ err_console = Console(stderr=True)
 
 @manage_app.command()
 def freeze(
+    ctx: typer.Context,
     repo_key: Optional[str] = typer.Argument(default=None, help="Repo to freeze (owner/repo). Optional if --tag is used."),
     tag_filter: Optional[str] = typer.Option(
         None, "--tag", "-t", help="Freeze all repos with this tag instead.",
@@ -42,16 +43,21 @@ def freeze(
     Examples:
       gitstow repo freeze facebook/react
       gitstow repo freeze --tag archived
+      gitstow -w oss repo freeze dupe
     """
+    settings = load_config()
     store = RepoStore()
+    ws_label = (ctx.obj or {}).get("workspace")
 
     if tag_filter:
         repos = store.list_by_tag(tag_filter)
+        if ws_label:
+            repos = [r for r in repos if r.workspace == ws_label]
         if not repos:
             err_console.print(f"[yellow]No repos with tag '{tag_filter}'.[/yellow]")
             return
         for repo in repos:
-            store.update(repo.key, frozen=True)
+            store.update(repo.key, workspace=repo.workspace, frozen=True)
         console.print(f"  [cyan]❄[/cyan] Froze {len(repos)} repos with tag '{tag_filter}'.")
         return
 
@@ -59,21 +65,17 @@ def freeze(
         err_console.print("[red]Error:[/red] Provide a repo key or use --tag.")
         raise typer.Exit(code=1)
 
-    repo = store.get(repo_key)
-    if not repo:
-        err_console.print(f"[red]Error:[/red] '{repo_key}' not tracked.")
-        raise typer.Exit(code=1)
-
+    repo, _ = resolve_repo(store, settings, repo_key, ws_label)
     if repo.frozen:
-        console.print(f"  [dim]{repo_key} is already frozen.[/dim]")
+        console.print(f"  [dim]{repo.key} is already frozen.[/dim]")
         return
-
-    store.update(repo_key, frozen=True)
-    console.print(f"  [cyan]❄[/cyan] {repo_key} frozen. It will be skipped during pull.")
+    store.update(repo.key, workspace=repo.workspace, frozen=True)
+    console.print(f"  [cyan]❄[/cyan] {repo.key} frozen. It will be skipped during pull.")
 
 
 @manage_app.command()
 def unfreeze(
+    ctx: typer.Context,
     repo_key: Optional[str] = typer.Argument(default=None, help="Repo to unfreeze (owner/repo). Optional if --tag is used."),
     tag_filter: Optional[str] = typer.Option(
         None, "--tag", "-t", help="Unfreeze all repos with this tag.",
@@ -85,17 +87,22 @@ def unfreeze(
     Examples:
       gitstow repo unfreeze facebook/react
       gitstow repo unfreeze --tag archived
+      gitstow -w oss repo unfreeze dupe
     """
+    settings = load_config()
     store = RepoStore()
+    ws_label = (ctx.obj or {}).get("workspace")
 
     if tag_filter:
         repos = store.list_by_tag(tag_filter)
+        if ws_label:
+            repos = [r for r in repos if r.workspace == ws_label]
         frozen = [r for r in repos if r.frozen]
         if not frozen:
             console.print(f"  [dim]No frozen repos with tag '{tag_filter}'.[/dim]")
             return
         for repo in frozen:
-            store.update(repo.key, frozen=False)
+            store.update(repo.key, workspace=repo.workspace, frozen=False)
         console.print(f"  [green]✓[/green] Unfroze {len(frozen)} repos with tag '{tag_filter}'.")
         return
 
@@ -103,21 +110,18 @@ def unfreeze(
         err_console.print("[red]Error:[/red] Provide a repo key or use --tag.")
         raise typer.Exit(code=1)
 
-    repo = store.get(repo_key)
-    if not repo:
-        err_console.print(f"[red]Error:[/red] '{repo_key}' not tracked.")
-        raise typer.Exit(code=1)
-
+    repo, _ = resolve_repo(store, settings, repo_key, ws_label)
     if not repo.frozen:
-        console.print(f"  [dim]{repo_key} is not frozen.[/dim]")
+        console.print(f"  [dim]{repo.key} is not frozen.[/dim]")
         return
 
-    store.update(repo_key, frozen=False)
-    console.print(f"  [green]✓[/green] {repo_key} unfrozen.")
+    store.update(repo.key, workspace=repo.workspace, frozen=False)
+    console.print(f"  [green]✓[/green] {repo.key} unfrozen.")
 
 
 @manage_app.command("tag")
 def add_tags(
+    ctx: typer.Context,
     repo_key: str = typer.Argument(help="Repo to tag (owner/repo)."),
     tags: list[str] = typer.Argument(help="Tag(s) to add."),
 ) -> None:
@@ -126,25 +130,26 @@ def add_tags(
     \b
     Examples:
       gitstow repo tag anthropic/claude-code ai tools
+      gitstow -w oss repo tag dupe ai
     """
+    settings = load_config()
     store = RepoStore()
-    repo = store.get(repo_key)
-    if not repo:
-        err_console.print(f"[red]Error:[/red] '{repo_key}' not tracked.")
-        raise typer.Exit(code=1)
+    ws_label = (ctx.obj or {}).get("workspace")
+    repo, _ = resolve_repo(store, settings, repo_key, ws_label)
 
-    new_tags = list(set(repo.tags + [t.lower() for t in tags]))
+    new_tags = sorted(set(repo.tags + [t.lower() for t in tags]))
     added = [t for t in new_tags if t not in repo.tags]
-    store.update(repo_key, tags=new_tags)
+    store.update(repo.key, workspace=repo.workspace, tags=new_tags)
 
     if added:
-        console.print(f"  [green]✓[/green] {repo_key} tagged: {', '.join(added)}")
+        console.print(f"  [green]✓[/green] {repo.key} tagged: {', '.join(added)}")
     else:
         console.print("  [dim]No new tags added (already tagged).[/dim]")
 
 
 @manage_app.command("untag")
 def remove_tags(
+    ctx: typer.Context,
     repo_key: str = typer.Argument(help="Repo to untag (owner/repo)."),
     tags: list[str] = typer.Argument(help="Tag(s) to remove."),
 ) -> None:
@@ -153,21 +158,21 @@ def remove_tags(
     \b
     Examples:
       gitstow repo untag anthropic/claude-code tools
+      gitstow -w oss repo untag dupe ai
     """
+    settings = load_config()
     store = RepoStore()
-    repo = store.get(repo_key)
-    if not repo:
-        err_console.print(f"[red]Error:[/red] '{repo_key}' not tracked.")
-        raise typer.Exit(code=1)
+    ws_label = (ctx.obj or {}).get("workspace")
+    repo, _ = resolve_repo(store, settings, repo_key, ws_label)
 
     removed = [t for t in tags if t in repo.tags]
     new_tags = [t for t in repo.tags if t not in tags]
-    store.update(repo_key, tags=new_tags)
+    store.update(repo.key, workspace=repo.workspace, tags=new_tags)
 
     if removed:
-        console.print(f"  [green]✓[/green] Removed tags from {repo_key}: {', '.join(removed)}")
+        console.print(f"  [green]✓[/green] Removed tags from {repo.key}: {', '.join(removed)}")
     else:
-        console.print(f"  [dim]None of those tags were on {repo_key}.[/dim]")
+        console.print(f"  [dim]None of those tags were on {repo.key}.[/dim]")
 
 
 @manage_app.command("tags")

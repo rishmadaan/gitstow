@@ -227,11 +227,8 @@ class RepoStore:
         if ":" in key and key in self._repos:
             return key
 
-        # Search across all workspaces
+        # Search across all workspaces — resolve only when unique.
         matches = [gk for gk, r in self._repos.items() if r.key == key]
-        if len(matches) == 1:
-            return matches[0]
-        # Ambiguous or not found — caller handles
         return matches[0] if len(matches) == 1 else None
 
     def list_all(self) -> list[Repo]:
