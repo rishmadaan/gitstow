@@ -164,3 +164,28 @@ class TestEdgeCases:
         result = parse_git_url("  anthropic/claude-code  ")
         assert result.owner == "anthropic"
         assert result.repo == "claude-code"
+
+
+class TestDeepLinks:
+    """Pasted browse URLs (tree/blob/pull/...) must resolve to the repo root."""
+
+    @pytest.mark.parametrize("url,owner,repo", [
+        ("https://github.com/anthropics/claude-code/tree/main/src", "anthropics", "claude-code"),
+        ("https://github.com/owner/repo/blob/main/README.md", "owner", "repo"),
+        ("https://github.com/owner/repo/pull/123", "owner", "repo"),
+        ("https://github.com/owner/repo/issues", "owner", "repo"),
+        ("https://github.com/owner/repo/releases/tag/v1.0", "owner", "repo"),
+        ("github.com/owner/repo/actions", "owner", "repo"),
+        ("https://gitlab.com/group/subgroup/repo/-/tree/main", "group/subgroup", "repo"),
+        ("https://gitlab.example.com/group/sub/repo/-/blob/main/x.py", "group/sub", "repo"),
+    ])
+    def test_deep_url_resolves_to_repo_root(self, url, owner, repo):
+        parsed = parse_git_url(url)
+        assert parsed.owner == owner
+        assert parsed.repo == repo
+        assert parsed.clone_url.endswith(f"{owner}/{repo}.git")
+
+    def test_gitlab_nested_groups_still_work(self):
+        parsed = parse_git_url("https://gitlab.com/group/subgroup/repo")
+        assert parsed.owner == "group/subgroup"
+        assert parsed.repo == "repo"
