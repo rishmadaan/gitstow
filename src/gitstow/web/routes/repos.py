@@ -199,21 +199,23 @@ async def pull_all(request: Request):
     ok = 0
     skipped_local: list[dict] = []
     failed: list[dict] = []
-    for r in task_results:
-        # r.data is a skip marker dict or PullResult when no exception,
-        # or None when one was raised
-        data = r.data if r.success else None
-        if isinstance(data, dict) and data.get("skipped_local"):
-            skipped_local.append({"key": r.key, "detail": data["detail"]})
-            continue
-        pull_result = data
-        if pull_result and pull_result.success:
-            ok += 1
-            ws_label, _, rkey = r.key.partition(":")
-            store.update(rkey, workspace=ws_label, last_pulled=now_iso)
-        else:
-            err = (pull_result.error if pull_result else r.error) or "unknown error"
-            failed.append({"key": r.key, "error": err.strip()[:240]})
+    # Batch the N last_pulled stamps into one locked read-modify-write cycle.
+    with store.bulk():
+        for r in task_results:
+            # r.data is a skip marker dict or PullResult when no exception,
+            # or None when one was raised
+            data = r.data if r.success else None
+            if isinstance(data, dict) and data.get("skipped_local"):
+                skipped_local.append({"key": r.key, "detail": data["detail"]})
+                continue
+            pull_result = data
+            if pull_result and pull_result.success:
+                ok += 1
+                ws_label, _, rkey = r.key.partition(":")
+                store.update(rkey, workspace=ws_label, last_pulled=now_iso)
+            else:
+                err = (pull_result.error if pull_result else r.error) or "unknown error"
+                failed.append({"key": r.key, "error": err.strip()[:240]})
 
     summary = {
         "total": len(targets),
@@ -256,15 +258,17 @@ async def fetch_all(request: Request):
     now_iso = datetime.now().isoformat(timespec="seconds")
     ok = 0
     failed: list[dict] = []
-    for r in task_results:
-        fetch_result = r.data if r.success else None
-        if fetch_result and fetch_result.success:
-            ok += 1
-            ws_label, _, rkey = r.key.partition(":")
-            store.update(rkey, workspace=ws_label, last_fetched=now_iso)
-        else:
-            err = (fetch_result.error if fetch_result else r.error) or "unknown error"
-            failed.append({"key": r.key, "error": err.strip()[:240]})
+    # Batch the N last_fetched stamps into one locked read-modify-write cycle.
+    with store.bulk():
+        for r in task_results:
+            fetch_result = r.data if r.success else None
+            if fetch_result and fetch_result.success:
+                ok += 1
+                ws_label, _, rkey = r.key.partition(":")
+                store.update(rkey, workspace=ws_label, last_fetched=now_iso)
+            else:
+                err = (fetch_result.error if fetch_result else r.error) or "unknown error"
+                failed.append({"key": r.key, "error": err.strip()[:240]})
 
     summary = {
         "total": len(targets),
