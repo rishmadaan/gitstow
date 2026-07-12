@@ -97,7 +97,7 @@ def _delta(state: RepoState) -> tuple[str, str, str]:
         return (
             "local",
             "local",
-            "Local-only — no upstream remote. Pull and fetch don't apply to this repo.",
+            "Local-only — no upstream remote. Bulk pulls skip this repo.",
         )
     ahead, behind = state.ahead, state.behind
     if ahead and behind:
