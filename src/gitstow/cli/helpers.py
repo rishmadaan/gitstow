@@ -97,6 +97,28 @@ def resolve_repo(
     return repo, ws
 
 
+def print_untracked_hint(
+    settings: Settings,
+    store: RepoStore,
+    workspace_label: str | None = None,
+) -> None:
+    """Human-mode footer: point at untracked repos on disk (cheap walk, no git calls)."""
+    from gitstow.core.discovery import discover_repos
+
+    for ws in resolve_workspaces(settings, workspace_label):
+        root = ws.get_path()
+        if not root.is_dir():
+            continue
+        on_disk = {d.key for d in discover_repos(root, layout=ws.layout, include_remotes=False)}
+        tracked = {r.key for r in store.list_by_workspace(ws.label)}
+        untracked = on_disk - tracked
+        if untracked:
+            err_console.print(
+                f"  [yellow]⚠ {len(untracked)} untracked repo{'s' if len(untracked) != 1 else ''} "
+                f"in [bold]{ws.label}[/bold][/yellow] — run [bold]gitstow workspace scan {ws.label}[/bold]"
+            )
+
+
 def iter_repos_with_workspace(
     store: RepoStore,
     settings: Settings,

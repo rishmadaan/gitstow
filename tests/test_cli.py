@@ -569,3 +569,48 @@ class TestListJsonLastFetched:
         result = CliRunner().invoke(app, ["list", "--json"])
         payload = json.loads(result.output)
         assert payload[0]["last_fetched"] == "2026-07-01T00:00:00"
+
+
+class TestReconciliationHints:
+    def test_list_hints_untracked_repos(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"
+        (ws_dir / "a" / "tracked" / ".git").mkdir(parents=True)
+        (ws_dir / "b" / "untracked" / ".git").mkdir(parents=True)
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+        RepoStore(path=repos_file).add(Repo(owner="a", name="tracked", remote_url="u", workspace="ws"))
+
+        result = CliRunner().invoke(app, ["list"])
+        assert "1 untracked" in result.output
+        assert "workspace scan" in result.output
+
+    def test_list_json_shape_unchanged(self, tmp_path, monkeypatch):
+        import json
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"
+        (ws_dir / "b" / "untracked" / ".git").mkdir(parents=True)
+        (ws_dir / "a" / "tracked").mkdir(parents=True)
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+        RepoStore(path=repos_file).add(Repo(owner="a", name="tracked", remote_url="u", workspace="ws"))
+
+        result = CliRunner().invoke(app, ["list", "--json"])
+        payload = json.loads(result.output)
+        assert isinstance(payload, list)  # still a bare array — no shape change

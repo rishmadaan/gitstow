@@ -15,7 +15,7 @@ from gitstow.core.git import get_status, is_git_repo, get_last_commit
 from gitstow.core.repo import Repo, RepoStore
 from gitstow.core.parallel import run_parallel_sync
 from gitstow.core.status_model import classify
-from gitstow.cli.helpers import iter_repos_with_workspace
+from gitstow.cli.helpers import iter_repos_with_workspace, print_untracked_hint
 
 console = Console()
 err_console = Console(stderr=True)
@@ -218,3 +218,5 @@ def status(
         summary_parts.append(f"[red]{errors} errors[/red]")
 
     console.print(f"\n  {len(statuses)} repos: {', '.join(summary_parts)}\n")
+
+    print_untracked_hint(settings, store, ws_label)
