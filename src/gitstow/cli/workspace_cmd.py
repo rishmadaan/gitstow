@@ -161,6 +161,15 @@ def workspace_remove(
         for repo in repos:
             store.remove(repo.key, workspace=label)
         console.print(f"  [yellow]○[/yellow] Untracked {len(repos)} repos from [bold]{label}[/bold]")
+    else:
+        store = RepoStore()
+        remaining = len(store.list_by_workspace(label))
+        if remaining:
+            console.print(
+                f"  [yellow]⚠ {remaining} repos remain tracked under '{label}' and are now invisible "
+                f"to list/status.[/yellow] Re-add the workspace to see them, or re-run with "
+                f"[bold]--untrack-repos[/bold]."
+            )
 
     console.print(f"  [green]✓[/green] Workspace [bold]{label}[/bold] removed")
 

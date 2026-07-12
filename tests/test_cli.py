@@ -710,3 +710,26 @@ class TestImportRoundTrip:
         store = RepoStore(path=repos_file)
         assert store.get("dotfiles", workspace="b") is not None  # imported, not skipped
         assert store.get("dotfiles", workspace="a") is not None  # untouched
+
+
+class TestOrphanedWorkspaces:
+    def test_doctor_reports_orphaned_workspace(self, tmp_path, monkeypatch):
+        import json
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"; ws_dir.mkdir()
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="live", layout="flat")]))
+        store = RepoStore(path=repos_file)
+        store.add(Repo(owner="", name="ghost", remote_url="u", workspace="removed-ws"))
+
+        result = CliRunner().invoke(app, ["doctor", "--json"])
+        payload = json.loads(result.output)
+        assert payload["orphaned_workspaces"] == {"removed-ws": 1}

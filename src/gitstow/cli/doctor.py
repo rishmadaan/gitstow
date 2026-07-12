@@ -77,6 +77,14 @@ def doctor(
 
         checks["workspaces"][ws.label] = ws_check
 
+    # 4. Orphaned workspaces — repos tracked under labels no longer configured
+    configured = {ws.label for ws in workspaces}
+    orphaned_ws: dict[str, int] = {}
+    for label, count in store.all_workspaces().items():
+        if label not in configured:
+            orphaned_ws[label] = count
+    checks["orphaned_workspaces"] = orphaned_ws
+
     if output_json:
         json.dump(checks, sys.stdout, indent=2)
         print()
@@ -126,6 +134,15 @@ def doctor(
 
     if not total_orphaned and not total_missing:
         console.print(f"\n     [green]✓ All repos in sync across {len(workspaces)} workspace(s)[/green]")
+
+    if orphaned_ws:
+        console.print("\n     [yellow]⚠ Repos tracked under removed workspaces (invisible to list/status):[/yellow]")
+        for label, count in orphaned_ws.items():
+            console.print(f"       [{label}] {count} repo{'s' if count != 1 else ''}")
+        console.print(
+            "       [dim]Re-add the workspace with 'gitstow workspace add <path> --label <label>' "
+            "or untrack the repos by editing ~/.gitstow/repos.yaml.[/dim]"
+        )
 
     # 4. SSH connectivity hint
     ssh_repos = [r for r in store.list_all() if r.remote_url and r.remote_url.startswith("git@")]
