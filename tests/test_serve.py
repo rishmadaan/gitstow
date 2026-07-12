@@ -452,6 +452,20 @@ class TestStatusModelInWeb:
         # Disabled pull button + a tooltip explaining the divergence.
         assert "Pull disabled — local and remote have diverged" in r.text
 
+    def test_drawer_staged_only_is_not_clean(self, client, configured, workspace_dir, monkeypatch):
+        # The repo-detail drawer had the same headline bug: it branched on the
+        # raw modified count, so staged-only rendered "clean".
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws"))
+        monkeypatch.setattr(
+            "gitstow.web.routes.pages.get_status", lambda p: _fake_status(staged=2)
+        )
+        r = client.get("/repo/test-ws/a/one")
+        assert r.status_code == 200
+        assert "2 staged" in r.text
+        assert "status-clean" not in r.text
+        assert ">clean<" not in r.text
+
 
 # ---------- cross-origin write protection ----------
 

@@ -11,6 +11,8 @@ from fastapi.responses import HTMLResponse
 from gitstow.core.config import load_config
 from gitstow.core.git import format_size, get_disk_size, get_last_commit, get_status, is_git_repo
 from gitstow.core.repo import RepoStore
+from gitstow.core.status_model import classify
+from gitstow.web.routes.dashboard import _present
 from gitstow.web.server import render
 
 router = APIRouter()
@@ -62,6 +64,11 @@ async def repo_detail(workspace: str, key: str, request: Request):
     status = get_status(repo_path) if exists else None
     commit = get_last_commit(repo_path) if exists else None
 
+    # Classification comes from the shared status model — same semantics as
+    # the dashboard rows (staged/untracked count as local changes).
+    state = classify(exists=exists, frozen=repo.frozen, status=status)
+    status_class, status_label, _pull_variant = _present(state)
+
     # Disk size (can be slow; protect with try)
     try:
         size_bytes = get_disk_size(repo_path) if exists else 0
@@ -83,7 +90,9 @@ async def repo_detail(workspace: str, key: str, request: Request):
         "last_pulled": repo.last_pulled or "—",
         "tags": repo.tags,
         "frozen": repo.frozen,
-        "dirty": status.dirty if status else 0,
+        "status_class": status_class,
+        "status_label": status_label,
+        "local_summary": state.local_summary,
         "ahead": status.ahead if status else 0,
         "behind": status.behind if status else 0,
         "exists": exists,

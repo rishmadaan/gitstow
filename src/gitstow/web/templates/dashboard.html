@@ -19,7 +19,7 @@
       <div class="metrics-strip">
         {% if counts.clean %}<span class="m" title="{{ counts.clean }} clean — working tree matches HEAD and is in sync with the last fetch"><span class="pip clean"></span><span class="count">{{ '%02d' % counts.clean }}</span> <span class="lbl">clean</span></span>{% endif %}
         {% if counts.dirty %}<span class="m" title="{{ counts.dirty }} dirty — uncommitted local changes, not yet committed or stashed"><span class="pip dirty"></span><span class="count">{{ '%02d' % counts.dirty }}</span> <span class="lbl">dirty</span></span>{% endif %}
-        {% if counts.conflict %}<span class="m" title="{{ counts.conflict }} in conflict — dirty AND behind remote; resolve locally"><span class="pip conflict"></span><span class="count">{{ '%02d' % counts.conflict }}</span> <span class="lbl">conflict</span></span>{% endif %}
+        {% if counts.conflict %}<span class="m" title="{{ counts.conflict }} in conflict — dirty AND behind remote, or local and remote have diverged; resolve locally"><span class="pip conflict"></span><span class="count">{{ '%02d' % counts.conflict }}</span> <span class="lbl">conflict</span></span>{% endif %}
         {% if counts.behind %}<span class="m" title="{{ counts.behind }} behind upstream — remote has commits you don't"><span class="pip behind"></span><span class="count">{{ '%02d' % counts.behind }}</span> <span class="lbl">behind</span></span>{% endif %}
         {% if counts.ahead %}<span class="m" title="{{ counts.ahead }} ahead of upstream — you have local commits not yet pushed"><span class="pip ahead"></span><span class="count">{{ '%02d' % counts.ahead }}</span> <span class="lbl">ahead</span></span>{% endif %}
         {% if counts.frozen %}<span class="m" title="{{ counts.frozen }} frozen — intentionally skipped by 'Pull all'"><span class="pip frozen"></span><span class="count">{{ '%02d' % counts.frozen }}</span> <span class="lbl">frozen</span></span>{% endif %}
@@ -112,10 +112,10 @@
           <dd>Working tree matches HEAD; no uncommitted changes. In sync with your last fetch.</dd>
 
           <dt><span class="status status-dirty"><span class="dot"></span>dirty</span></dt>
-          <dd>Uncommitted local changes. Commit or stash before pulling.</dd>
+          <dd>Uncommitted local changes — the label shows the composition (modified/staged/untracked). Commit or stash modified/staged work before pulling. Untracked-only repos can still pull.</dd>
 
           <dt><span class="status status-conflict"><span class="dot"></span>conflict</span></dt>
-          <dd>Working tree is dirty AND behind remote. Resolve locally before pulling.</dd>
+          <dd>Working tree is dirty AND behind remote, or local and remote have diverged. Resolve locally before pulling.</dd>
 
           <dt><span class="status status-behind"><span class="dot"></span>behind</span></dt>
           <dd>Remote has commits you don't. The Pull button turns orange and shows the count.</dd>
@@ -135,10 +135,10 @@
           <dd><strong>Orange</strong> — repo is behind. Click to fast-forward by the shown count.</dd>
 
           <dt><button type="button" class="btn btn-ghost btn-sm" onclick="return false;">Pull</button></dt>
-          <dd><strong>Ghost</strong> — already up to date, or working tree is dirty/ahead. The button still works; it just won't change anything useful.</dd>
+          <dd><strong>Ghost</strong> — already up to date, or has local changes/ahead. The button still works; it just won't change anything useful.</dd>
 
           <dt><button type="button" class="btn btn-ghost btn-sm" disabled>Pull</button></dt>
-          <dd><strong>Disabled</strong> — repo is frozen, in conflict, or missing on disk. Pull is blocked until you resolve.</dd>
+          <dd><strong>Disabled</strong> — repo is frozen, in conflict, diverged from remote, or missing on disk. Pull is blocked until you resolve.</dd>
         </dl>
       </section>
 
