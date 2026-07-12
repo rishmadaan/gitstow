@@ -88,6 +88,7 @@ For commands shown to the user to run themselves, use the human-readable form (n
 | Import collection | `gitstow collection import repos.yaml` |
 | See current config | `gitstow config show` |
 | Change settings | `gitstow config set key value` |
+| Move a workspace's repos to a new location | `gitstow -w active config migrate-root ~/new-location` — workspace is chosen via the **global** `-w` flag before `config`, not a local flag on `migrate-root` |
 | List workspaces | `gitstow workspace list` |
 | Add a workspace | `gitstow workspace add ~/path --label name --layout flat` |
 | Remove a workspace | `gitstow workspace remove name` |
@@ -221,3 +222,4 @@ An optional MCP server exists (`pip install gitstow[mcp]`, run `gitstow-mcp`) fo
 - Config: `~/.gitstow/config.yaml`
 - Repo metadata: `~/.gitstow/repos.yaml` (central, nested by workspace)
 - Repos: across configured workspaces (default first workspace: `~/oss/`)
+- `gitstow ui` (the browser dashboard) requires the `[ui]` extra — `pip install "gitstow[ui]"` or `pipx install "gitstow[ui]"`. A core-only install (`pip install gitstow`) doesn't include it.

@@ -83,8 +83,10 @@ gitstow add anthropic/claude-code --update
 - Repos are added to the default workspace (first configured), or the workspace specified with `-w`
 - If the repo is already tracked: skips (or pulls with `--update`)
 - If the path exists on disk but isn't tracked: registers it automatically
+- If the path exists on disk with a **different** remote than the one requested: errors with a remote-mismatch message instead of silently registering — move the directory or pick another workspace
 - If the path exists but isn't a git repo: errors
-- Multiple URLs are cloned in parallel
+- Equivalent URLs passed twice in the same invocation (e.g. HTTPS and SSH forms of the same repo) are deduplicated — only the first is cloned, the rest are reported as duplicates
+- Multiple URLs are cloned concurrently (bounded by `parallel_limit`, default 6), with per-clone retry via `--retry`
 
 ---
 
@@ -219,6 +221,8 @@ gitstow list --paths            # Show full paths
 gitstow list --json             # Machine-readable output
 ```
 
+If a workspace has repos on disk that aren't tracked yet, `list` prints a hint (e.g. `⚠ 2 untracked repos in oss — run gitstow workspace scan oss`) — suppressed by `--json`/`--quiet`.
+
 ---
 
 ### `gitstow status`
@@ -251,6 +255,8 @@ Shows: repo name, branch, a **Local Changes** column (composition — e.g. "2 mo
 - `+` staged changes
 - `?` untracked files
 - `❄` frozen
+
+Like `list`, `status` prints an untracked-repos hint per workspace when repos exist on disk but aren't tracked — suppressed by `--json`/`--quiet`.
 
 ---
 
@@ -412,12 +418,12 @@ gitstow open <owner/repo> [flags]
 
 | Flag | Short | Description |
 |------|-------|-------------|
-| `--editor` | `-e` | Open in default editor (VS Code, Cursor, etc.). |
+| `--editor` | `-e` | Open in your editor (`$VISUAL`/`$EDITOR`, then VS Code/Cursor). This is the default. |
 | `--browser` | `-b` | Open the repo on GitHub/GitLab in your browser. |
 | `--finder` | `-f` | Open in Finder/file manager. |
 | `--path` | `-p` | Just print the path to stdout. |
 
-With no flags, opens in the default editor. The `--path` flag is useful for shell integration:
+With no flags, opens in an editor: `$VISUAL`, then `$EDITOR`, then a fallback of VS Code (`code`) or Cursor (`cursor`) if installed. Terminal editors (`vi`, `vim`, `nvim`, `nano`, `emacs`, `hx`, `kak`, `micro`) run in the foreground since they need the TTY; GUI editors are launched detached. The `--path` flag is useful for shell integration:
 
 ```bash
 cd "$(gitstow open anthropic/claude-code -p)"
@@ -608,19 +614,25 @@ Change a setting.
 gitstow config set default_host gitlab.com
 gitstow config set prefer_ssh true
 gitstow config set parallel_limit 8
+gitstow config set clone_timeout 900
 ```
+
+Valid keys: `default_host`, `prefer_ssh`, `parallel_limit`, `clone_timeout` (clone timeout in seconds).
 
 > **Note:** The old `root_path` setting has been replaced by workspaces. Use `gitstow workspace add` to manage where repos are stored.
 
 ### `gitstow config migrate-root`
 
-Move all repos to a new root directory.
+Move one workspace's repos to a new directory and update that workspace's `path` in config.
 
 ```bash
-gitstow config migrate-root ~/new-location
-gitstow config migrate-root ~/new-location --copy    # Keep originals
-gitstow config migrate-root ~/new-location --yes      # Skip confirmation
+gitstow config migrate-root ~/new-location            # Moves the default workspace
+gitstow -w active config migrate-root ~/new-location  # Moves a specific workspace
+gitstow config migrate-root ~/new-location --copy      # Keep originals
+gitstow config migrate-root ~/new-location --yes       # Skip confirmation
 ```
+
+> **Note:** `migrate-root` has no local `--workspace` flag — target a non-default workspace with the global `-w` flag *before* `config`, not after `migrate-root`.
 
 ### `gitstow config path`
 

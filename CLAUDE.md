@@ -29,13 +29,16 @@ src/gitstow/
 │   ├── migrate.py, config_cmd.py, onboard.py, doctor.py, skill_cmd.py
 │   └── __init__.py
 ├── core/         # Business logic (git ops, URL parsing, state)
-│   ├── paths.py       # Path constants, central repos.yaml resolution
-│   ├── config.py      # Workspace + Settings dataclasses, load/save
-│   ├── repo.py        # Repo dataclass + RepoStore (nested YAML CRUD)
-│   ├── url_parser.py  # URL → (host, owner, repo) extraction
-│   ├── git.py         # All git subprocess calls
-│   ├── discovery.py   # Walk directory tree (structured + flat), reconcile
-│   ├── parallel.py    # Async execution with semaphore
+│   ├── paths.py         # Path constants, central repos.yaml resolution
+│   ├── config.py        # Workspace + Settings dataclasses, load/save
+│   ├── repo.py          # Repo dataclass + RepoStore (nested YAML CRUD)
+│   ├── url_parser.py    # URL → (host, owner, repo) extraction
+│   ├── git.py           # All git subprocess calls
+│   ├── discovery.py     # Walk directory tree (structured + flat), reconcile
+│   ├── parallel.py      # Async execution with semaphore
+│   ├── status_model.py  # Shared repo-state classifier — local composition vs remote relationship
+│   ├── operations.py    # Shared filter + bulk-runner layer (pull/fetch/MCP)
+│   ├── locking.py       # Cross-process file lock guarding repos.yaml writes
 │   └── __init__.py
 ├── web/          # FastAPI browser dashboard (gitstow ui)
 │   ├── server.py          # FastAPI app, uvicorn runner, app.state.server stash
@@ -60,6 +63,9 @@ src/gitstow/
 - `core/url_parser.py` — URL parsing (the hardest part). Test changes here thoroughly.
 - `core/git.py` — All git subprocess calls. Uses `git status --porcelain=v2 --branch` for single-call efficiency.
 - `core/parallel.py` — Async execution with semaphore (max 6 concurrent).
+- `core/status_model.py` — `RepoState` — the single source of truth for local (modified/staged/untracked) vs remote (in-sync/ahead/behind/diverged) classification, consumed by CLI, web, and JSON.
+- `core/operations.py` — Shared `filter_repo_pairs()` + bulk-runner used by `pull`, `fetch`, and the MCP server so surfaces can't drift.
+- `core/locking.py` — `file_lock()` cross-process advisory lock guarding `repos.yaml` against concurrent CLI/web writes.
 - `cli/helpers.py` — Shared workspace resolution used by all CLI commands.
 - `cli/workspace_cmd.py` — workspace list/add/remove/scan subcommands.
 - `cli/main.py` — Typer app, global `-w/--workspace` option, command registration.
@@ -68,6 +74,7 @@ src/gitstow/
 
 - `~/.gitstow/config.yaml` — Settings (workspaces list, default host, SSH pref).
 - `~/.gitstow/repos.yaml` — Repo metadata nested by workspace label. Central location.
+- `~/.gitstow/repos.lock` — Cross-process advisory lock file (`core/locking.py`) held during `repos.yaml` writes. Not user-facing data; safe to ignore/delete if orphaned.
 
 ### repos.yaml format
 ```yaml
@@ -81,7 +88,7 @@ active:
     tags: [active]
 ```
 
-## All Commands (31)
+## All Commands (37)
 
 **Core:** `add`, `pull`, `fetch`, `list`, `status`, `remove`, `migrate`
 **Workspace:** `workspace list`, `workspace add`, `workspace remove`, `workspace scan`
@@ -96,7 +103,7 @@ active:
 ```bash
 cd ~/labs/projects/gitstow
 pip install -e ".[dev]"
-pytest                    # 44 tests
+pytest                    # full suite — keep green
 ruff check src/
 ```
 
