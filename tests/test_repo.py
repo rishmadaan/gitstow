@@ -86,8 +86,8 @@ class TestRepoStore:
         assert store.remove("nonexistent/repo") is False
 
     def test_list_all(self, store):
-        store.add(Repo(owner="a", name="repo1", remote_url="url1"))
-        store.add(Repo(owner="b", name="repo2", remote_url="url2"))
+        store.add(Repo(owner="a", name="repo1", remote_url="url1", workspace="oss"))
+        store.add(Repo(owner="b", name="repo2", remote_url="url2", workspace="oss"))
         repos = store.list_all()
         assert len(repos) == 2
         assert repos[0].key == "a/repo1"  # sorted

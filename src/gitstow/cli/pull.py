@@ -109,10 +109,10 @@ def pull(
 
     # Apply filters
     if not include_frozen:
-        frozen_keys = {r.key for r, _ in targets if r.frozen}
+        frozen_repos = [r for r, _ in targets if r.frozen]
         targets = [(r, ws) for r, ws in targets if not r.frozen]
     else:
-        frozen_keys = set()
+        frozen_repos = []
 
     if tag:
         tag_set = set(tag)
@@ -125,8 +125,8 @@ def pull(
     if owner:
         targets = [(r, ws) for r, ws in targets if r.owner == owner]
 
-    if not targets:
-        if not quiet:
+    if not targets and not frozen_repos:
+        if not quiet and not output_json:
             console.print("[yellow]No repos to pull.[/yellow]")
         if output_json:
             json.dump({"total": 0, "results": []}, sys.stdout, indent=2)
@@ -134,7 +134,7 @@ def pull(
         return
 
     total_count = len(targets)
-    if not quiet:
+    if not quiet and not output_json and targets:
         console.print(f"\n  Pulling {total_count} repo{'s' if total_count != 1 else ''}...\n")
 
     # Run pulls in parallel (with retry)
@@ -142,7 +142,7 @@ def pull(
     result_dicts: list[dict] = []
 
     for attempt in range(1 + retry):
-        if attempt > 0 and not quiet:
+        if attempt > 0 and not quiet and not output_json:
             console.print(f"\n  [dim]Retry {attempt}/{retry} — {len(remaining_targets)} failed repos...[/dim]\n")
 
         tasks = [
@@ -154,7 +154,7 @@ def pull(
 
         def _on_progress(key: str, success: bool, message: str) -> None:
             progress_count[0] += 1
-            if not quiet:
+            if not quiet and not output_json:
                 console.print(
                     f"  [{progress_count[0]}/{len(tasks)}] {key.split(':', 1)[-1]}",
                     end="\r",
@@ -164,7 +164,7 @@ def pull(
         results = run_parallel_sync(
             tasks,
             max_concurrent=settings.parallel_limit,
-            on_progress=None if quiet else _on_progress,
+            on_progress=None if (quiet or output_json) else _on_progress,
         )
 
         # Process results and update timestamps
@@ -199,9 +199,10 @@ def pull(
         remaining_targets = [(r, ws) for r, ws in remaining_targets if r.global_key in failed_keys]
 
     # Add frozen repos to results for completeness
-    if not include_frozen and frozen_keys:
-        for key in sorted(frozen_keys):
-            result_dicts.append({"repo": key, "status": "frozen", "detail": "Skipped (frozen)"})
+    for r in sorted(frozen_repos, key=lambda x: x.global_key):
+        result_dicts.append(
+            {"repo": r.key, "workspace": r.workspace, "status": "frozen", "detail": "Skipped (frozen)"}
+        )
 
     # Output
     if output_json:

@@ -176,8 +176,14 @@ def _setup_workspace(default_path: str, default_label: str, step_num: int | None
     )
     ws_path = Path(path_input).expanduser().resolve()
 
+    from gitstow.cli.workspace_cmd import is_valid_label
+
     label_default = default_label or ws_path.name.lower()
-    label = typer.prompt("     Label", default=label_default, show_default=True)
+    while True:
+        label = typer.prompt("     Label", default=label_default, show_default=True).strip().lower()
+        if is_valid_label(label):
+            break
+        console.print("     [red]Invalid label[/red] — lowercase letters, digits, '-' or '_' only.")
 
     console.print("\n     Directory layout:")
     layout_choice = bselect(LAYOUT_OPTIONS, cursor=">>>", cursor_style="bold cyan")

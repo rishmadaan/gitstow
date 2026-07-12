@@ -22,6 +22,17 @@ _HAS_SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
 _SCP_LIKE = re.compile(r"^([^@]+@)?([^:]+):(.+)$")
 _LOOKS_LIKE_HOST = re.compile(r"[A-Za-z0-9][-A-Za-z0-9]*\.[A-Za-z]{2,}(?::\d{1,5})?$")
 
+# Hosts whose repo path is always exactly owner/repo — never nested groups.
+_TWO_SEGMENT_HOSTS = {"github.com", "bitbucket.org", "codeberg.org", "gitea.com"}
+
+# Path segments that begin a browse-UI suffix rather than the repo path.
+# GitLab separates repo path from browse UI with "/-/"; GitHub-style hosts
+# use these words directly after owner/repo.
+_DEEP_LINK_MARKERS = {
+    "-", "tree", "blob", "pull", "pulls", "issues", "commit", "commits",
+    "releases", "actions", "wiki", "compare", "raw", "src",
+}
+
 
 @dataclass
 class ParsedURL:
@@ -109,9 +120,9 @@ def parse_git_url(
             owner = "/".join(parts[:git_idx])
             repo = "/".join(parts[git_idx + 1 :])
         else:
-            owner, repo = _split_owner_repo(path)
+            owner, repo = _extract_owner_repo(host, path)
     else:
-        owner, repo = _split_owner_repo(path)
+        owner, repo = _extract_owner_repo(host, path)
 
     if not owner or not repo:
         raise ValueError(
@@ -131,18 +142,30 @@ def parse_git_url(
     )
 
 
-def _split_owner_repo(path: str) -> tuple[str, str]:
+def _extract_owner_repo(host: str, path: str) -> tuple[str, str]:
     """Split a URL path into owner and repo.
 
-    Handles nested groups: group/subgroup/repo → owner="group/subgroup", repo="repo"
+    Handles nested groups (group/subgroup/repo → owner="group/subgroup"),
+    truncates browse-UI suffixes (…/repo/tree/main/… → …/repo), and caps
+    known single-owner hosts at exactly two segments.
     """
-    parts = path.split("/")
-    if len(parts) < 2:
-        return "", path if parts else ""
+    parts = [p for p in path.split("/") if p]
 
-    repo = parts[-1]
-    owner = "/".join(parts[:-1])
-    return owner, repo
+    # Word markers only make sense on hosts with fixed owner/repo depth.
+    # Nested-group hosts (GitLab-style) separate browse UI with "/-/", and a
+    # real subgroup repo may legitimately be named "src" or "wiki".
+    markers = _DEEP_LINK_MARKERS if host in _TWO_SEGMENT_HOSTS else {"-"}
+    for i, seg in enumerate(parts):
+        if i >= 2 and seg in markers:
+            parts = parts[:i]
+            break
+
+    if host in _TWO_SEGMENT_HOSTS and len(parts) > 2:
+        parts = parts[:2]
+
+    if len(parts) < 2:
+        return "", parts[0] if parts else ""
+    return "/".join(parts[:-1]), parts[-1]
 
 
 def _build_clone_url(

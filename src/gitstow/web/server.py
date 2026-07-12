@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import webbrowser
 from pathlib import Path
+from urllib.parse import urlparse
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -45,6 +47,21 @@ def render(request, template_name: str, **context) -> object:
     return templates.TemplateResponse(request, template_name, ctx)
 
 
+# gitstow ui executes git and deletes directories. Binding to 127.0.0.1 stops
+# LAN access, but NOT cross-origin form POSTs from any website the user visits,
+# nor DNS-rebinding. Browsers attach Origin to all cross-origin POSTs — reject
+# anything that isn't loopback. Header-less requests (curl) pass: CSRF is a
+# browser vector, and this is not authentication.
+_ALLOWED_HOSTNAMES = {"127.0.0.1", "localhost", "::1"}
+
+
+def _header_hostname(value: str | None) -> str | None:
+    if not value:
+        return None
+    parsed = urlparse(value if "://" in value else f"//{value}")
+    return parsed.hostname
+
+
 def create_app() -> FastAPI:
     """Construct the FastAPI app and register routes + static files."""
     app = FastAPI(
@@ -54,6 +71,18 @@ def create_app() -> FastAPI:
         redoc_url=None,
         openapi_url=None,
     )
+
+    @app.middleware("http")
+    async def _reject_cross_origin_writes(request: Request, call_next):
+        if request.method == "POST":
+            origin = request.headers.get("origin")
+            if origin is not None and _header_hostname(origin) not in _ALLOWED_HOSTNAMES:
+                return JSONResponse({"error": "cross-origin request rejected"}, status_code=403)
+            host = _header_hostname(request.headers.get("host"))
+            if host is not None and host not in _ALLOWED_HOSTNAMES:
+                return JSONResponse({"error": "unexpected Host header"}, status_code=403)
+        return await call_next(request)
+
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
     # Late imports to avoid circular imports at module load

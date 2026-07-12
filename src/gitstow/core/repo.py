@@ -6,12 +6,15 @@ repos.yaml is central (~/.gitstow/repos.yaml), nested by workspace label.
 
 from __future__ import annotations
 
+import contextlib
+import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
 import yaml
 
+from gitstow.core.locking import file_lock
 from gitstow.core.paths import get_repos_file
 
 
@@ -132,7 +135,7 @@ class RepoStore:
                     repo = Repo.from_dict(key, repo_data, workspace="oss")
                     self._repos[repo.global_key] = repo
             self._loaded = True
-            self.save()  # Migrate to new format on disk
+            self._write()  # migrate to new format on disk (atomic; lock-free is fine here)
             return
 
         # New nested format: {workspace_label: {repo_key: repo_data}}
@@ -146,11 +149,14 @@ class RepoStore:
 
         self._loaded = True
 
-    def save(self) -> None:
-        """Write repos to repos.yaml in nested workspace format."""
+    def _lock_path(self) -> Path:
+        return self._path.with_suffix(".lock")
+
+    def _write(self) -> None:
+        """Atomically serialize current state to disk. Caller holds the lock
+        (or accepts last-writer-wins, e.g. the legacy-migration path)."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Group by workspace
         by_workspace: dict[str, dict[str, dict]] = {}
         for repo in sorted(self._repos.values(), key=lambda r: r.global_key):
             ws = repo.workspace or "oss"
@@ -158,28 +164,42 @@ class RepoStore:
                 by_workspace[ws] = {}
             by_workspace[ws][repo.key] = repo.to_dict()
 
-        # Sort workspace labels
         data = {k: by_workspace[k] for k in sorted(by_workspace)}
-        with open(self._path, "w") as f:
+        tmp = self._path.with_name(self._path.name + ".tmp")
+        with open(tmp, "w") as f:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        os.replace(tmp, self._path)
+
+    def save(self) -> None:
+        """Write repos to repos.yaml in nested workspace format."""
+        with file_lock(self._lock_path()):
+            self._write()
+
+    @contextlib.contextmanager
+    def _mutate(self):
+        """Locked read-modify-write cycle: reload fresh state, apply the
+        caller's mutation, write atomically. Prevents lost updates when the
+        CLI and web UI run concurrently."""
+        with file_lock(self._lock_path()):
+            self.load()
+            yield
+            self._write()
 
     def add(self, repo: Repo) -> None:
         """Add a repo. Overwrites if global_key already exists."""
-        self._ensure_loaded()
-        if not repo.added:
-            repo.added = datetime.now().strftime("%Y-%m-%d")
-        self._repos[repo.global_key] = repo
-        self.save()
+        with self._mutate():
+            if not repo.added:
+                repo.added = datetime.now().strftime("%Y-%m-%d")
+            self._repos[repo.global_key] = repo
 
     def remove(self, key: str, workspace: str | None = None) -> bool:
         """Remove a repo by key. If workspace is None, tries to find a unique match."""
-        self._ensure_loaded()
-        global_key = self._resolve_global_key(key, workspace)
-        if global_key and global_key in self._repos:
-            del self._repos[global_key]
-            self.save()
-            return True
-        return False
+        with self._mutate():
+            global_key = self._resolve_global_key(key, workspace)
+            if global_key and global_key in self._repos:
+                del self._repos[global_key]
+                return True
+            return False
 
     def get(self, key: str, workspace: str | None = None) -> Repo | None:
         """Get a repo by key. If workspace is None, tries to find a unique match."""
@@ -207,11 +227,8 @@ class RepoStore:
         if ":" in key and key in self._repos:
             return key
 
-        # Search across all workspaces
+        # Search across all workspaces — resolve only when unique.
         matches = [gk for gk, r in self._repos.items() if r.key == key]
-        if len(matches) == 1:
-            return matches[0]
-        # Ambiguous or not found — caller handles
         return matches[0] if len(matches) == 1 else None
 
     def list_all(self) -> list[Repo]:
@@ -258,18 +275,17 @@ class RepoStore:
 
     def update(self, key: str, workspace: str | None = None, **kwargs) -> bool:
         """Update specific fields on a repo. Returns True if repo exists."""
-        self._ensure_loaded()
-        global_key = self._resolve_global_key(key, workspace)
-        if not global_key:
-            return False
-        repo = self._repos.get(global_key)
-        if not repo:
-            return False
-        for field_name, value in kwargs.items():
-            if hasattr(repo, field_name):
-                setattr(repo, field_name, value)
-        self.save()
-        return True
+        with self._mutate():
+            global_key = self._resolve_global_key(key, workspace)
+            if not global_key:
+                return False
+            repo = self._repos.get(global_key)
+            if not repo:
+                return False
+            for field_name, value in kwargs.items():
+                if hasattr(repo, field_name):
+                    setattr(repo, field_name, value)
+            return True
 
     def all_tags(self) -> dict[str, int]:
         """Return all tags with repo counts."""

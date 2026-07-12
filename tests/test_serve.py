@@ -52,7 +52,7 @@ def client(isolated):
         should_exit = False
 
     app.state.server = _StubServer()
-    return TestClient(app)
+    return TestClient(app, base_url="http://127.0.0.1")
 
 
 def _fake_status(**kw) -> RepoStatus:
@@ -407,3 +407,29 @@ class TestCollection:
         )
         assert r.status_code == 303
         assert "imported=0" in r.headers["location"]
+
+
+# ---------- cross-origin write protection ----------
+
+
+class TestCrossOriginProtection:
+    def test_cross_origin_post_rejected(self, client, configured):
+        r = client.post("/shutdown", headers={"Origin": "http://evil.example"})
+        assert r.status_code == 403
+
+    def test_localhost_origin_post_allowed(self, client, configured):
+        r = client.post("/shutdown", headers={"Origin": "http://127.0.0.1:7853"})
+        assert r.status_code == 200
+
+    def test_post_without_origin_allowed(self, client, configured):
+        # curl / scripts don't send Origin — CSRF is a browser-only vector.
+        r = client.post("/shutdown")
+        assert r.status_code == 200
+
+    def test_dns_rebinding_host_rejected(self, client, configured):
+        r = client.post("/shutdown", headers={"Host": "evil.example"})
+        assert r.status_code == 403
+
+    def test_get_never_blocked(self, client, configured):
+        r = client.get("/", headers={"Origin": "http://evil.example"})
+        assert r.status_code == 200

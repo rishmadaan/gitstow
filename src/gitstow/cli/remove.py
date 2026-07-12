@@ -57,6 +57,17 @@ def remove(
             console.print("  [dim]Cancelled.[/dim]")
             raise typer.Exit()
 
+    # Containment guard — never delete outside the workspace root
+    # (mirrors the web delete route's defensive check).
+    if delete_files and path.exists():
+        ws_root = ws.get_path().resolve()
+        resolved = path.resolve()
+        if not resolved.is_relative_to(ws_root):
+            err_console.print(
+                f"[red]Error:[/red] refusing to delete path outside workspace: {resolved}"
+            )
+            raise typer.Exit(code=1)
+
     # Remove from store
     store.remove(repo.key, workspace=ws.label)
 

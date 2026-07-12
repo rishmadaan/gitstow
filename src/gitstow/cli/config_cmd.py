@@ -70,17 +70,19 @@ def config_show(
 
 @config_app.command("set")
 def config_set(
-    key: str = typer.Argument(help="Setting key (root_path, default_host, prefer_ssh, parallel_limit)."),
+    key: str = typer.Argument(help="Setting key (default_host, prefer_ssh, parallel_limit)."),
     value: str = typer.Argument(help="New value."),
 ) -> None:
     """Set a configuration value.
 
     \b
     Examples:
-      gitstow config set root_path ~/labs/OSS
       gitstow config set default_host gitlab.com
       gitstow config set prefer_ssh true
       gitstow config set parallel_limit 8
+
+    Workspace paths are managed with 'gitstow workspace add/remove'
+    and 'gitstow config migrate-root'.
     """
     settings = load_config()
 
@@ -121,19 +123,17 @@ def config_path() -> None:
 
 @config_app.command("migrate-root")
 def config_migrate_root(
-    new_root: str = typer.Argument(help="New root path for repos."),
+    ctx: typer.Context,
+    new_root: str = typer.Argument(help="New directory for the workspace's repos."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation."),
     copy: bool = typer.Option(False, "--copy", help="Copy instead of move (keeps old root)."),
 ) -> None:
-    """Move all repos to a new root directory.
-
-    Moves (or copies) every repo from the current root to the new root,
-    preserving the owner/repo structure, and updates the config.
+    """Move one workspace's repos to a new directory and update its config.
 
     \b
     Examples:
-      gitstow config migrate-root ~/new-location
-      gitstow config migrate-root ~/new-location --copy
+      gitstow config migrate-root ~/new-location            # default workspace
+      gitstow -w active config migrate-root ~/new-location  # specific workspace
     """
     import shutil
     from pathlib import Path
@@ -142,40 +142,51 @@ def config_migrate_root(
 
     settings = load_config()
     store = RepoStore()
-    old_root = settings.get_root()
+
+    # Ensure the workspace list is materialized (legacy configs synthesize it).
+    if not settings.workspaces:
+        settings.workspaces = settings.get_workspaces()
+
+    ws_label = (ctx.obj or {}).get("workspace") or settings.get_default_workspace().label
+    ws = settings.get_workspace(ws_label)
+    if ws is None:
+        labels = ", ".join(w.label for w in settings.get_workspaces())
+        err_console.print(f"[red]Error:[/red] Unknown workspace [bold]{ws_label}[/bold]. Available: {labels}")
+        raise typer.Exit(code=1)
+
+    old_root = ws.get_path()
     new_root_path = Path(new_root).expanduser().resolve()
 
     if old_root == new_root_path:
         console.print("  [dim]New root is the same as current root. Nothing to do.[/dim]")
         return
 
-    repos = store.list_all()
-    if not repos:
-        # No repos — just update the pointer
-        settings.root_path = str(new_root_path)
+    repos = store.list_by_workspace(ws.label)
+
+    def _update_config() -> None:
+        for w in settings.workspaces:
+            if w.label == ws.label:
+                w.path = str(new_root_path)
         save_config(settings)
+
+    if not repos:
+        _update_config()
         new_root_path.mkdir(parents=True, exist_ok=True)
-        console.print(f"  [green]✓[/green] Root updated to {new_root_path} (no repos to move).")
+        console.print(f"  [green]✓[/green] Workspace [bold]{ws.label}[/bold] moved to {new_root_path} (no repos to move).")
         return
 
-    # Show what will happen
     action = "Copy" if copy else "Move"
-    console.print(f"\n  [bold]{action} {len(repos)} repos[/bold]\n")
+    console.print(f"\n  [bold]{action} {len(repos)} repos in workspace '{ws.label}'[/bold]\n")
     console.print(f"    From: {old_root}")
     console.print(f"    To:   {new_root_path}\n")
 
-    # Check which repos actually exist on disk
-    movable = []
-    missing = []
+    movable, missing = [], []
     for repo in repos:
         src = repo.get_path(old_root)
-        if src.exists() and is_git_repo(src):
-            movable.append(repo)
-        else:
-            missing.append(repo)
+        (movable if src.exists() and is_git_repo(src) else missing).append(repo)
 
     if missing:
-        console.print(f"  [yellow]⚠ {len(missing)} repos not found on disk (will update config only):[/yellow]")
+        console.print(f"  [yellow]⚠ {len(missing)} repos not found on disk (config will still update):[/yellow]")
         for r in missing:
             console.print(f"    {r.key}")
         console.print()
@@ -187,43 +198,33 @@ def config_migrate_root(
             console.print("  [dim]Cancelled.[/dim]")
             raise typer.Exit()
 
-    # Create new root
     new_root_path.mkdir(parents=True, exist_ok=True)
 
-    # Move/copy each repo
-    succeeded = 0
-    failed = 0
+    succeeded = failed = 0
     for repo in movable:
         src = repo.get_path(old_root)
         dst = repo.get_path(new_root_path)
         dst.parent.mkdir(parents=True, exist_ok=True)
-
         try:
             if dst.exists():
                 console.print(f"  [yellow]⚠[/yellow] {repo.key}: target already exists, skipping")
                 continue
-
             if copy:
                 shutil.copytree(src, dst, symlinks=True)
             else:
                 try:
                     src.rename(dst)
                 except OSError:
-                    # Cross-device: copy + delete
                     shutil.copytree(src, dst, symlinks=True)
                     shutil.rmtree(src)
-
             succeeded += 1
             console.print(f"  [green]✓[/green] {repo.key}")
         except Exception as e:
             failed += 1
             err_console.print(f"  [red]✗[/red] {repo.key}: {e}")
 
-    # Update config
-    settings.root_path = str(new_root_path)
-    save_config(settings)
+    _update_config()
 
-    # Clean up empty owner dirs in old root (if moved, not copied)
     if not copy and old_root.exists():
         for owner_dir in old_root.iterdir():
             if owner_dir.is_dir() and not any(owner_dir.iterdir()):
@@ -232,4 +233,4 @@ def config_migrate_root(
     console.print(f"\n  Done: {succeeded} {action.lower()}d", end="")
     if failed:
         console.print(f", [red]{failed} failed[/red]", end="")
-    console.print(f"\n  Root updated to: {new_root_path}\n")
+    console.print(f"\n  Workspace [bold]{ws.label}[/bold] now at: {new_root_path}\n")

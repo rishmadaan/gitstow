@@ -1,5 +1,6 @@
 """CLI smoke tests using Typer's CliRunner."""
 
+import pytest
 from typer.testing import CliRunner
 
 from gitstow.cli.main import app
@@ -78,3 +79,188 @@ class TestAddErrorHandling:
         # With no args and a TTY-like runner, should fail gracefully
         result = runner.invoke(app, ["add"])
         assert result.exit_code != 0
+
+
+class TestManageWorkspaceResolution:
+    def _seed_two_workspaces(self, tmp_path, monkeypatch):
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+
+        ws_a = tmp_path / "a"; ws_a.mkdir()
+        ws_b = tmp_path / "b"; ws_b.mkdir()
+        save_config(Settings(workspaces=[
+            Workspace(path=str(ws_a), label="a", layout="flat"),
+            Workspace(path=str(ws_b), label="b", layout="flat"),
+        ]))
+        store = RepoStore(path=repos_file)
+        store.add(Repo(owner="", name="dupe", remote_url="https://github.com/x/dupe.git", workspace="a"))
+        store.add(Repo(owner="", name="dupe", remote_url="https://github.com/y/dupe.git", workspace="b"))
+        return repos_file
+
+    def test_freeze_with_workspace_flag_targets_right_repo(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.repo import RepoStore
+
+        repos_file = self._seed_two_workspaces(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["-w", "b", "repo", "freeze", "dupe"])
+        assert result.exit_code == 0
+
+        store = RepoStore(path=repos_file)
+        assert store.get("dupe", workspace="b").frozen is True
+        assert store.get("dupe", workspace="a").frozen is False
+
+    def test_freeze_ambiguous_without_flag_errors_clearly(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+
+        self._seed_two_workspaces(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["repo", "freeze", "dupe"])
+        assert result.exit_code == 1
+        combined = (result.output or "") + str(result.exception or "")
+        assert "multiple workspaces" in combined or "multiple workspaces" in (result.stderr or "")
+
+
+class TestPullFrozenIdentity:
+    def test_frozen_repos_with_same_key_both_reported(self, tmp_path, monkeypatch):
+        import json
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+
+        ws_a = tmp_path / "a"; ws_a.mkdir()
+        ws_b = tmp_path / "b"; ws_b.mkdir()
+        save_config(Settings(workspaces=[
+            Workspace(path=str(ws_a), label="a", layout="flat"),
+            Workspace(path=str(ws_b), label="b", layout="flat"),
+        ]))
+        store = RepoStore(path=repos_file)
+        store.add(Repo(owner="", name="dupe", remote_url="u", workspace="a", frozen=True))
+        store.add(Repo(owner="", name="dupe", remote_url="u", workspace="b", frozen=True))
+
+        result = CliRunner().invoke(app, ["pull", "--json"])
+        payload = json.loads(result.output)
+        frozen_rows = [r for r in payload["results"] if r["status"] == "frozen"]
+        assert len(frozen_rows) == 2
+        assert {r["workspace"] for r in frozen_rows} == {"a", "b"}
+
+    def test_pull_json_with_no_repos_is_pure_json(self, tmp_path, monkeypatch):
+        import json
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"; ws_dir.mkdir()
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="flat")]))
+
+        result = CliRunner().invoke(app, ["pull", "--json"])
+        payload = json.loads(result.output)  # must be pure JSON, no banner
+        assert payload == {"total": 0, "results": []}
+
+
+class TestRemoveContainment:
+    def test_delete_refuses_path_outside_workspace(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+
+        ws_dir = tmp_path / "ws"; ws_dir.mkdir()
+        outside = tmp_path / "outside-target"
+        (outside / ".git").mkdir(parents=True)
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="flat")]))
+        # A traversal-shaped name resolves outside the workspace root.
+        store = RepoStore(path=repos_file)
+        store.add(Repo(owner="", name="../outside-target", remote_url="u", workspace="ws"))
+
+        result = CliRunner().invoke(app, ["remove", "../outside-target", "--yes", "--delete"])
+
+        assert result.exit_code == 1
+        assert outside.exists()  # nothing was deleted
+        # A refused delete must not untrack either — guard runs before store.remove
+        assert RepoStore(path=repos_file).get("../outside-target", workspace="ws") is not None
+
+
+class TestWorkspaceLabelValidation:
+    @pytest.mark.parametrize("bad_label", ["has:colon", "has/slash", "Has Space", "UPPER", "", "foo\n"])
+    def test_workspace_add_rejects_invalid_labels(self, bad_label, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+
+        config_file = tmp_path / "config.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", tmp_path / "repos.yaml")
+        save_config(Settings(workspaces=[Workspace(path=str(tmp_path / "w"), label="oss", layout="structured")]))
+
+        result = CliRunner().invoke(app, ["workspace", "add", str(tmp_path / "x"), "--label", bad_label])
+        assert result.exit_code == 1
+
+
+class TestFetchJsonPurity:
+    def test_fetch_json_with_no_repos_is_pure_json(self, tmp_path, monkeypatch):
+        import json
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"; ws_dir.mkdir()
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="flat")]))
+
+        result = CliRunner().invoke(app, ["fetch", "--json"])
+        payload = json.loads(result.output)
+        assert payload == {"total": 0, "results": []}
+
+    def test_fetch_json_with_repos_is_pure_json(self, tmp_path, monkeypatch):
+        import json
+        from unittest.mock import patch
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.git import FetchResult
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"
+        (ws_dir / "a" / "one" / ".git").mkdir(parents=True)
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+        RepoStore(path=repos_file).add(Repo(owner="a", name="one", remote_url="u", workspace="ws"))
+
+        with patch("gitstow.cli.fetch.git_fetch", return_value=FetchResult(success=True, output="ok")):
+            result = CliRunner().invoke(app, ["fetch", "--json"])
+        payload = json.loads(result.output)  # must be pure JSON — no banners, no progress lines
+        assert payload["fetched"] == 1

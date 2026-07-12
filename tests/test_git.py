@@ -239,3 +239,17 @@ class TestFormatSize:
     def test_gigabytes(self):
         result = format_size(3 * 1024 * 1024 * 1024)
         assert "GB" in result
+
+
+class TestRunGitEnv:
+    @patch("gitstow.core.git.subprocess.run")
+    def test_run_git_sets_safe_env(self, mock_run):
+        from gitstow.core.git import _run_git
+
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        _run_git(["status"])
+
+        env = mock_run.call_args.kwargs["env"]
+        assert env["GIT_TERMINAL_PROMPT"] == "0"   # never hang on auth prompts
+        assert env["LC_ALL"] == "C"                # stable English output
+        assert "PATH" in env                       # inherited environment preserved
