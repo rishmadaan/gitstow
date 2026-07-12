@@ -71,7 +71,15 @@ def search(
         repo_ws_pairs = [(r, ws) for r, ws in repo_ws_pairs if r.owner == owner]
 
     if not repo_ws_pairs:
-        if not quiet:
+        if output_json:
+            json.dump({
+                "pattern": pattern,
+                "total_matches": 0,
+                "repos_with_matches": 0,
+                "results": [],
+            }, sys.stdout, indent=2)
+            print()
+        elif not quiet:
             console.print("[dim]No repos match the filter.[/dim]")
         return
 

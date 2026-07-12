@@ -832,3 +832,54 @@ class TestFetchCommand:
         assert payload["fetched"] == 1  # frozen repos ARE fetched
         store = RepoStore(path=repos_file)
         assert store.get("a/frozen-one", workspace="ws").last_fetched != ""
+
+
+class TestEmptyFilterJsonPurity:
+    """search/exec/status --json must emit pure JSON even when no repos match."""
+
+    def _empty_config(self, tmp_path, monkeypatch):
+        from gitstow.core.config import Settings, Workspace, save_config
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"
+        ws_dir.mkdir()
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="flat")]))
+
+    def test_search_empty_filter_json_is_pure(self, tmp_path, monkeypatch):
+        import json
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+
+        self._empty_config(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["search", "TODO", "--json"])
+        payload = json.loads(result.output)
+        assert payload == {
+            "pattern": "TODO",
+            "total_matches": 0,
+            "repos_with_matches": 0,
+            "results": [],
+        }
+
+    def test_exec_empty_filter_json_is_pure(self, tmp_path, monkeypatch):
+        import json
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+
+        self._empty_config(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["exec", "--json", "--", "true"])
+        payload = json.loads(result.output)
+        assert payload == []
+
+    def test_status_empty_filter_json_is_pure(self, tmp_path, monkeypatch):
+        import json
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+
+        self._empty_config(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["status", "--json"])
+        payload = json.loads(result.output)
+        assert payload == []
