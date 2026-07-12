@@ -57,8 +57,8 @@
     /* Drop-up: at narrow widths the .table-scroll wrapper (overflow-x: auto)
        becomes a clip container that cuts off the absolutely-positioned
        .menu-pop on the bottom rows. When a menu opens, measure whether the
-       pop fits below it — against the viewport AND, when the wrapper is
-       actively scrolling horizontally, the wrapper's visible bottom — and
+       pop fits below it — against the viewport AND, whenever the wrapper
+       clips (overflow-x isn't visible), the wrapper's visible bottom — and
        flip it above the trigger if it doesn't. Capture phase because toggle
        doesn't bubble from <details> in older engines. Every close path
        (Escape above, click-outside, action clicks) removes the open
@@ -73,7 +73,11 @@
       var popHeight = pop.getBoundingClientRect().height;
       var bottomLimit = window.innerHeight;
       var scroller = d.closest && d.closest(".table-scroll");
-      if (scroller && scroller.scrollWidth > scroller.clientWidth) {
+      // overflow-x: auto makes the wrapper a clip container even without
+      // active horizontal overflow — CSS forces the used overflow-y to auto
+      // too — so clip against its bottom whenever overflow-x isn't visible,
+      // not only when scrollWidth exceeds clientWidth.
+      if (scroller && getComputedStyle(scroller).overflowX !== "visible") {
         bottomLimit = Math.min(bottomLimit, scroller.getBoundingClientRect().bottom);
       }
       // 6px matches the .menu-pop top/bottom gap in app.css.

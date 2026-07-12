@@ -845,6 +845,18 @@ class TestHonestTimestamps:
         html = client.get("/dashboard/rows").text
         assert "as of last fetch" not in html.lower()
 
+    def test_missing_repo_delta_tooltip_is_honest(self, client, configured, workspace_dir):
+        # A tracked repo with last_fetched set but NO directory on disk: its
+        # counts are stale/unknown, so the delta tooltip must say so and must
+        # NOT claim the counts are "as of last fetch".
+        from gitstow.core.repo import Repo, RepoStore
+
+        RepoStore().add(Repo(owner="a", name="gone", remote_url="u", workspace="test-ws",
+                             last_fetched="2026-07-12T09:00:00"))
+        html = client.get("/dashboard/rows").text
+        assert "missing or unreadable" in html.lower()
+        assert "as of last fetch" not in html.lower()
+
 
 class TestStyledConfirm:
     def test_no_native_dialogs_in_templates(self, client, configured):
@@ -927,7 +939,11 @@ class TestA11y:
 
     def test_focus_visible_rules(self, client, configured):
         css = client.get("/static/app.css").text
-        assert ":focus-visible" in css
+        # The element-specific rule must exist and cancel the global
+        # *:focus-visible box-shadow so exactly ONE ring (the outline) renders.
+        assert "button:focus-visible" in css
+        idx = css.index("button:focus-visible")
+        assert "box-shadow: none" in css[idx:idx + 200]
 
 
 class TestMicroVisual:
