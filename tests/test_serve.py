@@ -540,3 +540,34 @@ class TestCrossOriginProtection:
     def test_get_never_blocked(self, client, configured):
         r = client.get("/", headers={"Origin": "http://evil.example"})
         assert r.status_code == 200
+
+
+# ---------- parallel status gathering ----------
+
+
+class TestParallelDashboardStatus:
+    def test_statuses_gathered_concurrently(self, client, configured, workspace_dir, monkeypatch):
+        import threading
+
+        store = RepoStore()
+        for i in range(6):
+            _make_repo_on_disk(workspace_dir, "o", f"r{i}")
+            store.add(Repo(owner="o", name=f"r{i}", remote_url="u", workspace="test-ws"))
+
+        concurrent = {"now": 0, "max": 0}
+        lock = threading.Lock()
+
+        def slow_status(path):
+            import time
+            with lock:
+                concurrent["now"] += 1
+                concurrent["max"] = max(concurrent["max"], concurrent["now"])
+            time.sleep(0.05)
+            with lock:
+                concurrent["now"] -= 1
+            return _fake_status()
+
+        monkeypatch.setattr("gitstow.web.routes.dashboard.get_status", slow_status)
+        r = client.get("/dashboard/rows")
+        assert r.status_code == 200
+        assert concurrent["max"] >= 2  # serial implementation never exceeds 1

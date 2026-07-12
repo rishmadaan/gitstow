@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import functools
 from datetime import datetime
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from gitstow.core.config import load_config
 from gitstow.core.git import get_status, is_git_repo
+from gitstow.core.parallel import run_parallel
 from gitstow.core.repo import RepoStore
 from gitstow.core.status_model import RepoState, classify
 from gitstow.web.server import render
@@ -132,26 +134,39 @@ def _pull_tooltip(variant: str, status_class: str, behind: int, label: str = "")
     return "Pull available — already up to date with the last fetch."
 
 
-def _build_repos_data(settings, store) -> tuple[list, dict]:
+async def _build_repos_data(settings, store) -> tuple[list, dict]:
     """Gather the rendered row data + aggregate counts.
 
     Shared by the full dashboard render and the /dashboard/rows auto-refresh
-    fragment so the display logic stays in one place.
+    fragment so the display logic stays in one place. Statuses are collected in
+    parallel through the shared semaphore — one git subprocess per repo, off the
+    event loop — then rows are assembled in stable store order.
     """
     workspaces = settings.get_workspaces()
     ws_by_label = {w.label: w for w in workspaces}
     ws_sorted = sorted(ws_by_label.keys())
 
+    repos = [r for r in store.list_all() if r.workspace in ws_by_label]
+
+    # Phase 1 — probe existing git dirs in parallel; missing dirs are skipped.
+    probe: list[tuple[str, object]] = []
+    for repo in repos:
+        ws = ws_by_label[repo.workspace]
+        repo_path = repo.get_path(ws.get_path())
+        if repo_path.exists() and is_git_repo(repo_path):
+            probe.append((repo.global_key, functools.partial(get_status, repo_path)))
+    results = await run_parallel(probe, max_concurrent=settings.parallel_limit)
+    status_by_key = {r.key: (r.data if r.success else None) for r in results}
+
+    # Phase 2 — assemble rows in stable order.
     repos_data = []
     counts = {"clean": 0, "dirty": 0, "conflict": 0, "behind": 0, "ahead": 0, "frozen": 0}
 
-    for i, repo in enumerate(store.list_all(), start=1):
-        ws = ws_by_label.get(repo.workspace)
-        if not ws:
-            continue
+    for i, repo in enumerate(repos, start=1):
+        ws = ws_by_label[repo.workspace]
         repo_path = repo.get_path(ws.get_path())
-        exists = repo_path.exists() and is_git_repo(repo_path)
-        status = get_status(repo_path) if exists else None
+        exists = repo.global_key in status_by_key
+        status = status_by_key.get(repo.global_key)
 
         state = classify(exists=exists, frozen=repo.frozen, status=status)
         status_class, status_label, pull_variant = _present(state)
@@ -211,7 +226,7 @@ async def dashboard(
     settings = load_config()
     store = RepoStore()
     workspaces = settings.get_workspaces()
-    repos_data, counts = _build_repos_data(settings, store)
+    repos_data, counts = await _build_repos_data(settings, store)
 
     # Subtitle line
     total = len(repos_data)
@@ -256,5 +271,5 @@ async def dashboard_rows(request: Request):
     """Fragment endpoint — just the row `<tr>` elements, for HTMX auto-refresh."""
     settings = load_config()
     store = RepoStore()
-    repos_data, _ = _build_repos_data(settings, store)
+    repos_data, _ = await _build_repos_data(settings, store)
     return render(request, "partials/dashboard_rows.html", repos=repos_data)
