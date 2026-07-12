@@ -119,6 +119,7 @@ def add(
     # Phase 1 — classify every target without touching the network
     to_clone: list = []      # (parsed, target, repo_owner, repo_key)
     results = []
+    seen_targets: dict = {}  # resolved target path → repo_key (dedup within this invocation)
 
     for parsed in parsed_urls:
         # Determine target path based on workspace layout
@@ -130,6 +131,24 @@ def add(
             repo_owner = parsed.owner
 
         repo_key = f"{repo_owner}/{parsed.repo}" if repo_owner else parsed.repo
+
+        # Dedup equivalent URLs within one invocation — the parallel phase must
+        # never see two workers targeting the same directory (clone collision,
+        # collapsed outcome_by_key entries, retry rmtree deleting the other
+        # worker's good clone). Also covers register/exists branches so a second
+        # equivalent URL never double-registers.
+        resolved_target = target.resolve()
+        if resolved_target in seen_targets:
+            results.append({
+                "repo": repo_key,
+                "status": "exists",
+                "detail": f"duplicate of {seen_targets[resolved_target]} in this invocation",
+            })
+            if show:
+                console.print(f"  [yellow]○[/yellow] {repo_key} duplicates {seen_targets[resolved_target]} — skipped")
+            continue
+        seen_targets[resolved_target] = repo_key
+
         existing = store.get(repo_key, workspace=ws.label)
 
         # Already tracked in this workspace

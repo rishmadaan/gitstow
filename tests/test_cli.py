@@ -139,6 +139,28 @@ class TestAddParallelAndConflicts:
         assert payload["results"][0]["status"] == "error"
         assert "mismatch" in payload["results"][0]["error"]
 
+    def test_equivalent_urls_dedup_to_one_clone(self, tmp_path, monkeypatch):
+        import json
+        from unittest.mock import patch
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+
+        self._setup(tmp_path, monkeypatch)  # structured ws
+        calls = []
+
+        def fake_clone(url, target, **kw):
+            calls.append(str(target))
+            (target / ".git").mkdir(parents=True)
+            return True, ""
+
+        with patch("gitstow.cli.add.git_clone", side_effect=fake_clone):
+            result = CliRunner().invoke(app, ["add", "owner/repo", "git@github.com:owner/repo.git", "--json"])
+
+        payload = json.loads(result.output)
+        assert len(calls) == 1                      # one clone, not a race
+        statuses = sorted(r["status"] for r in payload["results"])
+        assert statuses == ["cloned", "exists"]     # second reported as duplicate
+
     def test_add_json_is_pure_json(self, tmp_path, monkeypatch):
         import json
         from unittest.mock import patch
