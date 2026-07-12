@@ -478,6 +478,35 @@ class TestPullSemantics:
         assert "iverged" in row["detail"]
 
 
+class TestRepoInfoStatusModel:
+    def test_info_json_uses_model_local_summary(self, tmp_path, monkeypatch):
+        import json
+        from unittest.mock import patch
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.git import RepoStatus
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"
+        (ws_dir / "a" / "one" / ".git").mkdir(parents=True)
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+        RepoStore(path=repos_file).add(Repo(owner="a", name="one", remote_url="u", workspace="ws"))
+
+        with patch("gitstow.cli.manage.get_status", return_value=RepoStatus(branch="main", staged=1)):
+            result = CliRunner().invoke(app, ["repo", "info", "a/one", "--json"])
+        payload = json.loads(result.output)
+        assert payload["status"] == "1 staged"
+        assert payload["local"]["summary"] == "1 staged"
+        assert payload["local"]["staged"] == 1
+        assert "remote" in payload
+
+
 class TestSearchParallel:
     def test_searches_run_concurrently(self, tmp_path, monkeypatch):
         import threading, time
