@@ -6,10 +6,10 @@
   </td>
   <td><a href="/repo/{{ repo.workspace }}/{{ repo.key }}" class="repo-link" title="{{ repo.repo_link_tooltip }}">{{ repo.display_name }}</a></td>
   <td><span class="ws ws-{{ repo.ws_slot }}" title="{{ repo.ws_tooltip }}">{{ repo.workspace }}</span></td>
-  <td><span class="branch-name" title="{{ repo.branch_tooltip }}">{{ repo.branch }}</span></td>
+  <td class="col-branch"><span class="branch-name" title="{{ repo.branch_tooltip }}">{{ repo.branch }}</span></td>
   <td><span class="delta {{ repo.delta_class }}" title="{{ repo.delta_tooltip }}">{{ repo.delta_text }}</span></td>
-  <td>{% for tag in repo.tags %}<span class="tag" title="Tag: {{ tag }}">{{ tag }}</span>{% endfor %}</td>
-  <td><span class="last-pull" title="{{ repo.last_pull_tooltip }}">{{ repo.last_pull }}</span></td>
+  <td class="col-tags">{% for tag in repo.tags %}<span class="tag" title="Tag: {{ tag }}">{{ tag }}</span>{% endfor %}</td>
+  <td class="col-lastpull"><span class="last-pull" title="{{ repo.last_pull_tooltip }}">{{ repo.last_pull }}</span></td>
   <td><div class="row-actions">
     {% if repo.pull_variant == "primary" %}
       <button class="btn btn-primary btn-sm"

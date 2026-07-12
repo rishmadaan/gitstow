@@ -790,3 +790,28 @@ class TestStyledConfirm:
         assert "data-confirm=" in r.text
         assert "data-danger" in r.text  # the delete-from-disk form
         assert "return confirm(" not in r.text
+
+
+class TestResponsiveMarkup:
+    def test_columns_carry_priority_classes(self, client, configured, workspace_dir, monkeypatch):
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws", tags=["x"]))
+        monkeypatch.setattr("gitstow.web.routes.dashboard.get_status", lambda p: _fake_status())
+        html = client.get("/").text
+        for cls in ("col-tags", "col-lastpull", "col-branch", "table-scroll"):
+            assert cls in html
+
+    def test_priority_classes_in_rows_fragment(self, client, configured, workspace_dir, monkeypatch):
+        # The 30s auto-refresh re-renders only the tbody via /dashboard/rows;
+        # the priority classes must survive on the td cells too, not just the thead.
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws", tags=["x"]))
+        monkeypatch.setattr("gitstow.web.routes.dashboard.get_status", lambda p: _fake_status())
+        html = client.get("/dashboard/rows").text
+        for cls in ("col-tags", "col-lastpull", "col-branch"):
+            assert cls in html
+
+    def test_media_rules_exist(self, client, configured):
+        css = client.get("/static/app.css").text
+        assert "@media" in css
+        assert "overflow-x: auto" in css

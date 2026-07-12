@@ -946,3 +946,29 @@ button.htmx-request::after, .btn.htmx-request::after {
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 5px; border: 2px solid var(--bg); }
 ::-webkit-scrollbar-thumb:hover { background: var(--muted-soft); }
+
+/* ---------- Responsive: usable down to 720px (half-monitor floor) ----------
+   Column priority: tags drop first (≤1100), then last-pull (≤920), then
+   branch (≤780). The .table-scroll wrapper is the final guard for pathological
+   content (very long repo names) — scoped to the responsive range so it never
+   clips the desktop row-action popover, which relies on overflow being visible
+   on its ancestors. Hero and action bar stack/wrap instead of overflowing. */
+@media (max-width: 1100px) {
+  .container { padding-left: 1.2rem; padding-right: 1.2rem; }
+  th.col-tags, td.col-tags { display: none; }
+  .table-scroll { overflow-x: auto; }
+}
+
+@media (max-width: 920px) {
+  th.col-lastpull, td.col-lastpull { display: none; }
+  .hero { flex-direction: column; align-items: flex-start; gap: 0.9rem; }
+  .hero-right { align-items: flex-start; }
+  .action-bar { row-gap: 0.6rem; }
+  .action-bar .spacer { display: none; }
+  .action-bar input[type="search"] { flex: 1 1 220px; max-width: none; }
+}
+
+@media (max-width: 780px) {
+  th.col-branch, td.col-branch { display: none; }
+  nav.primary .brand .tagline { display: none; }
+}

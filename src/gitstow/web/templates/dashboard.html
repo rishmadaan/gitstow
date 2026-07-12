@@ -62,6 +62,7 @@
 
   {% if repos %}
   <div class="table-wrap">
+    <div class="table-scroll">
     <table class="ledger">
       <thead>
         <tr>
@@ -69,10 +70,10 @@
           <th style="width: 7.5rem;" title="State of the working tree and relationship to upstream remote">Status</th>
           <th title="Repository name — click to open details">Repository</th>
           <th title="Which gitstow workspace manages this repo">Workspace</th>
-          <th title="Current local branch">Branch</th>
+          <th class="col-branch" title="Current local branch">Branch</th>
           <th title="Commits ahead (↑) / behind (↓) upstream — reflects your last fetch, not live remote">Remote Δ</th>
-          <th title="Your tags + workspace auto-tags">Tags</th>
-          <th title="When gitstow last pulled this repo (not the last git fetch)">Last pull</th>
+          <th class="col-tags" title="Your tags + workspace auto-tags">Tags</th>
+          <th class="col-lastpull" title="When gitstow last pulled this repo (not the last git fetch)">Last pull</th>
           <th style="text-align: right;" title="Pull + more-actions menu">Actions</th>
         </tr>
       </thead>
@@ -82,6 +83,7 @@
         {% for repo in repos %}{% include "partials/repo_row.html" %}{% endfor %}
       </tbody>
     </table>
+    </div>
   </div>
 
   <p id="filter-empty" class="filter-empty" hidden>No repos match the current filters.</p>
