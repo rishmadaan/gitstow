@@ -104,6 +104,27 @@ class TestSmoke:
         assert r.status_code == 200
 
 
+class TestVendoredAssets:
+    def test_no_external_urls_in_pages(self, client, configured):
+        for path in ("/", "/workspaces", "/settings", "/add"):
+            html = client.get(path).text
+            assert "unpkg.com" not in html
+            assert "googleapis.com" not in html
+            assert "https://" not in (
+                html.replace("https://github.com", "").replace("https:// URLs", "")
+            )
+
+    def test_no_external_urls_in_css(self, client, configured):
+        css = client.get("/static/app.css").text
+        assert "googleapis.com" not in css and "@import url('https" not in css
+
+    def test_vendored_files_served(self, client, configured):
+        assert client.get("/static/vendor/htmx.min.js").status_code == 200
+        fonts_css = client.get("/static/fonts/fonts.css")
+        assert fonts_css.status_code == 200
+        assert "@font-face" in fonts_css.text
+
+
 # ---------- settings ----------
 
 
