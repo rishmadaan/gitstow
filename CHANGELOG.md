@@ -4,6 +4,28 @@ All notable changes to gitstow will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Pasted GitHub browse URLs now resolve correctly.** URLs like `/tree/...`, `/blob/...`, `/pull/...` now resolve to the repo root instead of being misparsed.
+- **`config migrate-root`** now actually updates workspace paths, and honors the global `-w/--workspace` flag.
+- **`repo freeze/unfreeze/tag/untag`** now honor `-w/--workspace` and report cross-workspace ambiguity clearly instead of guessing.
+- **`pull --json` and `fetch --json`** always emit pure JSON on stdout — no more banners or progress lines interleaved with the payload.
+- **Pull summary** keeps per-workspace identity for same-named frozen repos in different workspaces.
+- **Bulk git operations** no longer hang on credential prompts and are now locale-independent.
+- **`remove --delete`** refuses to delete paths that resolve outside the workspace root.
+- **Workspace labels** are now validated (lowercase alphanumeric, dash, underscore only).
+
+### Added
+
+- **Atomic, cross-process-locked writes** to `repos.yaml`, safe for concurrent CLI and web UI use.
+- **Test gate before PyPI publish** — releases now require a passing test suite.
+
+### Security
+
+- **Web dashboard CSRF protection.** POST routes now reject cross-origin and DNS-rebinding requests on the localhost UI.
+
 ## [0.2.7] - 2026-05-28
 
 ### Fixed
