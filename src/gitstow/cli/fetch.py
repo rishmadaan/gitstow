@@ -106,7 +106,7 @@ def fetch(
         targets = [(r, ws) for r, ws in targets if r.owner == owner]
 
     if not targets:
-        if not quiet:
+        if not quiet and not output_json:
             console.print("[yellow]No repos to fetch.[/yellow]")
         if output_json:
             json.dump({"total": 0, "results": []}, sys.stdout, indent=2)
@@ -114,7 +114,7 @@ def fetch(
         return
 
     total_count = len(targets)
-    if not quiet:
+    if not quiet and not output_json and targets:
         console.print(f"\n  Fetching {total_count} repo{'s' if total_count != 1 else ''}...\n")
 
     # Run fetches in parallel (with retry)
@@ -122,7 +122,7 @@ def fetch(
     result_dicts: list[dict] = []
 
     for attempt in range(1 + retry):
-        if attempt > 0 and not quiet:
+        if attempt > 0 and not quiet and not output_json:
             console.print(f"\n  [dim]Retry {attempt}/{retry} — {len(remaining_targets)} failed repos...[/dim]\n")
 
         tasks = [
@@ -134,7 +134,7 @@ def fetch(
 
         def _on_progress(key: str, success: bool, message: str) -> None:
             progress_count[0] += 1
-            if not quiet:
+            if not quiet and not output_json:
                 console.print(
                     f"  [{progress_count[0]}/{len(tasks)}] {key.split(':', 1)[-1]}",
                     end="\r",
@@ -144,7 +144,7 @@ def fetch(
         results = run_parallel_sync(
             tasks,
             max_concurrent=settings.parallel_limit,
-            on_progress=None if quiet else _on_progress,
+            on_progress=None if (quiet or output_json) else _on_progress,
         )
 
         # Process results and update timestamps

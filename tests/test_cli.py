@@ -220,3 +220,47 @@ class TestWorkspaceLabelValidation:
 
         result = CliRunner().invoke(app, ["workspace", "add", str(tmp_path / "x"), "--label", bad_label])
         assert result.exit_code == 1
+
+
+class TestFetchJsonPurity:
+    def test_fetch_json_with_no_repos_is_pure_json(self, tmp_path, monkeypatch):
+        import json
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"; ws_dir.mkdir()
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="flat")]))
+
+        result = CliRunner().invoke(app, ["fetch", "--json"])
+        payload = json.loads(result.output)
+        assert payload == {"total": 0, "results": []}
+
+    def test_fetch_json_with_repos_is_pure_json(self, tmp_path, monkeypatch):
+        import json
+        from unittest.mock import patch
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.git import FetchResult
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"
+        (ws_dir / "a" / "one" / ".git").mkdir(parents=True)
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+        RepoStore(path=repos_file).add(Repo(owner="a", name="one", remote_url="u", workspace="ws"))
+
+        with patch("gitstow.cli.fetch.git_fetch", return_value=FetchResult(success=True, output="ok")):
+            result = CliRunner().invoke(app, ["fetch", "--json"])
+        payload = json.loads(result.output)  # must be pure JSON — no banners, no progress lines
+        assert payload["fetched"] == 1
