@@ -18,7 +18,7 @@
   </article>
   {% endif %}
 
-  <form method="POST" action="/repos/add">
+  <form id="add-form" method="POST" action="/repos/add">
 
     <div class="form-row">
       <label for="url">Repository URL</label>
@@ -44,9 +44,27 @@
     </div>
 
     <div style="display: flex; gap: 0.5rem; margin-top: 1.75rem;">
-      <button type="submit" class="btn btn-primary">Clone & catalog</button>
+      <button type="submit" id="add-submit" class="btn btn-primary">Clone & catalog</button>
       <a href="/" class="btn btn-ghost">Cancel</a>
     </div>
   </form>
+
+  <script>
+    (function () {
+      var form = document.getElementById('add-form');
+      if (!form) return;
+      form.addEventListener('submit', function () {
+        var btn = document.getElementById('add-submit');
+        if (btn) {
+          btn.disabled = true;
+          btn.dataset.pendingLabel = '1';
+          btn.textContent = 'Cloning…';
+          btn.classList.add('htmx-request');   /* reuse the existing spinner ::after */
+        }
+        var cancel = form.querySelector('a');
+        if (cancel) cancel.style.pointerEvents = 'none';
+      });
+    })();
+  </script>
 
 {% endblock %}
