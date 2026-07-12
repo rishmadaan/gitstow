@@ -41,7 +41,7 @@
         {% for ws in workspaces %}
         <tr>
           <td><span class="ws ws-{{ ws.slot }}">{{ ws.label }}</span></td>
-          <td><span class="path-display">{{ ws.path }}</span></td>
+          <td><code class="path-code">{{ ws.path }}</code></td>
           <td><span class="layout-badge">{{ ws.layout }}</span></td>
           <td>{% for t in ws.auto_tags %}<span class="tag">{{ t }}</span>{% else %}<span style="color: var(--muted-soft);">—</span>{% endfor %}</td>
           <td style="text-align: right; font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; color: var(--text);">{{ ws.count }}</td>

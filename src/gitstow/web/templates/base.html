@@ -133,6 +133,28 @@
         }
       });
 
+      // Footer LIVE dot — honest server-reachability indicator. Flips red/offline
+      // the moment a request can't reach the server; restores on the next success.
+      // Note: the 30s auto-refresh means this can lag up to ~30s behind the server
+      // actually dying, since it only updates in response to an in-flight request.
+      var liveDot = document.querySelector('footer .dot');
+      var liveLabel = document.querySelector('footer .live-label');
+      var livePulse = document.querySelector('.live-pulse');
+      document.body.addEventListener('htmx:sendError', function () {
+        if (liveDot) { liveDot.classList.remove('green'); liveDot.classList.add('red'); }
+        if (liveLabel) liveLabel.textContent = 'offline';
+        if (livePulse) { livePulse.classList.add('offline'); livePulse.title = 'Disconnected'; }
+      });
+      document.body.addEventListener('htmx:afterRequest', function (evt) {
+        if (evt.detail.successful && liveDot && liveDot.classList.contains('red')) {
+          liveDot.classList.remove('red'); liveDot.classList.add('green');
+          if (liveLabel) liveLabel.textContent = 'live';
+        }
+        if (evt.detail.successful && livePulse && livePulse.classList.contains('offline')) {
+          livePulse.classList.remove('offline'); livePulse.title = 'Connected';
+        }
+      });
+
       // Styled confirmations — one dialog for htmx (hx-confirm) and plain forms (data-confirm).
       var dlg = document.getElementById('confirm-dialog');
       var msgEl = document.getElementById('confirm-message');

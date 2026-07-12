@@ -919,3 +919,19 @@ class TestA11y:
     def test_focus_visible_rules(self, client, configured):
         css = client.get("/static/app.css").text
         assert ":focus-visible" in css
+
+
+class TestMicroVisual:
+    def test_file_input_styled(self, client, configured):
+        html = client.get("/settings").text
+        assert "file-label" in html  # the styled wrapper
+        assert "Choose file" in html
+
+    def test_live_dot_offline_listener(self, client, configured):
+        html = client.get("/").text
+        assert "htmx:sendError" in html
+
+    def test_paths_render_as_code_not_inputs(self, client, configured):
+        html = client.get("/workspaces").text
+        # workspace paths must not render inside input-like boxes
+        assert 'class="path-code"' in html

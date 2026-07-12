@@ -66,9 +66,9 @@
       <h4>Paths</h4>
       <dl class="settings-grid">
         <dt>Config file</dt>
-        <dd><span class="path-display">{{ settings.config_path }}</span></dd>
+        <dd><code class="path-code">{{ settings.config_path }}</code></dd>
         <dt>Registry</dt>
-        <dd><span class="path-display">{{ settings.repos_path }}</span></dd>
+        <dd><code class="path-code">{{ settings.repos_path }}</code></dd>
       </dl>
       <small style="display: block; margin-top: 1rem; color: var(--muted); font-size: 0.84rem;">
         Read-only here — edit YAML directly, or run <code>gitstow config path</code> to locate the files.
@@ -90,7 +90,10 @@
         <dt>Import</dt>
         <dd>
           <form method="POST" action="/collection/import" enctype="multipart/form-data" style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-            <input type="file" name="file" accept=".yaml,.yml,.json,.txt" required style="flex: 1; min-width: 200px; padding: 0.4rem;">
+            <label class="file-label btn btn-outline btn-sm">Choose file…
+              <input type="file" name="file" accept=".yaml,.yml,.json,.txt" required>
+            </label>
+            <span class="file-name muted" id="file-name">no file chosen</span>
             <button type="submit" class="btn btn-primary btn-sm">Upload & clone</button>
           </form>
           <span class="form-hint">Upload YAML / JSON / plain URLs. Repos clone into their recorded workspace when it's configured — otherwise the first workspace. Already-tracked repos are skipped.</span>
@@ -103,7 +106,7 @@
       <dl class="settings-grid">
         <dt>Claude Code skill</dt>
         <dd>
-          <span class="path-display">{{ settings.skill_path }}</span>
+          <code class="path-code">{{ settings.skill_path }}</code>
           <span class="form-hint">Auto-updates on every CLI invocation when the package version changes.</span>
         </dd>
         <dt>MCP server</dt>
@@ -118,5 +121,16 @@
       <strong>gitstow v{{ version }}</strong><br>
       <small style="color: var(--muted); font-size: 0.82rem;">Run <code>gitstow doctor</code> from the CLI for a full environment report.</small>
     </article>
+
+  <script>
+    (function () {
+      var fileInput = document.querySelector('.file-label input[type="file"]');
+      var fileName = document.getElementById('file-name');
+      if (!fileInput || !fileName) return;
+      fileInput.addEventListener('change', function () {
+        fileName.textContent = fileInput.files.length ? fileInput.files[0].name : 'no file chosen';
+      });
+    })();
+  </script>
 
 {% endblock %}

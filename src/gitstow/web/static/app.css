@@ -157,6 +157,13 @@ nav.primary .brand .live-pulse {
   0%, 100% { box-shadow: 0 0 0 0 var(--accent-glow); }
   50%      { box-shadow: 0 0 0 6px rgba(255, 107, 53, 0); }
 }
+/* Server unreachable — same honesty fix as the footer LIVE dot: stop
+   pulsing (a pulse reads as "alive") and switch to the shared danger red. */
+nav.primary .brand .live-pulse.offline {
+  background: var(--c-conflict);
+  animation: none;
+  box-shadow: 0 0 8px rgba(248, 113, 113, 0.4);
+}
 nav.primary .brand .mark {
   font-family: 'Bricolage Grotesque', sans-serif;
   font-variation-settings: 'opsz' 36, 'wdth' 85, 'wght' 700;
@@ -310,6 +317,18 @@ nav.primary ul.links a.active::after {
 .btn-danger-solid:hover { background: #b91c1c; border-color: #b91c1c; }
 .btn-sm { padding: 0.38rem 0.8rem; font-size: 0.78rem; }
 .btn:disabled { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
+
+/* ---------- File input (styled) ---------- */
+/* Native file inputs can't be restyled directly — visually hide the real
+   input (still in-flow, focusable, required) and present the enclosing
+   label as a button. Reset the generic `label` element rule's uppercase/
+   letter-spacing/margin so it reads as a normal button, not a form label. */
+.file-label {
+  position: relative; overflow: hidden; cursor: pointer;
+  text-transform: none; letter-spacing: normal; margin-bottom: 0; font-weight: 400;
+}
+.file-label:focus-within { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+.file-label input[type="file"] { position: absolute; width: 1px; height: 1px; opacity: 0; }
 
 /* ---------- Inputs ---------- */
 input[type=text], input[type=search], input[type=url], select, textarea {
@@ -592,6 +611,7 @@ table.ledger { width: 100%; border-collapse: collapse; background: transparent; 
 footer.site .footer-inner { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
 footer.site .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; vertical-align: middle; }
 footer.site .dot.green { background: var(--c-clean); box-shadow: 0 0 8px rgba(74, 222, 128, 0.4); }
+footer.site .dot.red { background: var(--c-conflict); box-shadow: 0 0 8px rgba(248, 113, 113, 0.4); }
 footer.site .live-label {
   font-family: 'JetBrains Mono', monospace;
   text-transform: uppercase; letter-spacing: 0.12em;
@@ -741,13 +761,16 @@ footer.site .live-label {
 }
 
 /* ---------- Path display ---------- */
-.path-display {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.84rem; color: var(--text-soft);
-  background: var(--bg-panel);
-  padding: 0.22rem 0.55rem;
-  border: 1px solid var(--border);
-  border-radius: 3px; display: inline-block;
+/* Was an inline box with background + border — visually indistinguishable
+   from a text input. A code block with a left rule reads as reference
+   text, not an editable field (reconciled from the brief's `var(--line)`,
+   which doesn't exist in this palette, to the established `--border`). */
+.path-code {
+  display: block; padding: 0.55rem 0.7rem;
+  background: transparent; border: none; border-radius: 0;
+  border-left: 2px solid var(--border);
+  color: var(--text-soft); font-family: 'JetBrains Mono', monospace;
+  font-size: 0.82rem; word-break: break-all;
 }
 
 /* ---------- Breadcrumb ---------- */
