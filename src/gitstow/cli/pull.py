@@ -126,7 +126,7 @@ def pull(
         targets = [(r, ws) for r, ws in targets if r.owner == owner]
 
     if not targets and not frozen_repos:
-        if not quiet:
+        if not quiet and not output_json:
             console.print("[yellow]No repos to pull.[/yellow]")
         if output_json:
             json.dump({"total": 0, "results": []}, sys.stdout, indent=2)
@@ -134,7 +134,7 @@ def pull(
         return
 
     total_count = len(targets)
-    if not quiet and not output_json:
+    if not quiet and not output_json and targets:
         console.print(f"\n  Pulling {total_count} repo{'s' if total_count != 1 else ''}...\n")
 
     # Run pulls in parallel (with retry)

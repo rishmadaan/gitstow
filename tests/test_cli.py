@@ -155,3 +155,21 @@ class TestPullFrozenIdentity:
         frozen_rows = [r for r in payload["results"] if r["status"] == "frozen"]
         assert len(frozen_rows) == 2
         assert {r["workspace"] for r in frozen_rows} == {"a", "b"}
+
+    def test_pull_json_with_no_repos_is_pure_json(self, tmp_path, monkeypatch):
+        import json
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"; ws_dir.mkdir()
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="flat")]))
+
+        result = CliRunner().invoke(app, ["pull", "--json"])
+        payload = json.loads(result.output)  # must be pure JSON, no banner
+        assert payload == {"total": 0, "results": []}
