@@ -15,6 +15,7 @@ from gitstow.core.config import load_config, Workspace
 from gitstow.core.git import pull as git_pull, get_status, is_git_repo
 from gitstow.core.repo import Repo, RepoStore
 from gitstow.core.parallel import run_parallel_sync
+from gitstow.core.status_model import classify
 from gitstow.cli.helpers import iter_repos_with_workspace
 
 console = Console()
@@ -32,11 +33,18 @@ def _pull_one_repo(repo: Repo, ws: Workspace) -> dict:
         return {"repo": repo.key, "status": "error", "detail": "Not a git repo"}
 
     status = get_status(path)
-    if not status.clean:
+    state = classify(exists=True, frozen=repo.frozen, status=status)
+    if state.blocks_pull:
         return {
             "repo": repo.key,
             "status": "skipped",
-            "detail": f"Dirty working tree ({status.status_symbol})",
+            "detail": f"Local changes ({state.local_summary})",
+        }
+    if state.pull_action == "skip-diverged":
+        return {
+            "repo": repo.key,
+            "status": "skipped",
+            "detail": "Diverged from remote — resolve manually (rebase or merge)",
         }
 
     result = git_pull(path)
@@ -80,7 +88,9 @@ def pull(
     """[bold blue]Pull[/bold blue] latest changes for all (or filtered) repos.
 
     Frozen repos are skipped unless --include-frozen is set.
-    Dirty repos are always skipped (never risk losing local changes).
+    Repos with modified or staged changes are skipped (never risk losing
+    local work); untracked-only repos are pulled. Diverged repos are
+    skipped — resolve manually with rebase or merge.
 
     \b
     Examples:

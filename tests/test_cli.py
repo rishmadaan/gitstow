@@ -315,3 +315,64 @@ class TestStatusModelInCli:
         assert entry["remote"]["state"] == "behind"
         # Legacy keys preserved
         assert entry["staged"] == 2 and entry["behind"] == 3 and entry["clean"] is False
+
+
+class TestPullSemantics:
+    def _one_repo_setup(self, tmp_path, monkeypatch):
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"
+        (ws_dir / "a" / "one" / ".git").mkdir(parents=True)
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+        RepoStore(path=repos_file).add(Repo(owner="a", name="one", remote_url="u", workspace="ws"))
+
+    def test_untracked_only_repo_is_pulled(self, tmp_path, monkeypatch):
+        import json
+        from unittest.mock import patch
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.git import PullResult, RepoStatus
+
+        self._one_repo_setup(tmp_path, monkeypatch)
+        with patch("gitstow.cli.pull.get_status", return_value=RepoStatus(branch="main", untracked=2)), \
+             patch("gitstow.cli.pull.git_pull", return_value=PullResult(success=True, output="Updating...")) as mock_pull:
+            result = CliRunner().invoke(app, ["pull", "--json"])
+        assert mock_pull.called  # was skipped as "dirty" before
+        payload = json.loads(result.output)
+        assert payload["pulled"] == 1
+
+    def test_modified_repo_is_skipped_with_composition_detail(self, tmp_path, monkeypatch):
+        import json
+        from unittest.mock import patch
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.git import RepoStatus
+
+        self._one_repo_setup(tmp_path, monkeypatch)
+        with patch("gitstow.cli.pull.get_status", return_value=RepoStatus(branch="main", dirty=3)):
+            result = CliRunner().invoke(app, ["pull", "--json"])
+        payload = json.loads(result.output)
+        row = payload["results"][0]
+        assert row["status"] == "skipped"
+        assert "3 modified" in row["detail"]
+
+    def test_diverged_repo_is_skipped(self, tmp_path, monkeypatch):
+        import json
+        from unittest.mock import patch
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.git import RepoStatus
+
+        self._one_repo_setup(tmp_path, monkeypatch)
+        with patch("gitstow.cli.pull.get_status", return_value=RepoStatus(branch="main", ahead=1, behind=2)):
+            result = CliRunner().invoke(app, ["pull", "--json"])
+        payload = json.loads(result.output)
+        row = payload["results"][0]
+        assert row["status"] == "skipped"
+        assert "iverged" in row["detail"]

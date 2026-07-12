@@ -467,6 +467,55 @@ class TestStatusModelInWeb:
         assert ">clean<" not in r.text
 
 
+# ---------- bulk pull skips local changes (same rule as the CLI) ----------
+
+
+class TestWebPullSkipsLocalChanges:
+    def test_pull_all_skips_modified_repo(self, client, configured, workspace_dir, monkeypatch):
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws"))
+
+        monkeypatch.setattr("gitstow.web.routes.repos.get_status", lambda p: _fake_status(dirty=2))
+        called = []
+        monkeypatch.setattr("gitstow.web.routes.repos.git_pull", lambda p: called.append(p))
+
+        r = client.post("/repos/pull-all")
+        assert r.status_code == 200
+        assert called == []                      # pull never ran on the modified repo
+        assert "local changes" in r.text.lower() # summary reports the skip
+
+    def test_pull_all_pulls_untracked_only_repo(self, client, configured, workspace_dir, monkeypatch):
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws"))
+
+        monkeypatch.setattr("gitstow.web.routes.repos.get_status", lambda p: _fake_status(untracked=3))
+        called = []
+
+        def _fake_pull(p):
+            called.append(p)
+            return PullResult(success=True, output="Updating...")
+
+        monkeypatch.setattr("gitstow.web.routes.repos.git_pull", _fake_pull)
+
+        r = client.post("/repos/pull-all")
+        assert r.status_code == 200
+        assert len(called) == 1                  # untracked never blocks bulk pull
+        assert "1 ok" in r.text
+
+    def test_pull_all_skips_diverged_repo(self, client, configured, workspace_dir, monkeypatch):
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws"))
+
+        monkeypatch.setattr("gitstow.web.routes.repos.get_status", lambda p: _fake_status(ahead=1, behind=2))
+        called = []
+        monkeypatch.setattr("gitstow.web.routes.repos.git_pull", lambda p: called.append(p))
+
+        r = client.post("/repos/pull-all")
+        assert r.status_code == 200
+        assert called == []                      # ff-only pull is doomed on divergence
+        assert "diverged" in r.text.lower()
+
+
 # ---------- cross-origin write protection ----------
 
 

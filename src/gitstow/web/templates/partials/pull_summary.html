@@ -14,8 +14,19 @@
     {% if summary.ok %}<span class="status status-clean"><span class="dot"></span>{{ summary.ok }} ok</span>{% endif %}
     {% if summary.failed %}<span class="status status-conflict"><span class="dot"></span>{{ summary.failed|length }} failed</span>{% endif %}
     {% if summary.skipped_frozen %}<span class="status status-frozen"><span class="dot"></span>{{ summary.skipped_frozen }} frozen</span>{% endif %}
+    {% if summary.skipped_local %}<span class="status status-dirty"><span class="dot"></span>{{ summary.skipped_local|length }} skipped</span>{% endif %}
     {% if summary.missing %}<span class="status status-conflict"><span class="dot"></span>{{ summary.missing|length }} missing</span>{% endif %}
   </div>
+  {% if summary.skipped_local %}
+  <details style="margin-top: 0.85rem;">
+    <summary>View skipped — local changes ({{ summary.skipped_local|length }})</summary>
+    <ul style="margin: 0.5rem 0 0; padding-left: 1.2rem; color: var(--text-soft); font-size: 0.86rem;">
+      {% for s in summary.skipped_local %}
+      <li><code>{{ s.key }}</code> — {{ s.detail }}</li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% endif %}
   {% if summary.failed %}
   <details style="margin-top: 0.85rem;">
     <summary>View failures ({{ summary.failed|length }})</summary>

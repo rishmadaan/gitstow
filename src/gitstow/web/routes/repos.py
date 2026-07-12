@@ -152,6 +152,17 @@ async def fetch_single(workspace: str, key: str, request: Request):
     return render(request, "partials/repo_row.html", repo=ctx)
 
 
+def _pull_if_safe(path):
+    """Bulk-pull worker: same skip rules as the CLI — modified/staged and
+    diverged skip; untracked-only pulls."""
+    state = classify(exists=True, frozen=False, status=get_status(path))
+    if state.blocks_pull:
+        return {"skipped_local": True, "detail": state.local_summary}
+    if state.pull_action == "skip-diverged":
+        return {"skipped_local": True, "detail": "diverged — resolve manually"}
+    return git_pull(path)
+
+
 @router.post("/repos/pull-all", response_class=HTMLResponse)
 async def pull_all(request: Request):
     settings = load_config()
@@ -180,16 +191,22 @@ async def pull_all(request: Request):
         targets.append((repo.global_key, path))
 
     # Fire all pulls via the shared semaphore
-    tasks = [(gk, functools.partial(git_pull, p)) for gk, p in targets]
+    tasks = [(gk, functools.partial(_pull_if_safe, p)) for gk, p in targets]
     task_results = await run_parallel(tasks, max_concurrent=settings.parallel_limit)
 
-    # Stamp successful pulls; collect failures
+    # Stamp successful pulls; collect skips and failures
     now_iso = datetime.now().isoformat(timespec="seconds")
     ok = 0
+    skipped_local: list[dict] = []
     failed: list[dict] = []
     for r in task_results:
-        # r.data is PullResult when no exception, or None when one was raised
-        pull_result = r.data if r.success else None
+        # r.data is a skip marker dict or PullResult when no exception,
+        # or None when one was raised
+        data = r.data if r.success else None
+        if isinstance(data, dict) and data.get("skipped_local"):
+            skipped_local.append({"key": r.key, "detail": data["detail"]})
+            continue
+        pull_result = data
         if pull_result and pull_result.success:
             ok += 1
             ws_label, _, rkey = r.key.partition(":")
@@ -203,6 +220,7 @@ async def pull_all(request: Request):
         "ok": ok,
         "failed": failed,
         "skipped_frozen": skipped_frozen,
+        "skipped_local": skipped_local,
         "missing": missing,
     }
     return render(request, "partials/pull_summary.html", summary=summary)
