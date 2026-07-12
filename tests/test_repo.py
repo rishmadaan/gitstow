@@ -161,3 +161,54 @@ class TestRepoStore:
         result = store2.get("anthropic/claude-code")
         assert result is not None
         assert result.remote_url == sample_repo.remote_url
+
+
+class TestBulkWrites:
+    def test_bulk_writes_once(self, tmp_repos_file, monkeypatch):
+        from gitstow.core.repo import Repo, RepoStore
+
+        store = RepoStore(path=tmp_repos_file)
+        for i in range(5):
+            store.add(Repo(owner="o", name=f"r{i}", remote_url="u", workspace="oss"))
+
+        writes = []
+        original_write = RepoStore._write
+
+        def counting_write(self):
+            writes.append(1)
+            original_write(self)
+
+        monkeypatch.setattr(RepoStore, "_write", counting_write)
+
+        with store.bulk():
+            for i in range(5):
+                store.update(f"o/r{i}", workspace="oss", frozen=True)
+
+        assert len(writes) == 1  # five updates, one file write
+
+        fresh = RepoStore(path=tmp_repos_file)
+        assert all(r.frozen for r in fresh.list_all())
+
+    def test_bulk_completes_without_deadlock_and_single_write(self, tmp_repos_file):
+        # flock is per-open-file-description: if a mutator inside bulk() tried
+        # to re-acquire the lock on a new fd, this would hang forever.
+        import threading
+        from gitstow.core.repo import Repo, RepoStore
+
+        store = RepoStore(path=tmp_repos_file)
+        store.add(Repo(owner="o", name="r", remote_url="u", workspace="oss"))
+
+        done = threading.Event()
+
+        def run():
+            with store.bulk():
+                store.update("o/r", workspace="oss", frozen=True)
+                store.update("o/r", workspace="oss", tags=["x"])
+            done.set()
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        assert done.wait(timeout=10), "bulk() deadlocked on nested lock acquisition"
+        fresh = RepoStore(path=tmp_repos_file)
+        repo = fresh.get("o/r", workspace="oss")
+        assert repo.frozen is True and repo.tags == ["x"]

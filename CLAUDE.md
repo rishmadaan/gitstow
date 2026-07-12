@@ -25,7 +25,6 @@ src/gitstow/
 │   ├── exec_cmd.py, search.py, open_cmd.py, stats.py       # Power commands
 │   ├── export_cmd.py    # export/import collection
 │   ├── shell.py         # Shell integration (fzf, aliases)
-│   ├── tui.py           # TUI launcher
 │   ├── serve.py         # Web dashboard launcher
 │   ├── migrate.py, config_cmd.py, onboard.py, doctor.py, skill_cmd.py
 │   └── __init__.py
@@ -37,9 +36,6 @@ src/gitstow/
 │   ├── git.py         # All git subprocess calls
 │   ├── discovery.py   # Walk directory tree (structured + flat), reconcile
 │   ├── parallel.py    # Async execution with semaphore
-│   └── __init__.py
-├── tui/          # Textual interactive dashboard
-│   ├── app.py         # Main TUI application
 │   └── __init__.py
 ├── web/          # FastAPI browser dashboard (gitstow ui)
 │   ├── server.py          # FastAPI app, uvicorn runner, app.state.server stash
@@ -67,7 +63,6 @@ src/gitstow/
 - `cli/helpers.py` — Shared workspace resolution used by all CLI commands.
 - `cli/workspace_cmd.py` — workspace list/add/remove/scan subcommands.
 - `cli/main.py` — Typer app, global `-w/--workspace` option, command registration.
-- `tui/app.py` — Textual dashboard with DataTable, filter, pull, freeze toggle.
 
 ## Data Files
 
@@ -86,14 +81,14 @@ active:
     tags: [active]
 ```
 
-## All Commands (32)
+## All Commands (31)
 
 **Core:** `add`, `pull`, `fetch`, `list`, `status`, `remove`, `migrate`
 **Workspace:** `workspace list`, `workspace add`, `workspace remove`, `workspace scan`
 **Repo management:** `repo freeze`, `repo unfreeze`, `repo tag`, `repo untag`, `repo tags`, `repo info`
 **Power:** `exec`, `search`, `open`, `stats`
 **Sharing:** `collection export`, `collection import`
-**Shell:** `shell pick`, `shell init`, `shell completions`, `shell setup`, `tui`, `ui`
+**Shell:** `shell pick`, `shell init`, `shell completions`, `shell setup`, `ui`
 **Setup:** `onboard`, `config show/set/path/migrate-root`, `doctor`, `install-skill`, `setup-ai`, `update`
 
 ## Development
@@ -103,7 +98,6 @@ cd ~/labs/projects/gitstow
 pip install -e ".[dev]"
 pytest                    # 44 tests
 ruff check src/
-pip install -e ".[tui]"   # For TUI development
 ```
 
 ## Patterns
@@ -123,7 +117,7 @@ pip install -e ".[tui]"   # For TUI development
 
 - Prefer proper long-term solutions over shortcut patches. If a feature is incomplete in one surface, build the feature into that surface instead of papering over it with wording, partial conditionals, or one-off display logic.
 - Do not recommend quick fixes, temporary patches, or narrow workarounds unless the user explicitly asks for a shortcut.
-- Keep CLI, TUI, web dashboard, JSON output, docs, and tests semantically aligned when changing user-facing status behavior.
+- Keep CLI, web dashboard, JSON output, docs, and tests semantically aligned when changing user-facing status behavior.
 - For repo state presentation, avoid using "dirty" as a broad user-facing bucket for every local change. Present it as local/uncommitted changes with the composition visible: modified, staged, and untracked counts.
 - Keep local working-tree state separate from remote relationship state. For example: local changes, clean, ahead, behind, diverged, frozen, missing.
 - When improving the web dashboard, implement the actual missing dashboard feature and shared classification/model behavior instead of copying a CLI-only assumption into the template.

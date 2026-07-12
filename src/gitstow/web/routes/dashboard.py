@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import functools
 from datetime import datetime
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from gitstow.core.config import load_config
 from gitstow.core.git import get_status, is_git_repo
+from gitstow.core.parallel import run_parallel
 from gitstow.core.repo import RepoStore
+from gitstow.core.status_model import RepoState, classify
 from gitstow.web.server import render
 
 router = APIRouter()
@@ -51,7 +54,7 @@ def _relative_time(iso_str: str) -> str:
 
 _STATUS_TOOLTIPS = {
     "clean":    "Clean — working tree matches HEAD; up to date with the last fetch.",
-    "dirty":    "Dirty — uncommitted changes in the working tree. Commit or stash before pulling.",
+    "dirty":    "Local changes — uncommitted work in the tree (see label for modified/staged/untracked). Untracked-only repos can still pull.",
     "conflict": "Conflict — working tree is dirty AND behind remote. Resolve locally before pulling.",
     "behind":   "Behind — remote upstream has commits your local copy doesn't. Pull to fast-forward.",
     "ahead":    "Ahead — you have local commits not yet pushed to remote.",
@@ -59,22 +62,32 @@ _STATUS_TOOLTIPS = {
 }
 
 
-def _classify(repo_frozen: bool, status, exists: bool):
-    """Return (status_class, status_label, pull_variant). pull_variant: 'primary'|'ghost'|'disabled'."""
-    if not exists:
+def _present(state: RepoState) -> tuple[str, str, str]:
+    """Map a RepoState onto the dashboard's (css_class, label, pull_variant).
+
+    Keeps the existing css-class vocabulary; semantics come from the shared
+    model — staged and untracked files count as local changes (they used to
+    render as 'clean'), and a diverged repo's Pull is disabled (ff-only
+    pull cannot succeed there).
+    """
+    if state.presence == "missing":
         return "conflict", "missing", "disabled"
-    if repo_frozen:
-        return "frozen", "frozen", "disabled"
-    if status is None:
+    if state.presence == "unreadable":
         return "conflict", "error", "disabled"
-    if status.dirty > 0 and status.behind > 0:
+    if state.frozen:
+        return "frozen", "frozen", "disabled"
+    if state.blocks_pull and state.behind:
         return "conflict", "conflict", "disabled"
-    if status.dirty > 0:
-        return "dirty", "dirty", "ghost"
-    if status.behind > 0:
+    if state.blocks_pull:
+        return "dirty", state.local_summary, "ghost"
+    if state.pull_action == "skip-diverged":
+        return "conflict", "diverged", "disabled"
+    if state.behind:
         return "behind", "behind", "primary"
-    if status.ahead > 0:
+    if state.ahead:
         return "ahead", "ahead", "ghost"
+    if state.untracked:
+        return "dirty", state.local_summary, "ghost"
     return "clean", "clean", "ghost"
 
 
@@ -101,7 +114,7 @@ def _delta(ahead: int, behind: int) -> tuple[str, str, str]:
     return "even", "—", "Even — local and remote upstream in sync (since last fetch). Use Fetch all to refresh."
 
 
-def _pull_tooltip(variant: str, status_class: str, behind: int) -> str:
+def _pull_tooltip(variant: str, status_class: str, behind: int, label: str = "") -> str:
     """Tooltip explaining what Pull will do (or why it's disabled) for this row."""
     if variant == "primary":
         return f"Pull — fast-forward this repo by {behind} commit(s) from remote."
@@ -109,38 +122,54 @@ def _pull_tooltip(variant: str, status_class: str, behind: int) -> str:
         if status_class == "frozen":
             return "Pull disabled — repo is frozen. Unfreeze from the ⋯ menu to pull."
         if status_class == "conflict":
+            if label == "diverged":
+                return "Pull disabled — local and remote have diverged. Resolve manually (rebase or merge)."
             return "Pull disabled — dirty AND behind remote. Resolve locally before pulling."
         return "Pull disabled — repo is missing on disk or status can't be read."
     # ghost
     if status_class == "dirty":
-        return "Pull available — working tree is dirty; pull may fail. Commit or stash first."
+        return "Pull available — this repo has local changes; modified/staged files will make a bulk pull skip it, untracked-only files won't."
     if status_class == "ahead":
         return "Pull available — nothing behind to pull. You have local commits to push instead."
     return "Pull available — already up to date with the last fetch."
 
 
-def _build_repos_data(settings, store) -> tuple[list, dict]:
+async def _build_repos_data(settings, store) -> tuple[list, dict]:
     """Gather the rendered row data + aggregate counts.
 
     Shared by the full dashboard render and the /dashboard/rows auto-refresh
-    fragment so the display logic stays in one place.
+    fragment so the display logic stays in one place. Statuses are collected in
+    parallel through the shared semaphore — one git subprocess per repo, off the
+    event loop — then rows are assembled in stable store order.
     """
     workspaces = settings.get_workspaces()
     ws_by_label = {w.label: w for w in workspaces}
     ws_sorted = sorted(ws_by_label.keys())
 
+    repos = [r for r in store.list_all() if r.workspace in ws_by_label]
+
+    # Phase 1 — probe existing git dirs in parallel; missing dirs are skipped.
+    probe: list[tuple[str, object]] = []
+    for repo in repos:
+        ws = ws_by_label[repo.workspace]
+        repo_path = repo.get_path(ws.get_path())
+        if repo_path.exists() and is_git_repo(repo_path):
+            probe.append((repo.global_key, functools.partial(get_status, repo_path)))
+    results = await run_parallel(probe, max_concurrent=settings.parallel_limit)
+    status_by_key = {r.key: (r.data if r.success else None) for r in results}
+
+    # Phase 2 — assemble rows in stable order.
     repos_data = []
     counts = {"clean": 0, "dirty": 0, "conflict": 0, "behind": 0, "ahead": 0, "frozen": 0}
 
-    for i, repo in enumerate(store.list_all(), start=1):
-        ws = ws_by_label.get(repo.workspace)
-        if not ws:
-            continue
+    for i, repo in enumerate(repos, start=1):
+        ws = ws_by_label[repo.workspace]
         repo_path = repo.get_path(ws.get_path())
-        exists = repo_path.exists() and is_git_repo(repo_path)
-        status = get_status(repo_path) if exists else None
+        exists = repo.global_key in status_by_key
+        status = status_by_key.get(repo.global_key)
 
-        status_class, status_label, pull_variant = _classify(repo.frozen, status, exists)
+        state = classify(exists=exists, frozen=repo.frozen, status=status)
+        status_class, status_label, pull_variant = _present(state)
 
         if repo.frozen:
             counts["frozen"] += 1
@@ -177,10 +206,10 @@ def _build_repos_data(settings, store) -> tuple[list, dict]:
             ),
             "status_class": status_class,
             "status_label": status_label,
-            "status_tooltip": _STATUS_TOOLTIPS.get(status_class, status_label),
+            "status_tooltip": f"{_STATUS_TOOLTIPS.get(status_class, status_label)} ({state.local_summary})",
             "frozen": repo.frozen,
             "pull_variant": pull_variant,
-            "pull_tooltip": _pull_tooltip(pull_variant, status_class, behind_n),
+            "pull_tooltip": _pull_tooltip(pull_variant, status_class, behind_n, status_label),
             "behind": behind_n,
             "repo_link_tooltip": f"Open details for {repo.key}",
         })
@@ -197,7 +226,7 @@ async def dashboard(
     settings = load_config()
     store = RepoStore()
     workspaces = settings.get_workspaces()
-    repos_data, counts = _build_repos_data(settings, store)
+    repos_data, counts = await _build_repos_data(settings, store)
 
     # Subtitle line
     total = len(repos_data)
@@ -206,7 +235,7 @@ async def dashboard(
         bits.append(f"{total} {'repo' if total == 1 else 'repos'}")
     bits.append(f"{len(workspaces)} {'workspace' if len(workspaces) == 1 else 'workspaces'}")
     if counts["dirty"]:
-        bits.append(f"{counts['dirty']} dirty")
+        bits.append(f"{counts['dirty']} with local changes")
     if counts["conflict"]:
         bits.append(f"{counts['conflict']} conflict")
     if counts["behind"]:
@@ -242,5 +271,5 @@ async def dashboard_rows(request: Request):
     """Fragment endpoint — just the row `<tr>` elements, for HTMX auto-refresh."""
     settings = load_config()
     store = RepoStore()
-    repos_data, _ = _build_repos_data(settings, store)
+    repos_data, _ = await _build_repos_data(settings, store)
     return render(request, "partials/dashboard_rows.html", repos=repos_data)

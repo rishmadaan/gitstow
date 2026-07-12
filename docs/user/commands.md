@@ -132,7 +132,9 @@ gitstow pull --include-frozen
 
 **Behavior:**
 - Frozen repos are skipped (shown as "Frozen" in summary)
-- Dirty repos are skipped (never risks losing local changes)
+- Repos with modified or staged files are skipped — the composition is shown in the summary (e.g. "2 modified · 1 staged")
+- Diverged repos (local and remote both have commits the other lacks) are skipped — resolve manually (rebase or merge)
+- Repos with only untracked files ARE pulled — an ff-only pull can't lose them
 - Uses `--ff-only` — won't create merge commits
 - Runs in parallel (configurable, default 6 concurrent)
 - Updates `last_pulled` timestamp on success
@@ -233,13 +235,17 @@ gitstow status [flags]
 |------|-------|-------------|
 | `--tag` | `-t` | Filter by tag. |
 | `--owner` | | Filter by owner. |
-| `--dirty` | | Show only dirty repos. |
+| `--dirty` | | Show only repos with local changes. |
 | `--json` | `-j` | JSON output. |
 | `--quiet` | `-q` | Minimal output. |
 
-Shows: repo name, branch, clean/dirty status (with file counts), ahead/behind remote, last commit message and date.
+Shows: repo name, branch, a **Local Changes** column (composition — e.g. "2 modified · 1 staged · 3 untracked", or "clean"), a separate **Remote** column (in-sync / ahead / behind / diverged / no-upstream), and last commit message and date. Local working-tree state and remote relationship are always shown as two separate dimensions — never a bare "dirty" bucket.
 
-**Status symbols:**
+**JSON output** (`--json`) keeps all existing flat fields (`dirty`, `staged`, `untracked`, `ahead`, `behind`, `clean`, `status_symbol`, ...) and adds two keys from the shared status model:
+- `local` — `{modified, staged, untracked, summary}`
+- `remote` — `{state, ahead, behind}`, where `state` is one of `in-sync` / `ahead` / `behind` / `diverged` / `no-upstream` / `unknown`
+
+**Status symbols** (legacy `status_symbol` JSON field):
 - `✓` clean
 - `*` unstaged changes
 - `+` staged changes
@@ -517,21 +523,6 @@ Completes:
 - Workspace labels for `-w/--workspace`
 - Tag names for `-t/--tag`
 
-### `gitstow tui`
-
-Interactive terminal dashboard built with [Textual](https://github.com/Textualize/textual). Requires `pip install gitstow[tui]`.
-
-Keyboard shortcuts:
-- `r` — Refresh
-- `p` — Pull all unfrozen repos
-- `P` — Pull selected repo only
-- `f` — Toggle freeze on selected repo
-- `w` — Cycle workspace filter
-- `t` — Cycle tag filter
-- `Enter` — Show repo details
-- `/` — Focus filter input
-- `q` — Quit
-
 ### `gitstow ui`
 
 Launch a local browser dashboard — a dark-themed web UI for daily repo management. Binds to `127.0.0.1` only; auto-opens your default browser.
@@ -561,8 +552,8 @@ Every interactive element has a hover tooltip. There's also a `?` button in the 
 | | Meaning | What to do |
 |---|---|---|
 | clean | Working tree matches HEAD; in sync with the last fetch | Nothing |
-| dirty | Uncommitted local changes | Commit or stash before pulling |
-| conflict | Dirty AND behind remote | Resolve locally before pulling |
+| dirty | Local changes — the label shows the composition (e.g. "2 modified · 1 staged · 3 untracked") | Commit/stash modified or staged files before pulling; untracked-only repos can still pull |
+| conflict | Local changes (modified/staged) AND behind remote, or local and remote have diverged | Resolve locally before pulling |
 | behind | Remote has commits you don't | Click the orange Pull button |
 | ahead | You have local commits not yet pushed | Consider `git push` |
 | frozen | Intentionally skipped by "Pull all" | Unfreeze from the ⋯ menu |
@@ -570,8 +561,8 @@ Every interactive element has a hover tooltip. There's also a `?` button in the 
 **The Pull button color encodes priority**:
 
 - **Orange** `↓ Pull 5` — repo is behind; clicking fast-forwards by the shown count
-- **Ghost** (gray) — already up to date, or working tree is dirty/ahead. The button still works; it just won't change anything useful
-- **Disabled** — frozen, in conflict, or missing on disk
+- **Ghost** (gray) — already up to date, has local changes, or ahead. The button still works; it just won't change anything useful. (Untracked-only local changes still pull fine — a bulk pull only skips modified/staged files.)
+- **Disabled** — frozen, in conflict, diverged from remote, or missing on disk
 
 **Remote Δ** (`↑ N`, `↓ N`, or `—`) reflects your *last fetch*, not live remote state. If the counts look stale, pull (or run `git fetch --all` manually) to refresh them.
 

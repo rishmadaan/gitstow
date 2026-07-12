@@ -15,15 +15,7 @@
         {% if not repo.exists %}
           <span class="status status-conflict"><span class="dot"></span>missing on disk</span>
         {% else %}
-          {% if repo.frozen %}
-            <span class="status status-frozen"><span class="dot"></span>frozen</span>
-          {% elif repo.dirty > 0 and repo.behind > 0 %}
-            <span class="status status-conflict"><span class="dot"></span>conflict</span>
-          {% elif repo.dirty > 0 %}
-            <span class="status status-dirty"><span class="dot"></span>{{ repo.dirty }} dirty</span>
-          {% else %}
-            <span class="status status-clean"><span class="dot"></span>clean</span>
-          {% endif %}
+          <span class="status status-{{ repo.status_class }}" title="Local changes: {{ repo.local_summary }}"><span class="dot"></span>{{ repo.status_label }}</span>
           {% if repo.behind > 0 %}<span class="status status-behind"><span class="dot"></span>{{ repo.behind }} behind</span>{% endif %}
           {% if repo.ahead > 0 %}<span class="status status-ahead"><span class="dot"></span>{{ repo.ahead }} ahead</span>{% endif %}
         {% endif %}

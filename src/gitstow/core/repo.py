@@ -113,6 +113,7 @@ class RepoStore:
         self._path = path or get_repos_file()
         self._repos: dict[str, Repo] = {}  # keyed by global_key (workspace:key)
         self._loaded = False
+        self._in_bulk = False
 
     def _ensure_loaded(self) -> None:
         if not self._loaded:
@@ -176,10 +177,40 @@ class RepoStore:
             self._write()
 
     @contextlib.contextmanager
+    def bulk(self):
+        """Batch many mutations into ONE locked read-modify-write cycle.
+
+        Bulk operations (pull/fetch all) stamp N timestamps; without this,
+        each stamp is a full locked reload-mutate-rewrite of repos.yaml. Inside
+        this block, add/remove/update mutate in memory and the single write
+        happens on exit.
+
+        Holds the lock for the whole block and sets _in_bulk so the inner
+        mutators become lock-free (flock is per-open-file-description — a nested
+        acquisition on a new fd would self-deadlock). Not re-entrant: nesting
+        bulk() calls would attempt a second lock on a new fd and deadlock, so
+        callers must not nest bulk() blocks.
+        """
+        with file_lock(self._lock_path()):
+            self.load()
+            self._in_bulk = True
+            try:
+                yield self
+            finally:
+                self._in_bulk = False
+                self._write()
+
+    @contextlib.contextmanager
     def _mutate(self):
         """Locked read-modify-write cycle: reload fresh state, apply the
         caller's mutation, write atomically. Prevents lost updates when the
-        CLI and web UI run concurrently."""
+        CLI and web UI run concurrently.
+
+        Inside bulk(), the lock is already held and the write is deferred to
+        block exit, so this becomes a bare yield (no nested lock, no write)."""
+        if self._in_bulk:
+            yield
+            return
         with file_lock(self._lock_path()):
             self.load()
             yield

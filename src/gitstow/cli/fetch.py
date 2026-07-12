@@ -147,31 +147,33 @@ def fetch(
             on_progress=None if (quiet or output_json) else _on_progress,
         )
 
-        # Process results and update timestamps
+        # Process results and update timestamps — batch the N stamps into one
+        # locked read-modify-write cycle instead of a full rewrite per repo.
         failed_keys: set[str] = set()
-        for task_result in results:
-            if task_result.success and task_result.data:
-                data = task_result.data
-                if data["status"] == "fetched":
-                    result_dicts.append(data)
-                    parts = task_result.key.split(":", 1)
-                    if len(parts) == 2:
-                        store.update(parts[1], workspace=parts[0], last_fetched=datetime.now().isoformat())
+        with store.bulk():
+            for task_result in results:
+                if task_result.success and task_result.data:
+                    data = task_result.data
+                    if data["status"] == "fetched":
+                        result_dicts.append(data)
+                        parts = task_result.key.split(":", 1)
+                        if len(parts) == 2:
+                            store.update(parts[1], workspace=parts[0], last_fetched=datetime.now().isoformat())
+                    else:
+                        # error or missing — candidate for retry
+                        if attempt < retry:
+                            failed_keys.add(task_result.key)
+                        else:
+                            result_dicts.append(data)
                 else:
-                    # error or missing — candidate for retry
                     if attempt < retry:
                         failed_keys.add(task_result.key)
                     else:
-                        result_dicts.append(data)
-            else:
-                if attempt < retry:
-                    failed_keys.add(task_result.key)
-                else:
-                    result_dicts.append({
-                        "repo": task_result.key,
-                        "status": "error",
-                        "detail": task_result.error,
-                    })
+                        result_dicts.append({
+                            "repo": task_result.key,
+                            "status": "error",
+                            "detail": task_result.error,
+                        })
 
         if not failed_keys:
             break

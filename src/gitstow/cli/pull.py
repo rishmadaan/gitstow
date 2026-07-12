@@ -15,6 +15,7 @@ from gitstow.core.config import load_config, Workspace
 from gitstow.core.git import pull as git_pull, get_status, is_git_repo
 from gitstow.core.repo import Repo, RepoStore
 from gitstow.core.parallel import run_parallel_sync
+from gitstow.core.status_model import classify
 from gitstow.cli.helpers import iter_repos_with_workspace
 
 console = Console()
@@ -32,11 +33,18 @@ def _pull_one_repo(repo: Repo, ws: Workspace) -> dict:
         return {"repo": repo.key, "status": "error", "detail": "Not a git repo"}
 
     status = get_status(path)
-    if not status.clean:
+    state = classify(exists=True, frozen=repo.frozen, status=status)
+    if state.blocks_pull:
         return {
             "repo": repo.key,
             "status": "skipped",
-            "detail": f"Dirty working tree ({status.status_symbol})",
+            "detail": f"Local changes ({state.local_summary})",
+        }
+    if state.pull_action == "skip-diverged":
+        return {
+            "repo": repo.key,
+            "status": "skipped",
+            "detail": "Diverged from remote — resolve manually (rebase or merge)",
         }
 
     result = git_pull(path)
@@ -80,7 +88,9 @@ def pull(
     """[bold blue]Pull[/bold blue] latest changes for all (or filtered) repos.
 
     Frozen repos are skipped unless --include-frozen is set.
-    Dirty repos are always skipped (never risk losing local changes).
+    Repos with modified or staged changes are skipped (never risk losing
+    local work); untracked-only repos are pulled. Diverged repos are
+    skipped — resolve manually with rebase or merge.
 
     \b
     Examples:
@@ -167,32 +177,34 @@ def pull(
             on_progress=None if (quiet or output_json) else _on_progress,
         )
 
-        # Process results and update timestamps
+        # Process results and update timestamps — batch the N stamps into one
+        # locked read-modify-write cycle instead of a full rewrite per repo.
         failed_keys: set[str] = set()
-        for task_result in results:
-            if task_result.success and task_result.data:
-                data = task_result.data
-                if data["status"] in ("pulled", "up_to_date", "skipped"):
-                    result_dicts.append(data)
-                    if data["status"] in ("pulled", "up_to_date"):
-                        parts = task_result.key.split(":", 1)
-                        if len(parts) == 2:
-                            store.update(parts[1], workspace=parts[0], last_pulled=datetime.now().isoformat())
+        with store.bulk():
+            for task_result in results:
+                if task_result.success and task_result.data:
+                    data = task_result.data
+                    if data["status"] in ("pulled", "up_to_date", "skipped"):
+                        result_dicts.append(data)
+                        if data["status"] in ("pulled", "up_to_date"):
+                            parts = task_result.key.split(":", 1)
+                            if len(parts) == 2:
+                                store.update(parts[1], workspace=parts[0], last_pulled=datetime.now().isoformat())
+                    else:
+                        # error or missing — candidate for retry
+                        if attempt < retry:
+                            failed_keys.add(task_result.key)
+                        else:
+                            result_dicts.append(data)
                 else:
-                    # error or missing — candidate for retry
                     if attempt < retry:
                         failed_keys.add(task_result.key)
                     else:
-                        result_dicts.append(data)
-            else:
-                if attempt < retry:
-                    failed_keys.add(task_result.key)
-                else:
-                    result_dicts.append({
-                        "repo": task_result.key,
-                        "status": "error",
-                        "detail": task_result.error,
-                    })
+                        result_dicts.append({
+                            "repo": task_result.key,
+                            "status": "error",
+                            "detail": task_result.error,
+                        })
 
         if not failed_keys:
             break

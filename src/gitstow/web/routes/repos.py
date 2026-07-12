@@ -19,11 +19,12 @@ from gitstow.core.config import load_config
 from gitstow.core.git import clone as git_clone, fetch as git_fetch, get_status, is_git_repo, pull as git_pull
 from gitstow.core.parallel import run_parallel
 from gitstow.core.repo import Repo, RepoStore
+from gitstow.core.status_model import classify
 from gitstow.core.url_parser import parse_git_url
 from gitstow.web.routes.dashboard import (
     _STATUS_TOOLTIPS,
-    _classify,
     _delta,
+    _present,
     _pull_tooltip,
     _relative_time,
     _workspace_slot,
@@ -41,7 +42,8 @@ def _row_context(repo, settings, sorted_labels, num: int | None) -> dict | None:
     repo_path = repo.get_path(ws.get_path())
     exists = repo_path.exists() and is_git_repo(repo_path)
     status = get_status(repo_path) if exists else None
-    status_class, status_label, pull_variant = _classify(repo.frozen, status, exists)
+    state = classify(exists=exists, frozen=repo.frozen, status=status)
+    status_class, status_label, pull_variant = _present(state)
     ahead_n = status.ahead if status else 0
     behind_n = status.behind if status else 0
     delta_cls, delta_txt, delta_tip = _delta(ahead_n, behind_n)
@@ -72,10 +74,10 @@ def _row_context(repo, settings, sorted_labels, num: int | None) -> dict | None:
         ),
         "status_class": status_class,
         "status_label": status_label,
-        "status_tooltip": _STATUS_TOOLTIPS.get(status_class, status_label),
+        "status_tooltip": f"{_STATUS_TOOLTIPS.get(status_class, status_label)} ({state.local_summary})",
         "frozen": repo.frozen,
         "pull_variant": pull_variant,
-        "pull_tooltip": _pull_tooltip(pull_variant, status_class, behind_n),
+        "pull_tooltip": _pull_tooltip(pull_variant, status_class, behind_n, status_label),
         "behind": behind_n,
         "repo_link_tooltip": f"Open details for {repo.key}",
     }
@@ -150,6 +152,17 @@ async def fetch_single(workspace: str, key: str, request: Request):
     return render(request, "partials/repo_row.html", repo=ctx)
 
 
+def _pull_if_safe(path):
+    """Bulk-pull worker: same skip rules as the CLI — modified/staged and
+    diverged skip; untracked-only pulls."""
+    state = classify(exists=True, frozen=False, status=get_status(path))
+    if state.blocks_pull:
+        return {"skipped_local": True, "detail": state.local_summary}
+    if state.pull_action == "skip-diverged":
+        return {"skipped_local": True, "detail": "diverged — resolve manually"}
+    return git_pull(path)
+
+
 @router.post("/repos/pull-all", response_class=HTMLResponse)
 async def pull_all(request: Request):
     settings = load_config()
@@ -178,29 +191,38 @@ async def pull_all(request: Request):
         targets.append((repo.global_key, path))
 
     # Fire all pulls via the shared semaphore
-    tasks = [(gk, functools.partial(git_pull, p)) for gk, p in targets]
+    tasks = [(gk, functools.partial(_pull_if_safe, p)) for gk, p in targets]
     task_results = await run_parallel(tasks, max_concurrent=settings.parallel_limit)
 
-    # Stamp successful pulls; collect failures
+    # Stamp successful pulls; collect skips and failures
     now_iso = datetime.now().isoformat(timespec="seconds")
     ok = 0
+    skipped_local: list[dict] = []
     failed: list[dict] = []
-    for r in task_results:
-        # r.data is PullResult when no exception, or None when one was raised
-        pull_result = r.data if r.success else None
-        if pull_result and pull_result.success:
-            ok += 1
-            ws_label, _, rkey = r.key.partition(":")
-            store.update(rkey, workspace=ws_label, last_pulled=now_iso)
-        else:
-            err = (pull_result.error if pull_result else r.error) or "unknown error"
-            failed.append({"key": r.key, "error": err.strip()[:240]})
+    # Batch the N last_pulled stamps into one locked read-modify-write cycle.
+    with store.bulk():
+        for r in task_results:
+            # r.data is a skip marker dict or PullResult when no exception,
+            # or None when one was raised
+            data = r.data if r.success else None
+            if isinstance(data, dict) and data.get("skipped_local"):
+                skipped_local.append({"key": r.key, "detail": data["detail"]})
+                continue
+            pull_result = data
+            if pull_result and pull_result.success:
+                ok += 1
+                ws_label, _, rkey = r.key.partition(":")
+                store.update(rkey, workspace=ws_label, last_pulled=now_iso)
+            else:
+                err = (pull_result.error if pull_result else r.error) or "unknown error"
+                failed.append({"key": r.key, "error": err.strip()[:240]})
 
     summary = {
         "total": len(targets),
         "ok": ok,
         "failed": failed,
         "skipped_frozen": skipped_frozen,
+        "skipped_local": skipped_local,
         "missing": missing,
     }
     return render(request, "partials/pull_summary.html", summary=summary)
@@ -236,15 +258,17 @@ async def fetch_all(request: Request):
     now_iso = datetime.now().isoformat(timespec="seconds")
     ok = 0
     failed: list[dict] = []
-    for r in task_results:
-        fetch_result = r.data if r.success else None
-        if fetch_result and fetch_result.success:
-            ok += 1
-            ws_label, _, rkey = r.key.partition(":")
-            store.update(rkey, workspace=ws_label, last_fetched=now_iso)
-        else:
-            err = (fetch_result.error if fetch_result else r.error) or "unknown error"
-            failed.append({"key": r.key, "error": err.strip()[:240]})
+    # Batch the N last_fetched stamps into one locked read-modify-write cycle.
+    with store.bulk():
+        for r in task_results:
+            fetch_result = r.data if r.success else None
+            if fetch_result and fetch_result.success:
+                ok += 1
+                ws_label, _, rkey = r.key.partition(":")
+                store.update(rkey, workspace=ws_label, last_fetched=now_iso)
+            else:
+                err = (fetch_result.error if fetch_result else r.error) or "unknown error"
+                failed.append({"key": r.key, "error": err.strip()[:240]})
 
     summary = {
         "total": len(targets),

@@ -14,6 +14,7 @@ from gitstow.core.config import load_config, Workspace
 from gitstow.core.git import get_status, is_git_repo, get_last_commit
 from gitstow.core.repo import Repo, RepoStore
 from gitstow.core.parallel import run_parallel_sync
+from gitstow.core.status_model import classify
 from gitstow.cli.helpers import iter_repos_with_workspace
 
 console = Console()
@@ -32,10 +33,12 @@ def _get_repo_status(repo: Repo, ws: Workspace) -> dict:
 
     status = get_status(path)
     commit = get_last_commit(path)
+    state = classify(exists=True, frozen=repo.frozen, status=status)
 
     return {
         "repo": repo.key,
         "workspace": repo.workspace,
+        # Legacy keys (kept for compat)
         "branch": status.branch,
         "dirty": status.dirty,
         "staged": status.staged,
@@ -50,6 +53,8 @@ def _get_repo_status(repo: Repo, ws: Workspace) -> dict:
         "last_commit": commit.message,
         "last_commit_date": commit.date,
         "last_pulled": repo.last_pulled,
+        # Shared status model (new)
+        **state.to_dict(),
     }
 
 
@@ -62,7 +67,7 @@ def status(
         None, "--owner", help="Filter by owner.",
     ),
     dirty_only: bool = typer.Option(
-        False, "--dirty", help="Show only dirty repos.",
+        False, "--dirty", help="Show only repos with local changes.",
     ),
     output_json: bool = typer.Option(
         False, "--json", "-j", help="JSON output.",
@@ -78,7 +83,7 @@ def status(
     \b
     Examples:
       gitstow status                  # All repos
-      gitstow status --dirty          # Only dirty repos
+      gitstow status --dirty          # Only repos with local changes
       gitstow status --tag ai         # Filter by tag
       gitstow status -w active        # Filter by workspace
     """
@@ -144,8 +149,8 @@ def status(
         table.add_column("Workspace", style="cyan")
     table.add_column("Repo", style="white", min_width=20)
     table.add_column("Branch")
-    table.add_column("Status")
-    table.add_column("Ahead/Behind")
+    table.add_column("Local Changes")
+    table.add_column("Remote")
     table.add_column("Last Commit", style="dim")
 
     for s in sorted(statuses, key=lambda x: x.get("workspace", "") + ":" + x["repo"]):
@@ -157,26 +162,28 @@ def status(
             table.add_row(*row)
             continue
 
-        # Status styling
+        # Local-change composition (never a bare "dirty" bucket)
+        local = s.get("local", {})
+        summary = local.get("summary", "?")
         if s.get("frozen"):
-            status_str = "[cyan]❄ frozen[/cyan]"
-        elif s.get("clean"):
-            status_str = "[green]✓ clean[/green]"
+            local_str = f"[cyan]❄ {summary}[/cyan]"
+        elif summary == "clean":
+            local_str = "[green]✓ clean[/green]"
         else:
-            symbol = s.get("status_symbol", "?")
-            dirty_count = s.get("dirty", 0) + s.get("staged", 0) + s.get("untracked", 0)
-            status_str = f"[yellow]{symbol} dirty({dirty_count})[/yellow]"
+            local_str = f"[yellow]{summary}[/yellow]"
 
-        # Ahead/behind styling
-        ab = s.get("ahead_behind", "—")
-        if "↑" in ab and "↓" in ab:
-            ab_styled = f"[red]{ab}[/red]"
-        elif "↑" in ab:
-            ab_styled = f"[blue]{ab}[/blue]"
-        elif "↓" in ab:
-            ab_styled = f"[magenta]{ab}[/magenta]"
-        else:
-            ab_styled = f"[dim]{ab}[/dim]"
+        # Remote relationship (separate dimension from local state)
+        remote = s.get("remote", {})
+        remote_state = remote.get("state", "unknown")
+        remote_styles = {
+            "in-sync": "[dim]—[/dim]",
+            "ahead": f"[blue]↑{remote.get('ahead', 0)}[/blue]",
+            "behind": f"[magenta]↓{remote.get('behind', 0)}[/magenta]",
+            "diverged": f"[red]↑{remote.get('ahead', 0)} ↓{remote.get('behind', 0)}[/red]",
+            "no-upstream": "[dim]no upstream[/dim]",
+            "unknown": "[dim]?[/dim]",
+        }
+        remote_str = remote_styles.get(remote_state, remote_state)
 
         # Last commit
         commit_str = s.get("last_commit", "")
@@ -189,22 +196,22 @@ def status(
         row = []
         if multi_ws:
             row.append(s.get("workspace", ""))
-        row.extend([s["repo"], s.get("branch", ""), status_str, ab_styled, commit_str])
+        row.extend([s["repo"], s.get("branch", ""), local_str, remote_str, commit_str])
         table.add_row(*row)
 
     console.print(table)
 
-    # Summary counts
-    clean = sum(1 for s in statuses if s.get("clean") and not s.get("frozen"))
-    dirty = sum(1 for s in statuses if not s.get("clean") and "error" not in s and not s.get("frozen"))
+    # Summary counts (composition-aware — no bare "dirty" bucket)
+    clean = sum(1 for s in statuses if s.get("local", {}).get("summary") == "clean" and not s.get("frozen") and "error" not in s)
+    changed = sum(1 for s in statuses if "error" not in s and not s.get("frozen") and s.get("local", {}).get("summary") not in ("clean", None))
     frozen = sum(1 for s in statuses if s.get("frozen"))
     errors = sum(1 for s in statuses if "error" in s)
 
     summary_parts = []
     if clean:
         summary_parts.append(f"[green]{clean} clean[/green]")
-    if dirty:
-        summary_parts.append(f"[yellow]{dirty} dirty[/yellow]")
+    if changed:
+        summary_parts.append(f"[yellow]{changed} with local changes[/yellow]")
     if frozen:
         summary_parts.append(f"[cyan]{frozen} frozen[/cyan]")
     if errors:

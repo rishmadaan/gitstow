@@ -409,6 +409,113 @@ class TestCollection:
         assert "imported=0" in r.headers["location"]
 
 
+# ---------- shared status model in web ----------
+
+
+class TestStatusModelInWeb:
+    def _seed(self, workspace_dir, repos_file_status, monkeypatch):
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        store = RepoStore()
+        store.add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws"))
+        monkeypatch.setattr(
+            "gitstow.web.routes.dashboard.get_status", lambda p: repos_file_status
+        )
+
+    def test_staged_only_is_not_clean(self, client, configured, workspace_dir, monkeypatch):
+        # The audit's headline web bug: staged-only rendered as "clean".
+        self._seed(workspace_dir, _fake_status(staged=2), monkeypatch)
+        r = client.get("/dashboard/rows")
+        assert r.status_code == 200
+        # Composition label surfaces the staged count.
+        assert "2 staged" in r.text
+        # And the row is NOT presented as clean.
+        assert "status-clean" not in r.text
+        assert ">clean<" not in r.text
+
+    def test_untracked_only_behind_keeps_primary_pull(self, client, configured, workspace_dir, monkeypatch):
+        # Untracked files never block pull — behind still drives a live Pull.
+        self._seed(workspace_dir, _fake_status(untracked=1, behind=3), monkeypatch)
+        r = client.get("/dashboard/rows")
+        assert r.status_code == 200
+        assert "status-behind" in r.text
+        # A primary (live) pull button, not a disabled one.
+        assert "↓ Pull 3" in r.text
+        assert "Pull disabled" not in r.text
+
+    def test_diverged_disables_pull(self, client, configured, workspace_dir, monkeypatch):
+        # Diverged + clean local: ff-only pull can't succeed, so Pull is disabled.
+        self._seed(workspace_dir, _fake_status(ahead=2, behind=3), monkeypatch)
+        r = client.get("/dashboard/rows")
+        assert r.status_code == 200
+        assert "status-conflict" in r.text
+        assert ">diverged<" in r.text
+        # Disabled pull button + a tooltip explaining the divergence.
+        assert "Pull disabled — local and remote have diverged" in r.text
+
+    def test_drawer_staged_only_is_not_clean(self, client, configured, workspace_dir, monkeypatch):
+        # The repo-detail drawer had the same headline bug: it branched on the
+        # raw modified count, so staged-only rendered "clean".
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws"))
+        monkeypatch.setattr(
+            "gitstow.web.routes.pages.get_status", lambda p: _fake_status(staged=2)
+        )
+        r = client.get("/repo/test-ws/a/one")
+        assert r.status_code == 200
+        assert "2 staged" in r.text
+        assert "status-clean" not in r.text
+        assert ">clean<" not in r.text
+
+
+# ---------- bulk pull skips local changes (same rule as the CLI) ----------
+
+
+class TestWebPullSkipsLocalChanges:
+    def test_pull_all_skips_modified_repo(self, client, configured, workspace_dir, monkeypatch):
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws"))
+
+        monkeypatch.setattr("gitstow.web.routes.repos.get_status", lambda p: _fake_status(dirty=2))
+        called = []
+        monkeypatch.setattr("gitstow.web.routes.repos.git_pull", lambda p: called.append(p))
+
+        r = client.post("/repos/pull-all")
+        assert r.status_code == 200
+        assert called == []             # pull never ran on the modified repo
+        assert "2 modified" in r.text   # per-repo detail reports the skip composition
+
+    def test_pull_all_pulls_untracked_only_repo(self, client, configured, workspace_dir, monkeypatch):
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws"))
+
+        monkeypatch.setattr("gitstow.web.routes.repos.get_status", lambda p: _fake_status(untracked=3))
+        called = []
+
+        def _fake_pull(p):
+            called.append(p)
+            return PullResult(success=True, output="Updating...")
+
+        monkeypatch.setattr("gitstow.web.routes.repos.git_pull", _fake_pull)
+
+        r = client.post("/repos/pull-all")
+        assert r.status_code == 200
+        assert len(called) == 1                  # untracked never blocks bulk pull
+        assert "1 ok" in r.text
+
+    def test_pull_all_skips_diverged_repo(self, client, configured, workspace_dir, monkeypatch):
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws"))
+
+        monkeypatch.setattr("gitstow.web.routes.repos.get_status", lambda p: _fake_status(ahead=1, behind=2))
+        called = []
+        monkeypatch.setattr("gitstow.web.routes.repos.git_pull", lambda p: called.append(p))
+
+        r = client.post("/repos/pull-all")
+        assert r.status_code == 200
+        assert called == []                      # ff-only pull is doomed on divergence
+        assert "diverged" in r.text.lower()
+
+
 # ---------- cross-origin write protection ----------
 
 
@@ -433,3 +540,34 @@ class TestCrossOriginProtection:
     def test_get_never_blocked(self, client, configured):
         r = client.get("/", headers={"Origin": "http://evil.example"})
         assert r.status_code == 200
+
+
+# ---------- parallel status gathering ----------
+
+
+class TestParallelDashboardStatus:
+    def test_statuses_gathered_concurrently(self, client, configured, workspace_dir, monkeypatch):
+        import threading
+
+        store = RepoStore()
+        for i in range(6):
+            _make_repo_on_disk(workspace_dir, "o", f"r{i}")
+            store.add(Repo(owner="o", name=f"r{i}", remote_url="u", workspace="test-ws"))
+
+        concurrent = {"now": 0, "max": 0}
+        lock = threading.Lock()
+
+        def slow_status(path):
+            import time
+            with lock:
+                concurrent["now"] += 1
+                concurrent["max"] = max(concurrent["max"], concurrent["now"])
+            time.sleep(0.05)
+            with lock:
+                concurrent["now"] -= 1
+            return _fake_status()
+
+        monkeypatch.setattr("gitstow.web.routes.dashboard.get_status", slow_status)
+        r = client.get("/dashboard/rows")
+        assert r.status_code == 200
+        assert concurrent["max"] >= 2  # serial implementation never exceeds 1
