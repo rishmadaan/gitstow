@@ -333,6 +333,8 @@ label {
   font-size: 0.86rem; color: var(--muted);
   margin-top: 0.55rem; line-height: 1.55;
 }
+.form-flash { color: var(--c-clean); }
+.form-error { color: var(--c-conflict); }
 .form-row { margin-bottom: 1.5rem; }
 input[type=checkbox] {
   width: 15px; height: 15px;

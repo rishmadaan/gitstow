@@ -11,17 +11,24 @@
     </div>
   </section>
 
-  <form onsubmit="event.preventDefault(); alert('Settings save lands later');">
+  <form method="POST" action="/settings">
+
+    {% if saved %}<p class="form-flash">Preferences saved.</p>{% endif %}
+    {% if error %}<p class="form-error">{{ error }}</p>{% endif %}
 
     <section>
       <h4>Defaults</h4>
       <dl class="settings-grid">
         <dt>Default host</dt>
         <dd>
-          <select style="max-width: 320px;">
+          <select name="default_host" style="max-width: 320px;">
             <option value="github.com"{% if settings.default_host == "github.com" %} selected{% endif %}>github.com</option>
             <option value="gitlab.com"{% if settings.default_host == "gitlab.com" %} selected{% endif %}>gitlab.com</option>
             <option value="bitbucket.org"{% if settings.default_host == "bitbucket.org" %} selected{% endif %}>bitbucket.org</option>
+            <option value="codeberg.org"{% if settings.default_host == "codeberg.org" %} selected{% endif %}>codeberg.org</option>
+            {% if settings.default_host not in ["github.com", "gitlab.com", "bitbucket.org", "codeberg.org"] %}
+            <option value="{{ settings.default_host }}" selected>{{ settings.default_host }}</option>
+            {% endif %}
           </select>
           <span class="form-hint">Used when you provide <code>owner/repo</code> shorthand without a full URL.</span>
         </dd>
@@ -29,10 +36,22 @@
         <dt>SSH preference</dt>
         <dd>
           <label style="display: inline-flex; align-items: center; margin: 0.55rem 0 0; font-family: 'Bricolage Grotesque', sans-serif; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--text-soft); font-size: 0.9rem;">
-            <input type="checkbox"{% if settings.prefer_ssh %} checked{% endif %}>
+            <input type="checkbox" name="prefer_ssh"{% if settings.prefer_ssh %} checked{% endif %}>
             Convert https:// URLs to SSH on clone
           </label>
           <span class="form-hint">Applies when cloning via the add-repo form. Direct git URLs are never rewritten.</span>
+        </dd>
+
+        <dt>Parallel limit</dt>
+        <dd>
+          <input type="number" name="parallel_limit" min="1" max="32" value="{{ parallel_limit }}">
+          <span class="form-hint">Max concurrent git operations for pulls, fetches, and clones.</span>
+        </dd>
+
+        <dt>Clone timeout</dt>
+        <dd>
+          <input type="number" name="clone_timeout" min="30" step="30" value="{{ clone_timeout }}">
+          <span class="form-hint">Seconds before a clone is abandoned. Raise it for very large repos.</span>
         </dd>
       </dl>
     </section>

@@ -104,6 +104,50 @@ class TestSmoke:
         assert r.status_code == 200
 
 
+# ---------- settings ----------
+
+
+class TestSettingsSave:
+    def test_post_persists_all_fields(self, client, configured):
+        from gitstow.core.config import load_config
+
+        r = client.post("/settings", data={
+            "default_host": "gitlab.com",
+            "prefer_ssh": "on",
+            "parallel_limit": "9",
+            "clone_timeout": "600",
+        }, follow_redirects=False)
+        assert r.status_code == 303
+        s = load_config()
+        assert s.default_host == "gitlab.com"
+        assert s.prefer_ssh is True
+        assert s.parallel_limit == 9
+        assert s.clone_timeout == 600
+
+    def test_unchecked_ssh_saves_false(self, client, configured):
+        from gitstow.core.config import load_config
+
+        client.post("/settings", data={
+            "default_host": "github.com", "parallel_limit": "6", "clone_timeout": "300",
+        })
+        assert load_config().prefer_ssh is False
+
+    def test_invalid_int_rerenders_with_error(self, client, configured):
+        r = client.post("/settings", data={
+            "default_host": "github.com", "parallel_limit": "zero", "clone_timeout": "300",
+        })
+        assert r.status_code == 422
+        assert "whole number" in r.text
+
+    def test_get_shows_current_values_and_no_alert(self, client, configured):
+        from gitstow.core.config import load_config, save_config
+        s = load_config(); s.parallel_limit = 11; save_config(s)
+        r = client.get("/settings")
+        assert 'name="parallel_limit"' in r.text and 'value="11"' in r.text
+        assert 'name="clone_timeout"' in r.text
+        assert "alert(" not in r.text
+
+
 # ---------- add-repo ----------
 
 
