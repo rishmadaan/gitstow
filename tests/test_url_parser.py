@@ -189,3 +189,13 @@ class TestDeepLinks:
         parsed = parse_git_url("https://gitlab.com/group/subgroup/repo")
         assert parsed.owner == "group/subgroup"
         assert parsed.repo == "repo"
+
+    @pytest.mark.parametrize("url,owner,repo", [
+        ("https://gitlab.com/mygroup/mysubgroup/src", "mygroup/mysubgroup", "src"),
+        ("https://gitlab.com/mygroup/mysubgroup/wiki", "mygroup/mysubgroup", "wiki"),
+        ("https://gitlab.com/group/tree/-/blob/main/x.py", "group", "tree"),
+    ])
+    def test_marker_words_are_valid_repo_names_on_nested_hosts(self, url, owner, repo):
+        parsed = parse_git_url(url)
+        assert parsed.owner == owner
+        assert parsed.repo == repo

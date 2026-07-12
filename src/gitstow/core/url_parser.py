@@ -151,9 +151,12 @@ def _extract_owner_repo(host: str, path: str) -> tuple[str, str]:
     """
     parts = [p for p in path.split("/") if p]
 
-    # A marker at index >= 2 means everything from it onward is browse UI.
+    # Word markers only make sense on hosts with fixed owner/repo depth.
+    # Nested-group hosts (GitLab-style) separate browse UI with "/-/", and a
+    # real subgroup repo may legitimately be named "src" or "wiki".
+    markers = _DEEP_LINK_MARKERS if host in _TWO_SEGMENT_HOSTS else {"-"}
     for i, seg in enumerate(parts):
-        if i >= 2 and seg in _DEEP_LINK_MARKERS:
+        if i >= 2 and seg in markers:
             parts = parts[:i]
             break
 
