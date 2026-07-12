@@ -124,3 +124,34 @@ class TestManageWorkspaceResolution:
         assert result.exit_code == 1
         combined = (result.output or "") + str(result.exception or "")
         assert "multiple workspaces" in combined or "multiple workspaces" in (result.stderr or "")
+
+
+class TestPullFrozenIdentity:
+    def test_frozen_repos_with_same_key_both_reported(self, tmp_path, monkeypatch):
+        import json
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+
+        ws_a = tmp_path / "a"; ws_a.mkdir()
+        ws_b = tmp_path / "b"; ws_b.mkdir()
+        save_config(Settings(workspaces=[
+            Workspace(path=str(ws_a), label="a", layout="flat"),
+            Workspace(path=str(ws_b), label="b", layout="flat"),
+        ]))
+        store = RepoStore(path=repos_file)
+        store.add(Repo(owner="", name="dupe", remote_url="u", workspace="a", frozen=True))
+        store.add(Repo(owner="", name="dupe", remote_url="u", workspace="b", frozen=True))
+
+        result = CliRunner().invoke(app, ["pull", "--json"])
+        payload = json.loads(result.output)
+        frozen_rows = [r for r in payload["results"] if r["status"] == "frozen"]
+        assert len(frozen_rows) == 2
+        assert {r["workspace"] for r in frozen_rows} == {"a", "b"}
