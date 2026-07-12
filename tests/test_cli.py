@@ -200,3 +200,5 @@ class TestRemoveContainment:
 
         assert result.exit_code == 1
         assert outside.exists()  # nothing was deleted
+        # A refused delete must not untrack either — guard runs before store.remove
+        assert RepoStore(path=repos_file).get("../outside-target", workspace="ws") is not None
