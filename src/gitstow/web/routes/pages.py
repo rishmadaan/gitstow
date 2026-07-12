@@ -12,7 +12,7 @@ from gitstow.core.config import load_config, save_config
 from gitstow.core.git import format_size, get_disk_size, get_last_commit, get_status, is_git_repo
 from gitstow.core.repo import RepoStore
 from gitstow.core.status_model import classify
-from gitstow.web.routes.dashboard import _present
+from gitstow.web.routes.dashboard import _present, _relative_time
 from gitstow.web.server import render
 
 router = APIRouter()
@@ -138,7 +138,6 @@ async def repo_detail(workspace: str, key: str, request: Request):
         "branch": status.branch if status else "—",
         "commit": commit,
         "disk_size": size_str,
-        "last_pulled": repo.last_pulled or "—",
         "tags": repo.tags,
         "frozen": repo.frozen,
         "status_class": status_class,
@@ -148,4 +147,13 @@ async def repo_detail(workspace: str, key: str, request: Request):
         "behind": status.behind if status else 0,
         "exists": exists,
     }
-    return render(request, "_repo_drawer.html", page="dashboard", repo=ctx)
+    return render(
+        request,
+        "_repo_drawer.html",
+        page="dashboard",
+        repo=ctx,
+        last_pull_rel=_relative_time(repo.last_pulled),
+        last_pull_iso=repo.last_pulled,
+        last_fetched_rel=_relative_time(repo.last_fetched) if repo.last_fetched else "never",
+        last_fetched_iso=repo.last_fetched,
+    )

@@ -183,6 +183,14 @@ class TestSettingsSave:
 # ---------- add-repo ----------
 
 
+class TestAddFormPending:
+    def test_add_form_has_pending_wiring(self, client, configured):
+        html = client.get("/add").text
+        assert 'id="add-form"' in html
+        assert "Cloning…" in html
+        assert 'data-pending-label' in html or "disabled = true" in html
+
+
 class TestAddRepo:
     def test_unknown_workspace(self, client, configured):
         r = client.post(
@@ -592,6 +600,40 @@ class TestStatusModelInWeb:
         assert ">clean<" not in r.text
 
 
+class TestSplitChips:
+    def test_diverged_and_missing_get_own_chips(self, client, configured, workspace_dir, monkeypatch):
+        # A diverged repo and a missing repo used to be lumped into "conflict".
+        # Now each gets its own honest chip.
+        _make_repo_on_disk(workspace_dir, "a", "diverged-one")
+        RepoStore().add(Repo(owner="a", name="diverged-one", remote_url="u", workspace="test-ws"))
+        RepoStore().add(Repo(owner="a", name="gone", remote_url="u", workspace="test-ws"))  # no dir → missing
+        monkeypatch.setattr(
+            "gitstow.web.routes.dashboard.get_status",
+            lambda p: _fake_status(ahead=1, behind=1),
+        )
+        html = client.get("/").text
+        # diverged and missing each render their own chip (pip + label span)
+        assert "pip diverged" in html
+        assert 'lbl">diverged' in html
+        assert "pip missing" in html
+        assert 'lbl">missing' in html
+        # the old combined bucket no longer claims them
+        assert "pip conflict" not in html
+
+    def test_summary_wording(self, client, configured, workspace_dir, monkeypatch):
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws"))
+        monkeypatch.setattr("gitstow.web.routes.repos.get_status", lambda p: _fake_status())
+        monkeypatch.setattr(
+            "gitstow.web.routes.repos.git_pull",
+            lambda p: PullResult(success=True, already_up_to_date=True),
+        )
+        html = client.post("/repos/pull-all").text
+        assert "attempted" in html
+        assert "processed" not in html
+        assert "frozen and missing excluded" in html
+
+
 # ---------- bulk pull skips local changes (same rule as the CLI) ----------
 
 
@@ -768,6 +810,54 @@ class TestLocalOnlyRepos:
         assert "no upstream remote" in r.text.lower()
 
 
+class TestHonestTimestamps:
+    def _seed(self, workspace_dir):
+        from gitstow.core.repo import Repo, RepoStore
+
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws",
+                             last_pulled="2026-07-12T10:00:00.123456",
+                             last_fetched="2026-07-12T09:00:00"))
+
+    def test_detail_page_humanizes_and_shows_fetched(self, client, configured, workspace_dir, monkeypatch):
+        self._seed(workspace_dir)
+        monkeypatch.setattr("gitstow.web.routes.pages.get_status", lambda p: _fake_status())
+        html = client.get("/repo/test-ws/a/one").text
+        assert "2026-07-12T10:00:00.123456" not in html.replace('title="2026-07-12T10:00:00.123456"', "")
+        assert "LAST FETCHED" in html.upper()
+        assert 'title="2026-07-12T10:00:00.123456"' in html
+
+    def test_delta_tooltip_mentions_fetch_age(self, client, configured, workspace_dir, monkeypatch):
+        self._seed(workspace_dir)
+        monkeypatch.setattr("gitstow.web.routes.dashboard.get_status",
+                            lambda p: _fake_status(behind=2))
+        html = client.get("/dashboard/rows").text
+        assert "as of last fetch" in html.lower()
+
+    def test_local_only_delta_tooltip_omits_fetch_age(
+        self, client, configured, workspace_dir, monkeypatch
+    ):
+        self._seed(workspace_dir)
+        monkeypatch.setattr(
+            "gitstow.web.routes.dashboard.get_status",
+            lambda p: _fake_status(has_upstream=False),
+        )
+        html = client.get("/dashboard/rows").text
+        assert "as of last fetch" not in html.lower()
+
+    def test_missing_repo_delta_tooltip_is_honest(self, client, configured, workspace_dir):
+        # A tracked repo with last_fetched set but NO directory on disk: its
+        # counts are stale/unknown, so the delta tooltip must say so and must
+        # NOT claim the counts are "as of last fetch".
+        from gitstow.core.repo import Repo, RepoStore
+
+        RepoStore().add(Repo(owner="a", name="gone", remote_url="u", workspace="test-ws",
+                             last_fetched="2026-07-12T09:00:00"))
+        html = client.get("/dashboard/rows").text
+        assert "missing or unreadable" in html.lower()
+        assert "as of last fetch" not in html.lower()
+
+
 class TestStyledConfirm:
     def test_no_native_dialogs_in_templates(self, client, configured):
         for path in ("/", "/workspaces", "/settings"):
@@ -790,3 +880,83 @@ class TestStyledConfirm:
         assert "data-confirm=" in r.text
         assert "data-danger" in r.text  # the delete-from-disk form
         assert "return confirm(" not in r.text
+
+
+class TestResponsiveMarkup:
+    def test_columns_carry_priority_classes(self, client, configured, workspace_dir, monkeypatch):
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws", tags=["x"]))
+        monkeypatch.setattr("gitstow.web.routes.dashboard.get_status", lambda p: _fake_status())
+        html = client.get("/").text
+        for cls in ("col-tags", "col-lastpull", "col-branch", "table-scroll"):
+            assert cls in html
+
+    def test_priority_classes_in_rows_fragment(self, client, configured, workspace_dir, monkeypatch):
+        # The 30s auto-refresh re-renders only the tbody via /dashboard/rows;
+        # the priority classes must survive on the td cells too, not just the thead.
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws", tags=["x"]))
+        monkeypatch.setattr("gitstow.web.routes.dashboard.get_status", lambda p: _fake_status())
+        html = client.get("/dashboard/rows").text
+        for cls in ("col-tags", "col-lastpull", "col-branch"):
+            assert cls in html
+
+    def test_media_rules_exist(self, client, configured):
+        css = client.get("/static/app.css").text
+        assert "@media" in css
+        assert "overflow-x: auto" in css
+
+    def test_menu_drop_up_wiring(self, client, configured):
+        # Row menus must flip above the trigger when the pop would clip
+        # below the viewport or the .table-scroll wrapper (narrow widths).
+        js = client.get("/static/dashboard.js").text
+        assert "drop-up" in js
+        css = client.get("/static/app.css").text
+        assert "details.menu.drop-up .menu-pop" in css
+        assert "bottom: calc(100% + 6px)" in css
+
+
+class TestA11y:
+    def test_disabled_pull_is_really_disabled(self, client, configured, workspace_dir, monkeypatch):
+        from gitstow.core.repo import Repo, RepoStore
+
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws", frozen=True))
+        monkeypatch.setattr("gitstow.web.routes.dashboard.get_status", lambda p: _fake_status())
+        html = client.get("/dashboard/rows").text
+        import re
+        pull_btn = re.search(r"<button[^>]*Pull disabled[^>]*>", html)
+        assert pull_btn and "disabled" in pull_btn.group(0)
+
+    def test_summary_has_menu_semantics(self, client, configured, workspace_dir, monkeypatch):
+        from gitstow.core.repo import Repo, RepoStore
+
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws"))
+        monkeypatch.setattr("gitstow.web.routes.dashboard.get_status", lambda p: _fake_status())
+        html = client.get("/dashboard/rows").text
+        assert 'aria-haspopup="menu"' in html
+
+    def test_focus_visible_rules(self, client, configured):
+        css = client.get("/static/app.css").text
+        # The element-specific rule must exist and cancel the global
+        # *:focus-visible box-shadow so exactly ONE ring (the outline) renders.
+        assert "button:focus-visible" in css
+        idx = css.index("button:focus-visible")
+        assert "box-shadow: none" in css[idx:idx + 200]
+
+
+class TestMicroVisual:
+    def test_file_input_styled(self, client, configured):
+        html = client.get("/settings").text
+        assert "file-label" in html  # the styled wrapper
+        assert "Choose file" in html
+
+    def test_live_dot_offline_listener(self, client, configured):
+        html = client.get("/").text
+        assert "htmx:sendError" in html
+
+    def test_paths_render_as_code_not_inputs(self, client, configured):
+        html = client.get("/workspaces").text
+        # workspace paths must not render inside input-like boxes
+        assert 'class="path-code"' in html

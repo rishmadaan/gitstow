@@ -4,23 +4,28 @@ All notable changes to gitstow will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.4.0] - 2026-07-12
 
 ### Added
 
 - **Dashboard filters that actually filter.** The search box, workspace dropdown, and Hide-frozen toggle now work — instant client-side filtering that survives auto-refresh and pull updates.
 - **Settings save.** The Settings page persists changes for real (and gains Parallel limit + Clone timeout fields).
 - **`local` badge.** Repos without an upstream remote show a `local` Remote Δ badge; bulk pulls skip them with a clear reason instead of failing every run.
+- **Responsive dashboard.** Works down to half-monitor width — columns collapse by priority, the table scrolls within its own container, and row menus flip upward when space runs out.
+- **Last-fetched visibility.** The repo detail page shows when each repo was last pulled AND last fetched (hover for exact times); Remote Δ tooltips state which fetch the counts reflect.
 
 ### Changed
 
 - **Fully offline dashboard.** htmx and both fonts are now bundled — no CDN, no network needed for the UI itself.
 - **Styled confirmations.** Native browser confirm/alert dialogs replaced with an in-app dialog (also makes the dashboard automatable).
 - **Web collection import honors recorded workspaces**, sharing one implementation with the CLI.
+- **Honest metrics chips.** Diverged and missing repos get their own hero chips instead of hiding inside 'conflict'; the pull summary reads 'N attempted' with exclusions stated.
+- **Cleaner micro-interactions.** Styled file picker, a LIVE dot that actually goes red when the server is unreachable, keyboard-visible focus rings, Escape closes menus, add-repo shows a Cloning… state.
 
 ### Fixed
 
 - **Pull all / Fetch all spinners stop when the operation completes** (htmx indicator/disable double-count).
+- **Repo detail timestamps** no longer render raw machine format.
 
 ## [0.3.0] - 2026-07-12
 

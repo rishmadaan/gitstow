@@ -19,7 +19,9 @@
       <div class="metrics-strip">
         {% if counts.clean %}<span class="m" title="{{ counts.clean }} clean — working tree matches HEAD and is in sync with the last fetch"><span class="pip clean"></span><span class="count">{{ '%02d' % counts.clean }}</span> <span class="lbl">clean</span></span>{% endif %}
         {% if counts.dirty %}<span class="m" title="{{ counts.dirty }} with local changes — modified, staged, or untracked files"><span class="pip dirty"></span><span class="count">{{ '%02d' % counts.dirty }}</span> <span class="lbl">local changes</span></span>{% endif %}
-        {% if counts.conflict %}<span class="m" title="{{ counts.conflict }} in conflict — dirty AND behind remote, or local and remote have diverged; resolve locally"><span class="pip conflict"></span><span class="count">{{ '%02d' % counts.conflict }}</span> <span class="lbl">conflict</span></span>{% endif %}
+        {% if counts.conflict %}<span class="m" title="{{ counts.conflict }} in conflict — working tree is dirty AND behind remote; resolve locally before pulling"><span class="pip conflict"></span><span class="count">{{ '%02d' % counts.conflict }}</span> <span class="lbl">conflict</span></span>{% endif %}
+        {% if counts.diverged %}<span class="m" title="{{ counts.diverged }} diverged — local and remote both have commits the other doesn't; rebase or merge to reconcile"><span class="pip diverged"></span><span class="count">{{ '%02d' % counts.diverged }}</span> <span class="lbl">diverged</span></span>{% endif %}
+        {% if counts.missing %}<span class="m" title="{{ counts.missing }} missing — tracked in gitstow but not found on disk (or unreadable); re-clone or remove"><span class="pip missing"></span><span class="count">{{ '%02d' % counts.missing }}</span> <span class="lbl">missing</span></span>{% endif %}
         {% if counts.behind %}<span class="m" title="{{ counts.behind }} behind upstream — remote has commits you don't"><span class="pip behind"></span><span class="count">{{ '%02d' % counts.behind }}</span> <span class="lbl">behind</span></span>{% endif %}
         {% if counts.ahead %}<span class="m" title="{{ counts.ahead }} ahead of upstream — you have local commits not yet pushed"><span class="pip ahead"></span><span class="count">{{ '%02d' % counts.ahead }}</span> <span class="lbl">ahead</span></span>{% endif %}
         {% if counts.frozen %}<span class="m" title="{{ counts.frozen }} frozen — intentionally skipped by 'Pull all'"><span class="pip frozen"></span><span class="count">{{ '%02d' % counts.frozen }}</span> <span class="lbl">frozen</span></span>{% endif %}
@@ -62,6 +64,7 @@
 
   {% if repos %}
   <div class="table-wrap">
+    <div class="table-scroll">
     <table class="ledger">
       <thead>
         <tr>
@@ -69,10 +72,10 @@
           <th style="width: 7.5rem;" title="State of the working tree and relationship to upstream remote">Status</th>
           <th title="Repository name — click to open details">Repository</th>
           <th title="Which gitstow workspace manages this repo">Workspace</th>
-          <th title="Current local branch">Branch</th>
+          <th class="col-branch" title="Current local branch">Branch</th>
           <th title="Commits ahead (↑) / behind (↓) upstream — reflects your last fetch, not live remote">Remote Δ</th>
-          <th title="Your tags + workspace auto-tags">Tags</th>
-          <th title="When gitstow last pulled this repo (not the last git fetch)">Last pull</th>
+          <th class="col-tags" title="Your tags + workspace auto-tags">Tags</th>
+          <th class="col-lastpull" title="When gitstow last pulled this repo (not the last git fetch)">Last pull</th>
           <th style="text-align: right;" title="Pull + more-actions menu">Actions</th>
         </tr>
       </thead>
@@ -82,6 +85,7 @@
         {% for repo in repos %}{% include "partials/repo_row.html" %}{% endfor %}
       </tbody>
     </table>
+    </div>
   </div>
 
   <p id="filter-empty" class="filter-empty" hidden>No repos match the current filters.</p>

@@ -83,6 +83,11 @@ body {
   box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent-dim);
   border-radius: 3px;
 }
+button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: none; /* cancel the global *:focus-visible ring so exactly one renders */
+}
 
 /* ---------- Typography ---------- */
 h1 {
@@ -152,6 +157,13 @@ nav.primary .brand .live-pulse {
 @keyframes pulseDot {
   0%, 100% { box-shadow: 0 0 0 0 var(--accent-glow); }
   50%      { box-shadow: 0 0 0 6px rgba(255, 107, 53, 0); }
+}
+/* Server unreachable — same honesty fix as the footer LIVE dot: stop
+   pulsing (a pulse reads as "alive") and switch to the shared danger red. */
+nav.primary .brand .live-pulse.offline {
+  background: var(--c-conflict);
+  animation: none;
+  box-shadow: 0 0 8px rgba(248, 113, 113, 0.4);
 }
 nav.primary .brand .mark {
   font-family: 'Bricolage Grotesque', sans-serif;
@@ -251,9 +263,14 @@ nav.primary ul.links a.active::after {
 .metrics-strip .m .pip.clean    { background: var(--c-clean); box-shadow: 0 0 8px rgba(74, 222, 128, 0.4); }
 .metrics-strip .m .pip.dirty    { background: var(--c-dirty); box-shadow: 0 0 8px rgba(251, 191, 36, 0.4); }
 .metrics-strip .m .pip.conflict { background: var(--c-conflict); box-shadow: 0 0 8px rgba(248, 113, 113, 0.4); }
+.metrics-strip .m .pip.diverged { background: var(--c-ahead); box-shadow: 0 0 8px rgba(192, 132, 252, 0.4); }
+.metrics-strip .m .pip.missing  { background: var(--c-conflict); box-shadow: 0 0 8px rgba(248, 113, 113, 0.4); }
 .metrics-strip .m .pip.behind   { background: var(--c-behind); box-shadow: 0 0 8px rgba(96, 165, 250, 0.4); }
 .metrics-strip .m .pip.ahead    { background: var(--c-ahead); box-shadow: 0 0 8px rgba(192, 132, 252, 0.4); }
 .metrics-strip .m .pip.frozen   { background: var(--c-frozen); }
+
+/* Utility — dimmer inline note (e.g. summary exclusion caveat). */
+.muted { color: var(--muted-soft); }
 
 /* ---------- Action bar ---------- */
 .action-bar {
@@ -301,6 +318,18 @@ nav.primary ul.links a.active::after {
 .btn-danger-solid:hover { background: #b91c1c; border-color: #b91c1c; }
 .btn-sm { padding: 0.38rem 0.8rem; font-size: 0.78rem; }
 .btn:disabled { opacity: 0.3; cursor: not-allowed; pointer-events: none; }
+
+/* ---------- File input (styled) ---------- */
+/* Native file inputs can't be restyled directly — visually hide the real
+   input (still in-flow, focusable, required) and present the enclosing
+   label as a button. Reset the generic `label` element rule's uppercase/
+   letter-spacing/margin so it reads as a normal button, not a form label. */
+.file-label {
+  position: relative; overflow: hidden; cursor: pointer;
+  text-transform: none; letter-spacing: normal; margin-bottom: 0; font-weight: 400;
+}
+.file-label:focus-within { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+.file-label input[type="file"] { position: absolute; width: 1px; height: 1px; opacity: 0; }
 
 /* ---------- Inputs ---------- */
 input[type=text], input[type=search], input[type=url], select, textarea {
@@ -524,6 +553,17 @@ table.ledger { width: 100%; border-collapse: collapse; background: transparent; 
   from { opacity: 0; transform: translateY(-4px) scale(0.98); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
+/* Drop-up (set by dashboard.js when the pop would clip below the viewport
+   or the .table-scroll wrapper): open above the trigger, same 6px gap. */
+details.menu.drop-up .menu-pop {
+  top: auto;
+  bottom: calc(100% + 6px);
+  animation-name: menuInUp;
+}
+@keyframes menuInUp {
+  from { opacity: 0; transform: translateY(4px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
 .menu-pop a, .menu-pop button {
   display: flex; align-items: center; gap: 0.55rem;
   width: 100%; text-align: left;
@@ -583,6 +623,7 @@ table.ledger { width: 100%; border-collapse: collapse; background: transparent; 
 footer.site .footer-inner { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
 footer.site .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; vertical-align: middle; }
 footer.site .dot.green { background: var(--c-clean); box-shadow: 0 0 8px rgba(74, 222, 128, 0.4); }
+footer.site .dot.red { background: var(--c-conflict); box-shadow: 0 0 8px rgba(248, 113, 113, 0.4); }
 footer.site .live-label {
   font-family: 'JetBrains Mono', monospace;
   text-transform: uppercase; letter-spacing: 0.12em;
@@ -732,13 +773,16 @@ footer.site .live-label {
 }
 
 /* ---------- Path display ---------- */
-.path-display {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 0.84rem; color: var(--text-soft);
-  background: var(--bg-panel);
-  padding: 0.22rem 0.55rem;
-  border: 1px solid var(--border);
-  border-radius: 3px; display: inline-block;
+/* Was an inline box with background + border — visually indistinguishable
+   from a text input. A code block with a left rule reads as reference
+   text, not an editable field (reconciled from the brief's `var(--line)`,
+   which doesn't exist in this palette, to the established `--border`). */
+.path-code {
+  display: block; padding: 0.55rem 0.7rem;
+  background: transparent; border: none; border-radius: 0;
+  border-left: 2px solid var(--border);
+  color: var(--text-soft); font-family: 'JetBrains Mono', monospace;
+  font-size: 0.82rem; word-break: break-all;
 }
 
 /* ---------- Breadcrumb ---------- */
@@ -858,6 +902,7 @@ details:not(.menu)[open] summary::before { transform: rotate(90deg); }
 .help-form {
   display: flex; flex-direction: column;
   max-height: calc(100vh - 3rem);
+  overflow-y: auto;
 }
 .help-head {
   display: flex; justify-content: space-between; align-items: center;
@@ -880,7 +925,6 @@ details:not(.menu)[open] summary::before { transform: rotate(90deg); }
 .help-close:hover { color: var(--text); background: var(--surface-hi); }
 .help-form > section {
   padding: 1.15rem 1.5rem;
-  overflow-y: auto;
 }
 .help-form > section + section { border-top: 1px solid var(--border); }
 .help-form section h4 { margin-bottom: 0.65rem; color: var(--text); font-size: 0.72rem; }
@@ -946,3 +990,29 @@ button.htmx-request::after, .btn.htmx-request::after {
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 5px; border: 2px solid var(--bg); }
 ::-webkit-scrollbar-thumb:hover { background: var(--muted-soft); }
+
+/* ---------- Responsive: usable down to 720px (half-monitor floor) ----------
+   Column priority: tags drop first (≤1100), then last-pull (≤920), then
+   branch (≤780). The .table-scroll wrapper is the final guard for pathological
+   content (very long repo names) — scoped to the responsive range so it never
+   clips the desktop row-action popover, which relies on overflow being visible
+   on its ancestors. Hero and action bar stack/wrap instead of overflowing. */
+@media (max-width: 1100px) {
+  .container { padding-left: 1.2rem; padding-right: 1.2rem; }
+  th.col-tags, td.col-tags { display: none; }
+  .table-scroll { overflow-x: auto; }
+}
+
+@media (max-width: 920px) {
+  th.col-lastpull, td.col-lastpull { display: none; }
+  .hero { flex-direction: column; align-items: flex-start; gap: 0.9rem; }
+  .hero-right { align-items: flex-start; }
+  .action-bar { row-gap: 0.6rem; }
+  .action-bar .spacer { display: none; }
+  .action-bar input[type="search"] { flex: 1 1 220px; max-width: none; }
+}
+
+@media (max-width: 780px) {
+  th.col-branch, td.col-branch { display: none; }
+  nav.primary .brand .tagline { display: none; }
+}

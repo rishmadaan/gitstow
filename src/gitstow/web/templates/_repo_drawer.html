@@ -54,7 +54,8 @@
       <dt>Last commit</dt> <dd>{{ repo.commit.hash }} · {{ repo.commit.date }} · "{{ repo.commit.message }}"</dd>
       {% endif %}
       <dt>Disk size</dt>   <dd>{{ repo.disk_size }}</dd>
-      <dt>Last pull</dt>   <dd>{{ repo.last_pulled }}</dd>
+      <dt>Last pull</dt>   <dd>{% if last_pull_iso %}<span title="{{ last_pull_iso }}">{{ last_pull_rel }}</span>{% else %}never{% endif %}</dd>
+      <dt>Last fetched</dt><dd>{% if last_fetched_iso %}<span title="{{ last_fetched_iso }}">{{ last_fetched_rel }}</span>{% else %}never{% endif %}</dd>
     </dl>
   </section>
 

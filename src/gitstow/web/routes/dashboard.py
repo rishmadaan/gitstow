@@ -91,34 +91,44 @@ def _present(state: RepoState) -> tuple[str, str, str]:
     return "clean", "clean", "ghost"
 
 
-def _delta(state: RepoState) -> tuple[str, str, str]:
-    """Return (css_class, display_label, tooltip) for the Remote Δ column."""
-    if state.presence == "ok" and not state.has_upstream:
+def _delta(state: RepoState, last_fetched: str = "") -> tuple[str, str, str]:
+    """Return (css_class, display_label, tooltip) for the Remote Δ column.
+
+    The fetch-age suffix lives here so it can be gated on presence AND upstream
+    together — a missing/unreadable repo has stale counts that no fetch reflects,
+    so it must never claim "as of last fetch".
+    """
+    if state.presence != "ok":
+        return ("even", "—", "Unknown — repo is missing or unreadable on disk.")
+    if not state.has_upstream:
         return (
             "local",
             "local",
             "Local-only — no upstream remote. Bulk pulls skip this repo.",
         )
     ahead, behind = state.ahead, state.behind
+    suffix = ""
+    if last_fetched and state.presence == "ok" and state.has_upstream:
+        suffix = f" Counts as of last fetch, {_relative_time(last_fetched)}."
     if ahead and behind:
         return (
             "down",
             f"↑{ahead} ↓{behind}",
-            f"Diverged — {ahead} local commit(s) ahead, {behind} remote commit(s) behind. Use Fetch all to refresh counts.",
+            f"Diverged — {ahead} local commit(s) ahead, {behind} remote commit(s) behind. Use Fetch all to refresh counts.{suffix}",
         )
     if ahead:
         return (
             "up",
             f"↑ {ahead}",
-            f"Ahead — {ahead} local commit(s) not yet pushed to remote.",
+            f"Ahead — {ahead} local commit(s) not yet pushed to remote.{suffix}",
         )
     if behind:
         return (
             "down",
             f"↓ {behind}",
-            f"Behind — {behind} remote commit(s) not yet pulled. Use Fetch all to refresh counts.",
+            f"Behind — {behind} remote commit(s) not yet pulled. Use Fetch all to refresh counts.{suffix}",
         )
-    return "even", "—", "Even — local and remote upstream in sync (since last fetch). Use Fetch all to refresh."
+    return "even", "—", f"Even — local and remote upstream in sync (since last fetch). Use Fetch all to refresh.{suffix}"
 
 
 def _pull_tooltip(variant: str, status_class: str, behind: int, label: str = "") -> str:
@@ -167,7 +177,10 @@ async def _build_repos_data(settings, store) -> tuple[list, dict]:
 
     # Phase 2 — assemble rows in stable order.
     repos_data = []
-    counts = {"clean": 0, "dirty": 0, "conflict": 0, "behind": 0, "ahead": 0, "frozen": 0}
+    counts = {
+        "clean": 0, "dirty": 0, "conflict": 0, "diverged": 0,
+        "missing": 0, "behind": 0, "ahead": 0, "frozen": 0,
+    }
 
     for i, repo in enumerate(repos, start=1):
         ws = ws_by_label[repo.workspace]
@@ -178,13 +191,21 @@ async def _build_repos_data(settings, store) -> tuple[list, dict]:
         state = classify(exists=exists, frozen=repo.frozen, status=status)
         status_class, status_label, pull_variant = _present(state)
 
+        # Counts ladder — disambiguate the buckets that _present collapses onto
+        # the "conflict" css class (missing/unreadable, dirty+behind, diverged)
+        # so the chips row stays honest. Presence and the "diverged" label are
+        # checked before falling through to status_class.
         if repo.frozen:
             counts["frozen"] += 1
+        elif state.presence != "ok":
+            counts["missing"] += 1
+        elif status_label == "diverged":
+            counts["diverged"] += 1
         elif status_class in counts:
             counts[status_class] += 1
 
         behind_n = status.behind if status else 0
-        delta_cls, delta_txt, delta_tip = _delta(state)
+        delta_cls, delta_txt, delta_tip = _delta(state, repo.last_fetched)
 
         pull_tooltip = _pull_tooltip(pull_variant, status_class, behind_n, status_label)
         if state.presence == "ok" and not state.has_upstream:
@@ -248,6 +269,10 @@ async def dashboard(
         bits.append(f"{counts['dirty']} with local changes")
     if counts["conflict"]:
         bits.append(f"{counts['conflict']} conflict")
+    if counts["diverged"]:
+        bits.append(f"{counts['diverged']} diverged")
+    if counts["missing"]:
+        bits.append(f"{counts['missing']} missing")
     if counts["behind"]:
         bits.append(f"{counts['behind']} behind")
 
