@@ -53,6 +53,34 @@
         document.querySelectorAll("details.menu[open]").forEach(function (d) { d.removeAttribute("open"); });
       }
     });
+
+    /* Drop-up: at narrow widths the .table-scroll wrapper (overflow-x: auto)
+       becomes a clip container that cuts off the absolutely-positioned
+       .menu-pop on the bottom rows. When a menu opens, measure whether the
+       pop fits below it — against the viewport AND, when the wrapper is
+       actively scrolling horizontally, the wrapper's visible bottom — and
+       flip it above the trigger if it doesn't. Capture phase because toggle
+       doesn't bubble from <details> in older engines. Every close path
+       (Escape above, click-outside, action clicks) removes the open
+       attribute, which re-fires toggle here, so drop-up is always cleared. */
+    document.addEventListener("toggle", function (e) {
+      var d = e.target;
+      if (!d || !d.matches || !d.matches("details.menu")) return;
+      if (!d.open) { d.classList.remove("drop-up"); return; }
+      var pop = d.querySelector(".menu-pop");
+      if (!pop) return;
+      d.classList.remove("drop-up"); // measure from the default drop-down position
+      var popHeight = pop.getBoundingClientRect().height;
+      var bottomLimit = window.innerHeight;
+      var scroller = d.closest && d.closest(".table-scroll");
+      if (scroller && scroller.scrollWidth > scroller.clientWidth) {
+        bottomLimit = Math.min(bottomLimit, scroller.getBoundingClientRect().bottom);
+      }
+      // 6px matches the .menu-pop top/bottom gap in app.css.
+      if (d.getBoundingClientRect().bottom + 6 + popHeight > bottomLimit) {
+        d.classList.add("drop-up");
+      }
+    }, true);
   }
 
   if (document.readyState === "loading") {

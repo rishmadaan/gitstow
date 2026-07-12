@@ -894,6 +894,15 @@ class TestResponsiveMarkup:
         assert "@media" in css
         assert "overflow-x: auto" in css
 
+    def test_menu_drop_up_wiring(self, client, configured):
+        # Row menus must flip above the trigger when the pop would clip
+        # below the viewport or the .table-scroll wrapper (narrow widths).
+        js = client.get("/static/dashboard.js").text
+        assert "drop-up" in js
+        css = client.get("/static/app.css").text
+        assert "details.menu.drop-up .menu-pop" in css
+        assert "bottom: calc(100% + 6px)" in css
+
 
 class TestA11y:
     def test_disabled_pull_is_really_disabled(self, client, configured, workspace_dir, monkeypatch):

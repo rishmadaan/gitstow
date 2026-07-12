@@ -552,6 +552,17 @@ table.ledger { width: 100%; border-collapse: collapse; background: transparent; 
   from { opacity: 0; transform: translateY(-4px) scale(0.98); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
+/* Drop-up (set by dashboard.js when the pop would clip below the viewport
+   or the .table-scroll wrapper): open above the trigger, same 6px gap. */
+details.menu.drop-up .menu-pop {
+  top: auto;
+  bottom: calc(100% + 6px);
+  animation-name: menuInUp;
+}
+@keyframes menuInUp {
+  from { opacity: 0; transform: translateY(4px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
 .menu-pop a, .menu-pop button {
   display: flex; align-items: center; gap: 0.55rem;
   width: 100%; text-align: left;
