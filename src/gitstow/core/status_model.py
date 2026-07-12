@@ -73,6 +73,10 @@ class RepoState:
             return "skip-frozen"
         if self.blocks_pull:
             return "skip-local"
+        if self.ahead and self.behind:
+            # ff-only pull always fails on divergence — skip with a clear
+            # reason instead of commanding a doomed pull.
+            return "skip-diverged"
         if self.behind:
             return "pull"
         return "noop"

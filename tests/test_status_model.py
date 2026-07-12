@@ -1,10 +1,8 @@
 """Tests for the shared repo-state classifier — the single source of truth
 for status presentation across CLI, web, and JSON (CLAUDE.md standard)."""
 
-import pytest
-
 from gitstow.core.git import RepoStatus
-from gitstow.core.status_model import RepoState, classify
+from gitstow.core.status_model import classify
 
 
 def _status(**kw) -> RepoStatus:
@@ -60,6 +58,19 @@ class TestClassify:
     def test_frozen_wins_pull_action(self):
         state = classify(exists=True, frozen=True, status=_status(behind=5))
         assert state.pull_action == "skip-frozen"
+
+    def test_diverged_clean_local_skips_pull(self):
+        # git pull --ff-only fails on divergence; the model must not command it.
+        state = classify(exists=True, frozen=False, status=_status(ahead=2, behind=3))
+        assert state.pull_action == "skip-diverged"
+
+    def test_ahead_only_is_noop(self):
+        state = classify(exists=True, frozen=False, status=_status(ahead=2))
+        assert state.pull_action == "noop"
+
+    def test_no_upstream_clean_is_noop(self):
+        state = classify(exists=True, frozen=False, status=_status(has_upstream=False))
+        assert state.pull_action == "noop"
 
     def test_behind_pulls(self):
         state = classify(exists=True, frozen=False, status=_status(behind=5))
