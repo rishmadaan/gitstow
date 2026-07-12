@@ -5,6 +5,7 @@ All git interaction goes through this module. Nothing else shells out to git.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -85,8 +86,14 @@ def _run_git(
     cwd: Path | None = None,
     timeout: int = 60,
 ) -> subprocess.CompletedProcess:
-    """Run a git command and return the result."""
+    """Run a git command and return the result.
+
+    GIT_TERMINAL_PROMPT=0 — a repo needing credentials fails fast instead of
+    hanging the whole bulk operation on an invisible username prompt.
+    LC_ALL=C — git output stays English so message matching is stable.
+    """
     cmd = ["git"] + args
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"}
     return subprocess.run(
         cmd,
         cwd=cwd,
@@ -95,6 +102,7 @@ def _run_git(
         timeout=timeout,
         encoding="utf-8",
         errors="replace",
+        env=env,
     )
 
 
