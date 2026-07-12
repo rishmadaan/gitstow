@@ -173,3 +173,30 @@ class TestPullFrozenIdentity:
         result = CliRunner().invoke(app, ["pull", "--json"])
         payload = json.loads(result.output)  # must be pure JSON, no banner
         assert payload == {"total": 0, "results": []}
+
+
+class TestRemoveContainment:
+    def test_delete_refuses_path_outside_workspace(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+
+        ws_dir = tmp_path / "ws"; ws_dir.mkdir()
+        outside = tmp_path / "outside-target"
+        (outside / ".git").mkdir(parents=True)
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="flat")]))
+        # A traversal-shaped name resolves outside the workspace root.
+        store = RepoStore(path=repos_file)
+        store.add(Repo(owner="", name="../outside-target", remote_url="u", workspace="ws"))
+
+        result = CliRunner().invoke(app, ["remove", "../outside-target", "--yes", "--delete"])
+
+        assert result.exit_code == 1
+        assert outside.exists()  # nothing was deleted
