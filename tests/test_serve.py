@@ -183,6 +183,14 @@ class TestSettingsSave:
 # ---------- add-repo ----------
 
 
+class TestAddFormPending:
+    def test_add_form_has_pending_wiring(self, client, configured):
+        html = client.get("/add").text
+        assert 'id="add-form"' in html
+        assert "Cloning…" in html
+        assert 'data-pending-label' in html or "disabled = true" in html
+
+
 class TestAddRepo:
     def test_unknown_workspace(self, client, configured):
         r = client.post(
