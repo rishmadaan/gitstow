@@ -19,7 +19,7 @@
   </div>
   {% if summary.skipped_local %}
   <details style="margin-top: 0.85rem;">
-    <summary>View skipped — local changes ({{ summary.skipped_local|length }})</summary>
+    <summary>View skipped ({{ summary.skipped_local|length }})</summary>
     <ul style="margin: 0.5rem 0 0; padding-left: 1.2rem; color: var(--text-soft); font-size: 0.86rem;">
       {% for s in summary.skipped_local %}
       <li><code>{{ s.key }}</code> — {{ s.detail }}</li>

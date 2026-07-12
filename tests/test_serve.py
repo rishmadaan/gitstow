@@ -481,8 +481,8 @@ class TestWebPullSkipsLocalChanges:
 
         r = client.post("/repos/pull-all")
         assert r.status_code == 200
-        assert called == []                      # pull never ran on the modified repo
-        assert "local changes" in r.text.lower() # summary reports the skip
+        assert called == []             # pull never ran on the modified repo
+        assert "2 modified" in r.text   # per-repo detail reports the skip composition
 
     def test_pull_all_pulls_untracked_only_repo(self, client, configured, workspace_dir, monkeypatch):
         _make_repo_on_disk(workspace_dir, "a", "one")

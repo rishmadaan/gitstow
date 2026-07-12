@@ -70,7 +70,7 @@ For commands shown to the user to run themselves, use the human-readable form (n
 | Search repos | `gitstow list searchterm` |
 | Check git status | `gitstow status` |
 | Status for one workspace | `gitstow -w active status` |
-| See dirty repos only | `gitstow status --dirty` |
+| See repos with local changes | `gitstow status --dirty` |
 | Freeze a repo | `gitstow repo freeze owner/repo` |
 | Unfreeze a repo | `gitstow repo unfreeze owner/repo` |
 | Tag a repo | `gitstow repo tag owner/repo tagname` |
@@ -142,7 +142,7 @@ gitstow list --json
 ```
 Present as a clean grouped list. Mention total count, frozen repos, and tags.
 
-### "Which repos need pushing?" / "What's dirty?"
+### "Which repos need pushing?" / "Which repos have local changes?"
 ```bash
 gitstow status --dirty --json
 ```

@@ -67,7 +67,7 @@ def status(
         None, "--owner", help="Filter by owner.",
     ),
     dirty_only: bool = typer.Option(
-        False, "--dirty", help="Show only dirty repos.",
+        False, "--dirty", help="Show only repos with local changes.",
     ),
     output_json: bool = typer.Option(
         False, "--json", "-j", help="JSON output.",
@@ -83,7 +83,7 @@ def status(
     \b
     Examples:
       gitstow status                  # All repos
-      gitstow status --dirty          # Only dirty repos
+      gitstow status --dirty          # Only repos with local changes
       gitstow status --tag ai         # Filter by tag
       gitstow status -w active        # Filter by workspace
     """

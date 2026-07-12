@@ -128,7 +128,7 @@ def _pull_tooltip(variant: str, status_class: str, behind: int, label: str = "")
         return "Pull disabled — repo is missing on disk or status can't be read."
     # ghost
     if status_class == "dirty":
-        return "Pull available — working tree is dirty; pull may fail. Commit or stash first."
+        return "Pull available — this repo has local changes; modified/staged files will make a bulk pull skip it, untracked-only files won't."
     if status_class == "ahead":
         return "Pull available — nothing behind to pull. You have local commits to push instead."
     return "Pull available — already up to date with the last fetch."
@@ -235,7 +235,7 @@ async def dashboard(
         bits.append(f"{total} {'repo' if total == 1 else 'repos'}")
     bits.append(f"{len(workspaces)} {'workspace' if len(workspaces) == 1 else 'workspaces'}")
     if counts["dirty"]:
-        bits.append(f"{counts['dirty']} dirty")
+        bits.append(f"{counts['dirty']} with local changes")
     if counts["conflict"]:
         bits.append(f"{counts['conflict']} conflict")
     if counts["behind"]:
