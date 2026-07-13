@@ -121,6 +121,10 @@ ruff check src/
 pip install -e ".[tui]"   # For TUI development
 ```
 
+- **Worktree gotcha:** tests run from a git worktree silently exercise the main checkout (the editable install points at the primary clone). From a worktree, run `PYTHONPATH=<worktree>/src .venv/bin/python -m pytest -q`.
+- **Releasing publishes to PyPI.** `scripts/release.sh X.Y.Z` tags and pushes; the tag triggers a public PyPI publish. Require the user's explicit in-session instruction to release — plan approval or a "let's go" on implementation does not cover it.
+- **Web-UI verification:** HTTP-level tests (TestClient, curl) are necessary but not sufficient — they pass on bugs below the HTTP layer. Before calling a `web/` change done, verify form structure against the parsed DOM (browsers silently drop nested `<form>` tags) and verify layout/geometry in a real browser (`overflow-x: auto` clips absolutely-positioned children even without horizontal overflow).
+
 ## Patterns
 
 - `--json -j` and `--quiet -q` on all main commands

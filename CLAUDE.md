@@ -107,6 +107,9 @@ pytest                    # full suite — keep green
 ruff check src/
 ```
 
+- **Worktree gotcha:** tests run from a git worktree silently exercise the main checkout (the editable install points at the primary clone). From a worktree, run `PYTHONPATH=<worktree>/src .venv/bin/python -m pytest -q`.
+- **Releasing publishes to PyPI.** `scripts/release.sh X.Y.Z` tags and pushes; the tag triggers a public PyPI publish. Require the user's explicit in-session instruction to release — plan approval or a "let's go" on implementation does not cover it.
+
 ## Patterns
 
 - `--json -j` and `--quiet -q` on all main commands
@@ -128,6 +131,7 @@ ruff check src/
 - For repo state presentation, avoid using "dirty" as a broad user-facing bucket for every local change. Present it as local/uncommitted changes with the composition visible: modified, staged, and untracked counts.
 - Keep local working-tree state separate from remote relationship state. For example: local changes, clean, ahead, behind, diverged, frozen, missing.
 - When improving the web dashboard, implement the actual missing dashboard feature and shared classification/model behavior instead of copying a CLI-only assumption into the template.
+- For `web/` changes, HTTP-level tests (pytest TestClient, curl) are necessary but not sufficient — they pass on bugs that live below the HTTP layer. Before calling a UI change done, verify form structure against the parsed DOM (browsers silently drop nested `<form>` tags) and verify layout/geometry in a real browser (e.g. `overflow-x: auto` clips absolutely-positioned children even without horizontal overflow).
 
 ## AI Integration
 
