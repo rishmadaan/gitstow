@@ -2,12 +2,21 @@
 
 import errno
 import shutil
+import subprocess
 
 import pytest
 
 from gitstow.core.config import Settings, Workspace
 from gitstow.core.operations import move_repo
 from gitstow.core.repo import Repo, RepoStore
+
+
+def _git(cwd, *args):
+    """Run git with a self-contained identity — CI runners have none configured."""
+    subprocess.run(
+        ["git", "-c", "user.name=test", "-c", "user.email=test@test.invalid", *args],
+        cwd=cwd, check=True,
+    )
 
 
 def _mkgit(path):
@@ -324,17 +333,13 @@ def test_keyboard_interrupt_rolls_back_disk_move(tmp_path, monkeypatch):
 
 
 def test_moving_worktree_owner_repairs_linked_worktrees(tmp_path):
-    import subprocess
-
     settings, store = _setup(tmp_path, {"a": "flat", "b": "flat"})
     main = tmp_path / "a" / "proj"
     main.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=main, check=True)
-    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "init"],
-                   cwd=main, check=True)
+    _git(main, "init", "-q")
+    _git(main, "commit", "-q", "--allow-empty", "-m", "init")
     linked = tmp_path / "linked-wt"
-    subprocess.run(["git", "worktree", "add", "-q", str(linked)],
-                   cwd=main, check=True)
+    _git(main, "worktree", "add", "-q", str(linked))
     store.add(Repo(owner="", name="proj", remote_url="u", workspace="a"))
 
     move_repo(store, settings, "proj", "a", "b")
@@ -382,16 +387,12 @@ def test_dangling_symlink_destination_refused(tmp_path):
 
 
 def test_worktree_repair_failure_rolls_back(tmp_path, monkeypatch):
-    import subprocess
-
     settings, store = _setup(tmp_path, {"a": "flat", "b": "flat"})
     main = tmp_path / "a" / "proj"
     main.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=main, check=True)
-    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "init"],
-                   cwd=main, check=True)
-    subprocess.run(["git", "worktree", "add", "-q", str(tmp_path / "lw")],
-                   cwd=main, check=True)
+    _git(main, "init", "-q")
+    _git(main, "commit", "-q", "--allow-empty", "-m", "init")
+    _git(main, "worktree", "add", "-q", str(tmp_path / "lw"))
     store.add(Repo(owner="", name="proj", remote_url="u", workspace="a"))
 
     monkeypatch.setattr("gitstow.core.operations.repair_worktrees", lambda p: False)
