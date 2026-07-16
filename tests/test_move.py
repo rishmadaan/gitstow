@@ -169,3 +169,42 @@ def test_catalog_write_failure_rolls_back_disk_move(tmp_path, monkeypatch):
     # folder rolled back to the source; nothing left at the destination
     assert (src / "sentinel.txt").exists()
     assert not (tmp_path / "active" / "claude-code").exists()
+
+
+def test_missing_target_workspace_dir_is_created(tmp_path):
+    settings, store = _setup(tmp_path, {"oss": "structured", "active": "flat"})
+    src = _mkgit(tmp_path / "oss" / "anthropic" / "claude-code")
+    (tmp_path / "active").rmdir()  # workspace registered but dir never created
+    store.add(Repo(owner="anthropic", name="claude-code",
+                   remote_url="https://github.com/anthropic/claude-code.git",
+                   workspace="oss"))
+
+    move_repo(store, settings, "anthropic/claude-code", "oss", "active")
+
+    assert (tmp_path / "active" / "claude-code" / "sentinel.txt").exists()
+    assert not src.exists()
+
+
+def test_failed_disk_move_cleans_partial_destination(tmp_path, monkeypatch):
+    settings, store = _setup(tmp_path, {"oss": "structured", "active": "flat"})
+    src = _mkgit(tmp_path / "oss" / "anthropic" / "claude-code")
+    store.add(Repo(owner="anthropic", name="claude-code",
+                   remote_url="https://github.com/anthropic/claude-code.git",
+                   workspace="oss"))
+
+    dest = tmp_path / "active" / "claude-code"
+
+    def fake_move(s, d):
+        # simulate a cross-device copy dying partway: partial dest, source intact
+        dest.mkdir(parents=True)
+        (dest / "partial.txt").write_text("half")
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr("gitstow.core.operations.shutil.move", fake_move)
+
+    with pytest.raises(OSError, match="No space left"):
+        move_repo(store, settings, "anthropic/claude-code", "oss", "active")
+
+    assert src.exists()                                   # source untouched
+    assert not dest.exists()                              # partial copy removed
+    assert store.get("anthropic/claude-code", workspace="oss") is not None

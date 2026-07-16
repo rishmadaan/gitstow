@@ -172,9 +172,21 @@ def move_repo(
             source = settings.get_workspace(from_ws)
             src_path = src.get_path(source.get_path()) if source else None
             if src_path and src_path.exists():
-                if new_owner:
-                    dest_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(src_path), str(dest_path))
+                # Always ensure the parent exists (the workspace root may not
+                # have been created yet) — a missing parent silently downgrades
+                # shutil.move's rename to a full recursive copy.
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    shutil.move(str(src_path), str(dest_path))
+                except BaseException:
+                    # A failed cross-device copy leaves a partial destination
+                    # that would block every retry via the collision check.
+                    # The source is still intact, so the partial copy is ours
+                    # to delete.
+                    if not src_path.exists():
+                        raise  # rename already happened; dest is the real repo
+                    shutil.rmtree(dest_path, ignore_errors=True)
+                    raise
                 moved_src = src_path
                 if src.owner:
                     # Remove the now-empty owner directory (ignore if not empty).
