@@ -301,8 +301,10 @@ def move_repo(
                             f"'{key}' owns linked git worktrees and 'git worktree "
                             f"repair' failed after the move — rolled back."
                         )
-                if src.owner:
-                    # Remove the now-empty owner directory (ignore if not empty).
+                if src.owner and _strict_descendant(src_path.parent, source.get_path()):
+                    # Remove the now-empty owner directory (ignore if not
+                    # empty). The descendant guard keeps a '.'-like owner from
+                    # aiming this at the workspace root itself.
                     with contextlib.suppress(OSError):
                         src_path.parent.rmdir()
 

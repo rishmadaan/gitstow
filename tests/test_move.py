@@ -584,3 +584,16 @@ def test_key_escaping_source_workspace_refused(tmp_path):
         move_repo(store, settings, "../outside-victim", "a", "b")
 
     assert outside.exists()  # untouched
+
+
+def test_dot_owner_cleanup_never_removes_workspace_root(tmp_path):
+    settings, store = _setup(tmp_path, {"a": "structured", "b": "flat"})
+    # corrupt catalog entry: owner "." puts the repo directly in the root
+    repo_dir = _mkgit(tmp_path / "a" / "dotted")
+    store.add(Repo(owner=".", name="dotted", remote_url="u", workspace="a"))
+
+    moved = move_repo(store, settings, "./dotted", "a", "b")
+
+    assert moved.workspace == "b"
+    assert (tmp_path / "a").exists()  # workspace root survives the cleanup
+    assert not repo_dir.exists()
