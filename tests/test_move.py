@@ -540,3 +540,26 @@ def test_absolute_git_symlink_moves_fine(tmp_path):
 
     assert moved.workspace == "b"
     assert (tmp_path / "b" / "abslink" / ".git").exists()
+
+
+def test_rollback_preserves_foreign_dir_recreated_at_source(tmp_path, monkeypatch):
+    settings, store = _setup(tmp_path, {"a": "flat", "b": "flat"})
+    src = _mkgit(tmp_path / "a" / "thing")
+    store.add(Repo(owner="", name="thing", remote_url="u", workspace="a"))
+
+    def write_recreates_source_then_fails(self):
+        # another process recreates the old source path (rename was used,
+        # so nothing of ours remains there), then the catalog write dies
+        src.mkdir()
+        (src / "foreign.txt").write_text("someone else's")
+        raise OSError("disk full")
+
+    monkeypatch.setattr(RepoStore, "_write", write_recreates_source_then_fails)
+
+    with pytest.raises(OSError, match="disk full"):
+        move_repo(store, settings, "thing", "a", "b")
+
+    # foreign dir untouched; the moved repo stays at the destination
+    assert (src / "foreign.txt").exists()
+    assert not (src / "sentinel.txt").exists()
+    assert (tmp_path / "b" / "thing" / "sentinel.txt").exists()

@@ -106,7 +106,7 @@ def run_bulk(
     return [final[r.global_key] for r, _ in targets if r.global_key in final]
 
 
-def _move_dir(src: Path, dst: Path) -> None:
+def _move_dir(src: Path, dst: Path) -> bool:
     """Relocate a directory with no ambiguous partial states.
 
     Same filesystem: one atomic rename. Cross filesystem: copy, then delete
@@ -114,6 +114,9 @@ def _move_dir(src: Path, dst: Path) -> None:
     untouched); a failed source-delete keeps the complete destination and
     leaves the stale source behind rather than risk deleting the only good
     copy. shutil.move's combined fallback can't tell those two failures apart.
+
+    Returns True when the copy+delete path was taken (only that path can
+    leave a source remnant), False for an atomic rename.
     """
     # POSIX rename silently replaces an empty dir a concurrent process just
     # created, so claim the slot with mkdir first (fails loudly on a race)
@@ -125,7 +128,7 @@ def _move_dir(src: Path, dst: Path) -> None:
         os.mkdir(dst)
     try:
         os.rename(src, dst)
-        return
+        return False
     except OSError as exc:
         if claim:
             os.rmdir(dst)  # release the claim before falling back or raising
@@ -147,6 +150,7 @@ def _move_dir(src: Path, dst: Path) -> None:
         # finishing the move beats aborting with a half-deleted source.
         # The stale leftover surfaces via doctor as an orphan.
         pass
+    return True
 
 
 def move_repo(
@@ -272,7 +276,7 @@ def move_repo(
                 # have been created yet) — a missing parent would downgrade
                 # the rename to a full cross-directory copy.
                 dest_path.parent.mkdir(parents=True, exist_ok=True)
-                _move_dir(src_path, dest_path)
+                copied = _move_dir(src_path, dest_path)
                 moved_src = src_path
                 if (dest_path / ".git" / "worktrees").is_dir():
                     # This repo owns linked worktrees whose absolute
@@ -309,17 +313,22 @@ def move_repo(
                     and store.get(key, workspace=from_ws) is None
                 )
         if not committed and moved_src is not None and dest_path.exists():
-            with contextlib.suppress(OSError, shutil.Error):
-                if moved_src.exists():
-                    # A failed cross-device delete left a partial source; the
-                    # destination is the complete copy, so clear the remnant
-                    # before restoring.
-                    shutil.rmtree(moved_src, ignore_errors=True)
-                moved_src.parent.mkdir(parents=True, exist_ok=True)
-                _move_dir(dest_path, moved_src)
-                if (moved_src / ".git" / "worktrees").is_dir():
-                    # Un-stale the linked worktrees' back-pointers again.
-                    repair_worktrees(moved_src)
+            # After a rename nothing of ours can remain at the source, so a
+            # recreated path there is someone else's — stand down rather than
+            # delete foreign data. Only the copy+delete path leaves a remnant.
+            foreign = moved_src.exists() and not copied
+            if not foreign:
+                with contextlib.suppress(OSError, shutil.Error):
+                    if moved_src.exists():
+                        # Partial remnant from a failed cross-device delete;
+                        # the destination is the complete copy, so clear it
+                        # before restoring.
+                        shutil.rmtree(moved_src, ignore_errors=True)
+                    moved_src.parent.mkdir(parents=True, exist_ok=True)
+                    _move_dir(dest_path, moved_src)
+                    if (moved_src / ".git" / "worktrees").is_dir():
+                        # Un-stale the linked worktrees' back-pointers again.
+                        repair_worktrees(moved_src)
         raise
 
     return new_repo
