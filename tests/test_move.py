@@ -510,3 +510,33 @@ def test_interrupt_after_catalog_commit_keeps_move(tmp_path, monkeypatch):
     fresh = RepoStore(path=tmp_path / "repos.yaml")
     assert fresh.get("thing", workspace="b") is not None
     assert fresh.get("thing", workspace="a") is None
+
+
+def test_relative_git_symlink_refused(tmp_path):
+    settings, store = _setup(tmp_path, {"a": "flat", "b": "flat"})
+    meta = tmp_path / "a" / "gitmeta"
+    meta.mkdir()
+    repo_dir = tmp_path / "a" / "linkedgit"
+    repo_dir.mkdir()
+    (repo_dir / ".git").symlink_to("../gitmeta")  # relative — breaks on move
+    store.add(Repo(owner="", name="linkedgit", remote_url="u", workspace="a"))
+
+    with pytest.raises(ValueError, match="relative .git symlink"):
+        move_repo(store, settings, "linkedgit", "a", "b")
+
+    assert repo_dir.exists()  # untouched
+
+
+def test_absolute_git_symlink_moves_fine(tmp_path):
+    settings, store = _setup(tmp_path, {"a": "flat", "b": "flat"})
+    meta = tmp_path / "gitmeta-abs"
+    meta.mkdir()
+    repo_dir = tmp_path / "a" / "abslink"
+    repo_dir.mkdir()
+    (repo_dir / ".git").symlink_to(meta)  # absolute — survives relocation
+    store.add(Repo(owner="", name="abslink", remote_url="u", workspace="a"))
+
+    moved = move_repo(store, settings, "abslink", "a", "b")
+
+    assert moved.workspace == "b"
+    assert (tmp_path / "b" / "abslink" / ".git").exists()

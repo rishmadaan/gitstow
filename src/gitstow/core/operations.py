@@ -251,6 +251,15 @@ def move_repo(
                         f"The folder at '{src_path}' is not a git repository — "
                         f"refusing to move it. Rescan the workspace to fix the catalog."
                     )
+                git_entry = src_path / ".git"
+                if git_entry.is_symlink() and not Path(os.readlink(git_entry)).is_absolute():
+                    # A relative .git symlink resolves against the repo's
+                    # location — it would arrive broken at the destination.
+                    raise ValueError(
+                        f"'{key}' has a relative .git symlink, which would break "
+                        f"after the move. Re-point it absolutely, or move the repo "
+                        f"manually."
+                    )
                 if (src_path / ".git").is_file():
                     # A gitfile (linked git worktree): a plain rename breaks the
                     # main repo's worktree metadata and the repo dies on the
