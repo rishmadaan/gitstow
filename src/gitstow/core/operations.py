@@ -281,8 +281,11 @@ def move_repo(
                         src_path.parent.rmdir()
 
             # 5. Catalog update — written on bulk() exit, still under the lock.
-            store.remove(key, workspace=from_ws)
+            # add before remove: bulk() persists even when unwinding, so an
+            # interrupt between the two leaves a recoverable duplicate entry
+            # rather than a lost one.
             store.add(new_repo)
+            store.remove(key, workspace=from_ws)
     except BaseException:
         # Catalog write failed — or Ctrl-C landed — after the folder moved:
         # roll the folder back so disk and catalog stay consistent.
