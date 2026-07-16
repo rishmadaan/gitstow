@@ -404,7 +404,7 @@ def test_worktree_repair_failure_rolls_back(tmp_path, monkeypatch):
     assert store.get("proj", workspace="a") is not None  # catalog untouched
 
 
-def test_partial_source_remnant_cleared_on_rollback(tmp_path, monkeypatch):
+def test_partial_source_remnant_stands_down_on_rollback(tmp_path, monkeypatch):
     settings, store = _setup(tmp_path, {"a": "flat", "b": "flat"})
     src = _mkgit(tmp_path / "a" / "thing")
     store.add(Repo(owner="", name="thing", remote_url="u", workspace="a"))
@@ -432,10 +432,10 @@ def test_partial_source_remnant_cleared_on_rollback(tmp_path, monkeypatch):
     with pytest.raises(OSError, match="disk full"):
         move_repo(store, settings, "thing", "a", "b")
 
-    # remnant cleared, complete copy restored to the source
-    assert (src / "sentinel.txt").exists()
-    assert not (src / "leftover.txt").exists()
-    assert not (tmp_path / "b" / "thing").exists()
+    # rollback never deletes: the occupied source path (remnant or foreign —
+    # unprovable) is left alone, the complete copy stays at the destination
+    assert (src / "leftover.txt").exists()
+    assert (tmp_path / "b" / "thing" / "sentinel.txt").exists()
 
 
 def test_symlinked_source_refused(tmp_path):
@@ -563,3 +563,24 @@ def test_rollback_preserves_foreign_dir_recreated_at_source(tmp_path, monkeypatc
     assert (src / "foreign.txt").exists()
     assert not (src / "sentinel.txt").exists()
     assert (tmp_path / "b" / "thing" / "sentinel.txt").exists()
+
+
+def test_key_escaping_destination_workspace_refused(tmp_path):
+    settings, store = _setup(tmp_path, {"a": "flat", "oss": "structured"})
+    _mkgit(tmp_path / "a" / "esc")
+    # malicious/corrupt catalog entry: owner traverses out of the workspace
+    store.add(Repo(owner="..", name="esc", remote_url="u", workspace="a"))
+
+    with pytest.raises(ValueError, match="outside workspace"):
+        move_repo(store, settings, "../esc", "a", "oss")
+
+
+def test_key_escaping_source_workspace_refused(tmp_path):
+    settings, store = _setup(tmp_path, {"a": "structured", "b": "flat"})
+    outside = _mkgit(tmp_path / "outside-victim")
+    store.add(Repo(owner="..", name="outside-victim", remote_url="u", workspace="a"))
+
+    with pytest.raises(ValueError, match="outside workspace"):
+        move_repo(store, settings, "../outside-victim", "a", "b")
+
+    assert outside.exists()  # untouched
