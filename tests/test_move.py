@@ -485,3 +485,28 @@ def test_non_git_directory_at_source_refused(tmp_path):
         move_repo(store, settings, "impostor", "a", "b")
 
     assert (tmp_path / "a" / "impostor").exists()  # untouched
+
+
+def test_interrupt_after_catalog_commit_keeps_move(tmp_path, monkeypatch):
+    settings, store = _setup(tmp_path, {"a": "flat", "b": "flat"})
+    src = _mkgit(tmp_path / "a" / "thing")
+    store.add(Repo(owner="", name="thing", remote_url="u", workspace="a"))
+
+    real_remove = RepoStore.remove
+
+    def remove_then_interrupt(self, key, workspace=None):
+        real_remove(self, key, workspace)
+        raise KeyboardInterrupt()  # lands after both mutations applied
+
+    monkeypatch.setattr(RepoStore, "remove", remove_then_interrupt)
+
+    with pytest.raises(KeyboardInterrupt):
+        move_repo(store, settings, "thing", "a", "b")
+
+    # bulk() persisted the completed move on unwind — the folder must NOT be
+    # rolled back, or catalog and disk would point at different places
+    assert (tmp_path / "b" / "thing" / "sentinel.txt").exists()
+    assert not src.exists()
+    fresh = RepoStore(path=tmp_path / "repos.yaml")
+    assert fresh.get("thing", workspace="b") is not None
+    assert fresh.get("thing", workspace="a") is None

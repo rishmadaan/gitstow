@@ -287,9 +287,19 @@ def move_repo(
             store.add(new_repo)
             store.remove(key, workspace=from_ws)
     except BaseException:
-        # Catalog write failed — or Ctrl-C landed — after the folder moved:
-        # roll the folder back so disk and catalog stay consistent.
-        if moved_src is not None and dest_path.exists():
+        # Something failed — or Ctrl-C landed — after the folder moved. Ask
+        # the persisted catalog whether the move committed: if it did, disk
+        # already matches it and rolling the folder back would CREATE the
+        # inconsistency we're preventing.
+        committed = False
+        if moved_src is not None:
+            with contextlib.suppress(Exception):
+                store.load()
+                committed = (
+                    store.get(new_repo.key, workspace=to_ws) is not None
+                    and store.get(key, workspace=from_ws) is None
+                )
+        if not committed and moved_src is not None and dest_path.exists():
             with contextlib.suppress(OSError, shutil.Error):
                 if moved_src.exists():
                     # A failed cross-device delete left a partial source; the
