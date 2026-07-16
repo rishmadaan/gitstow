@@ -280,3 +280,44 @@ def test_linked_worktree_refused(tmp_path):
         move_repo(store, settings, "wt", "a", "b")
 
     assert wt.exists()  # untouched
+
+
+def test_concurrent_destination_not_deleted(tmp_path, monkeypatch):
+    settings, store = _setup(tmp_path, {"a": "flat", "b": "flat"})
+    _mkgit(tmp_path / "a" / "thing")
+    store.add(Repo(owner="", name="thing", remote_url="u", workspace="a"))
+    dest = tmp_path / "b" / "thing"
+
+    def fake_rename(s, d):
+        raise OSError(errno.EXDEV, "Cross-device link")
+
+    def fake_copytree(s, d, **kw):
+        # another process created dest between our check and the copy
+        dest.mkdir(parents=True)
+        (dest / "theirs.txt").write_text("not ours")
+        raise FileExistsError(str(dest))
+
+    monkeypatch.setattr("gitstow.core.operations.os.rename", fake_rename)
+    monkeypatch.setattr("gitstow.core.operations.shutil.copytree", fake_copytree)
+
+    with pytest.raises(FileExistsError):
+        move_repo(store, settings, "thing", "a", "b")
+
+    assert (dest / "theirs.txt").exists()  # other process's dir survives
+
+
+def test_keyboard_interrupt_rolls_back_disk_move(tmp_path, monkeypatch):
+    settings, store = _setup(tmp_path, {"a": "flat", "b": "flat"})
+    src = _mkgit(tmp_path / "a" / "thing")
+    store.add(Repo(owner="", name="thing", remote_url="u", workspace="a"))
+
+    monkeypatch.setattr(
+        RepoStore, "_write",
+        lambda self: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        move_repo(store, settings, "thing", "a", "b")
+
+    assert (src / "sentinel.txt").exists()          # rolled back
+    assert not (tmp_path / "b" / "thing").exists()

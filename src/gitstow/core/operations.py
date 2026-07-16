@@ -121,6 +121,10 @@ def _move_dir(src: Path, dst: Path) -> None:
             raise
     try:
         shutil.copytree(src, dst, symlinks=True)
+    except FileExistsError:
+        # dst appeared concurrently — copytree didn't create it, so it isn't
+        # ours to delete.
+        raise
     except BaseException:
         shutil.rmtree(dst, ignore_errors=True)
         raise
@@ -232,9 +236,9 @@ def move_repo(
             # 5. Catalog update — written on bulk() exit, still under the lock.
             store.remove(key, workspace=from_ws)
             store.add(new_repo)
-    except Exception:
-        # Catalog write (or owner-dir mkdir race) failed after the folder
-        # moved — roll the folder back so disk and catalog stay consistent.
+    except BaseException:
+        # Catalog write failed — or Ctrl-C landed — after the folder moved:
+        # roll the folder back so disk and catalog stay consistent.
         if moved_src is not None and dest_path.exists() and not moved_src.exists():
             with contextlib.suppress(OSError, shutil.Error):
                 moved_src.parent.mkdir(parents=True, exist_ok=True)
