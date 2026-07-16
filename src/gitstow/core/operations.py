@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import contextlib
 import shutil
+from pathlib import Path
 from typing import Callable, Optional
 
 from gitstow.core.config import Settings, Workspace
@@ -107,72 +108,89 @@ def move_repo(
     """Reassign a repo from one workspace to another.
 
     Moves the folder on disk to the target workspace's directory and updates
-    the catalog to match. Validates everything first, then moves the folder,
-    then writes the catalog. Raises ValueError with a human-readable message on
-    any rule violation; on success returns the new Repo.
+    the catalog to match. The whole operation — validation, disk move, catalog
+    mutation — runs inside one locked bulk() block so a concurrent CLI/web
+    operation can't slip between the collision checks and the mutation. Raises
+    ValueError with a human-readable message on any rule violation; on success
+    returns the new Repo. If the catalog write fails after the folder moved,
+    the folder is moved back (best effort) before the error propagates.
     """
-    # 1. Resolve
-    src = store.get(key, workspace=from_ws)
-    if src is None:
-        raise ValueError(f"Repo '{key}' not found in workspace '{from_ws}'.")
-    target = settings.get_workspace(to_ws)
-    if target is None:
-        raise ValueError(f"Workspace '{to_ws}' not found.")
-    if to_ws == from_ws:
-        raise ValueError(f"Repo '{key}' is already in workspace '{to_ws}'.")
+    moved_src: Path | None = None
+    dest_path: Path | None = None
+    try:
+        with store.bulk():
+            # 1. Resolve (against fresh state — bulk() reloads under the lock)
+            src = store.get(key, workspace=from_ws)
+            if src is None:
+                raise ValueError(f"Repo '{key}' not found in workspace '{from_ws}'.")
+            target = settings.get_workspace(to_ws)
+            if target is None:
+                raise ValueError(f"Workspace '{to_ws}' not found.")
+            if to_ws == from_ws:
+                raise ValueError(f"Repo '{key}' is already in workspace '{to_ws}'.")
 
-    # 2. Re-key by target layout
-    if target.layout == "flat":
-        new_owner = ""
-    else:
-        new_owner = src.owner
-        if not new_owner and src.remote_url:
-            with contextlib.suppress(ValueError):
-                new_owner = parse_git_url(
-                    src.remote_url, default_host=settings.default_host
-                ).owner
-        if not new_owner:
-            raise ValueError(
-                f"Cannot move '{key}' into structured workspace '{to_ws}': no owner "
-                f"is known and none can be parsed from the remote URL. A structured "
-                f"workspace files repos under owner/repo, so discovery would never "
-                f"find a bare folder."
+            # 2. Re-key by target layout
+            if target.layout == "flat":
+                new_owner = ""
+            else:
+                new_owner = src.owner
+                if not new_owner and src.remote_url:
+                    with contextlib.suppress(ValueError):
+                        new_owner = parse_git_url(
+                            src.remote_url, default_host=settings.default_host
+                        ).owner
+                if not new_owner:
+                    raise ValueError(
+                        f"Cannot move '{key}' into structured workspace '{to_ws}': no owner "
+                        f"is known and none can be parsed from the remote URL. A structured "
+                        f"workspace files repos under owner/repo, so discovery would never "
+                        f"find a bare folder."
+                    )
+
+            new_repo = Repo(
+                owner=new_owner,
+                name=src.name,
+                remote_url=src.remote_url,
+                workspace=to_ws,
+                frozen=src.frozen,
+                tags=list(dict.fromkeys(list(src.tags) + list(target.auto_tags))),
+                added=src.added,
+                last_pulled=src.last_pulled,
+                last_fetched=src.last_fetched,
             )
 
-    new_repo = Repo(
-        owner=new_owner,
-        name=src.name,
-        remote_url=src.remote_url,
-        workspace=to_ws,
-        frozen=src.frozen,
-        tags=list(dict.fromkeys(list(src.tags) + list(target.auto_tags))),
-        added=src.added,
-        last_pulled=src.last_pulled,
-        last_fetched=src.last_fetched,
-    )
+            # 3. Collision checks
+            if store.get(new_repo.key, workspace=to_ws) is not None:
+                raise ValueError(
+                    f"A repo '{new_repo.key}' already exists in workspace '{to_ws}'."
+                )
+            dest_path = new_repo.get_path(target.get_path())
+            if dest_path.exists():
+                raise ValueError(f"Destination path already exists: {dest_path}")
 
-    # 3. Collision checks (before touching anything)
-    if store.get(new_repo.key, workspace=to_ws) is not None:
-        raise ValueError(f"A repo '{new_repo.key}' already exists in workspace '{to_ws}'.")
-    dest_path = new_repo.get_path(target.get_path())
-    if dest_path.exists():
-        raise ValueError(f"Destination path already exists: {dest_path}")
+            # 4. Disk move — skip when the source folder is already missing.
+            source = settings.get_workspace(from_ws)
+            src_path = src.get_path(source.get_path()) if source else None
+            if src_path and src_path.exists():
+                if new_owner:
+                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(src_path), str(dest_path))
+                moved_src = src_path
+                if src.owner:
+                    # Remove the now-empty owner directory (ignore if not empty).
+                    with contextlib.suppress(OSError):
+                        src_path.parent.rmdir()
 
-    # 4. Disk move — skip when the source folder is already missing.
-    source = settings.get_workspace(from_ws)
-    src_path = src.get_path(source.get_path()) if source else None
-    if src_path and src_path.exists():
-        if new_owner:
-            dest_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(src_path), str(dest_path))
-        if src.owner:
-            # Remove the now-empty owner directory (ignore if not empty).
-            with contextlib.suppress(OSError):
-                src_path.parent.rmdir()
-
-    # 5. Catalog update — single locked mutation.
-    with store.bulk():
-        store.remove(key, workspace=from_ws)
-        store.add(new_repo)
+            # 5. Catalog update — written on bulk() exit, still under the lock.
+            store.remove(key, workspace=from_ws)
+            store.add(new_repo)
+    except Exception:
+        # Catalog write (or owner-dir mkdir race) failed after the folder
+        # moved — roll the folder back so disk and catalog stay consistent.
+        if moved_src is not None and dest_path.exists() and not moved_src.exists():
+            with contextlib.suppress(OSError, shutil.Error):
+                moved_src.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(dest_path), str(moved_src))
+        raise
 
     return new_repo

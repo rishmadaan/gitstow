@@ -95,7 +95,8 @@ class TestAddParallelAndConflicts:
         return ws_dir
 
     def test_multiple_clones_run_concurrently(self, tmp_path, monkeypatch):
-        import threading, time
+        import threading
+        import time
         from unittest.mock import patch
         from typer.testing import CliRunner
         from gitstow.cli.main import app
@@ -575,7 +576,8 @@ class TestRepoInfoStatusModel:
 
 class TestSearchParallel:
     def test_searches_run_concurrently(self, tmp_path, monkeypatch):
-        import threading, time
+        import threading
+        import time
         from unittest.mock import patch
         from typer.testing import CliRunner
         from gitstow.cli.main import app

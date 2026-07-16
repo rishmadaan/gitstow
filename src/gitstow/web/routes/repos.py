@@ -513,7 +513,9 @@ async def move_repo_route(
         raise HTTPException(status_code=404, detail="repo not found")
 
     try:
-        moved = move_repo(store, settings, key, workspace, target)
+        # Blocking IO (file lock + shutil.move, possibly a cross-device copy) —
+        # keep it off the event loop, like the delete route's rmtree.
+        moved = await asyncio.to_thread(move_repo, store, settings, key, workspace, target)
     except ValueError as exc:
         from gitstow.web.routes.pages import render_repo_detail
         return render_repo_detail(request, workspace, key, error=str(exc), status_code=422)

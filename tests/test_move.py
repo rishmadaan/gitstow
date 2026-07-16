@@ -152,3 +152,20 @@ def test_unknown_target_refused(tmp_path):
     store.add(Repo(owner="", name="z", remote_url="u", workspace="a"))
     with pytest.raises(ValueError, match="not found"):
         move_repo(store, settings, "z", "a", "nope")
+
+
+def test_catalog_write_failure_rolls_back_disk_move(tmp_path, monkeypatch):
+    settings, store = _setup(tmp_path, {"oss": "structured", "active": "flat"})
+    src = _mkgit(tmp_path / "oss" / "anthropic" / "claude-code")
+    store.add(Repo(owner="anthropic", name="claude-code",
+                   remote_url="https://github.com/anthropic/claude-code.git",
+                   workspace="oss"))
+
+    monkeypatch.setattr(RepoStore, "_write", lambda self: (_ for _ in ()).throw(OSError("disk full")))
+
+    with pytest.raises(OSError, match="disk full"):
+        move_repo(store, settings, "anthropic/claude-code", "oss", "active")
+
+    # folder rolled back to the source; nothing left at the destination
+    assert (src / "sentinel.txt").exists()
+    assert not (tmp_path / "active" / "claude-code").exists()
