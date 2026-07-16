@@ -199,8 +199,25 @@ def move_repo(
 
             # 4. Disk move — skip when the source folder is already missing.
             source = settings.get_workspace(from_ws)
-            src_path = src.get_path(source.get_path()) if source else None
-            if src_path and src_path.exists():
+            if source is None:
+                # Catalog entries can outlive their workspace (removed with
+                # repos kept). Without the source path we can't move the
+                # folder, and a silent catalog-only "move" would lie about it.
+                raise ValueError(
+                    f"Source workspace '{from_ws}' is no longer configured, so the "
+                    f"folder's location is unknown. Re-add the workspace, or remove "
+                    f"and re-add the repo in its new workspace."
+                )
+            src_path = src.get_path(source.get_path())
+            if src_path.exists():
+                if (src_path / ".git").is_file():
+                    # A gitfile (linked git worktree): a plain rename breaks the
+                    # main repo's worktree metadata and the repo dies on the
+                    # next `git worktree prune`.
+                    raise ValueError(
+                        f"'{key}' is a linked git worktree (.git is a file). Move it "
+                        f"with 'git worktree move' instead, then rescan both workspaces."
+                    )
                 # Always ensure the parent exists (the workspace root may not
                 # have been created yet) — a missing parent would downgrade
                 # the rename to a full cross-directory copy.

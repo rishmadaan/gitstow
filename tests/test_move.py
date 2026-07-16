@@ -256,3 +256,27 @@ def test_source_delete_failure_keeps_complete_destination(tmp_path, monkeypatch)
     assert moved.workspace == "active"
     assert src.exists()
     real_rmtree(src)
+
+
+def test_unconfigured_source_workspace_refused(tmp_path):
+    settings, store = _setup(tmp_path, {"b": "flat"})
+    # catalog entry whose workspace is no longer in settings
+    store.add(Repo(owner="", name="orphan", remote_url="u", workspace="gone"))
+
+    with pytest.raises(ValueError, match="no longer configured"):
+        move_repo(store, settings, "orphan", "gone", "b")
+
+    assert store.get("orphan", workspace="gone") is not None  # catalog untouched
+
+
+def test_linked_worktree_refused(tmp_path):
+    settings, store = _setup(tmp_path, {"a": "flat", "b": "flat"})
+    wt = tmp_path / "a" / "wt"
+    wt.mkdir()
+    (wt / ".git").write_text("gitdir: /somewhere/else/.git/worktrees/wt\n")
+    store.add(Repo(owner="", name="wt", remote_url="u", workspace="a"))
+
+    with pytest.raises(ValueError, match="linked git worktree"):
+        move_repo(store, settings, "wt", "a", "b")
+
+    assert wt.exists()  # untouched
