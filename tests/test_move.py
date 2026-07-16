@@ -321,3 +321,49 @@ def test_keyboard_interrupt_rolls_back_disk_move(tmp_path, monkeypatch):
 
     assert (src / "sentinel.txt").exists()          # rolled back
     assert not (tmp_path / "b" / "thing").exists()
+
+
+def test_moving_worktree_owner_repairs_linked_worktrees(tmp_path):
+    import subprocess
+
+    settings, store = _setup(tmp_path, {"a": "flat", "b": "flat"})
+    main = tmp_path / "a" / "proj"
+    main.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=main, check=True)
+    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "init"],
+                   cwd=main, check=True)
+    linked = tmp_path / "linked-wt"
+    subprocess.run(["git", "worktree", "add", "-q", str(linked)],
+                   cwd=main, check=True)
+    store.add(Repo(owner="", name="proj", remote_url="u", workspace="a"))
+
+    move_repo(store, settings, "proj", "a", "b")
+
+    # linked worktree still functions after the main repo moved
+    r = subprocess.run(["git", "status", "--porcelain"], cwd=linked,
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+
+
+def test_interrupt_during_source_delete_completes_move(tmp_path, monkeypatch):
+    settings, store = _setup(tmp_path, {"a": "flat", "b": "flat"})
+    src = _mkgit(tmp_path / "a" / "thing")
+    store.add(Repo(owner="", name="thing", remote_url="u", workspace="a"))
+
+    def fake_rename(s, d):
+        raise OSError(errno.EXDEV, "Cross-device link")
+
+    def fake_rmtree(p, ignore_errors=False):
+        raise KeyboardInterrupt()  # Ctrl-C mid source-delete
+
+    monkeypatch.setattr("gitstow.core.operations.os.rename", fake_rename)
+    monkeypatch.setattr("gitstow.core.operations.shutil.rmtree", fake_rmtree)
+
+    moved = move_repo(store, settings, "thing", "a", "b")
+
+    # move completed: catalog points at the complete destination copy;
+    # the stale source is left for doctor to flag
+    assert moved.workspace == "b"
+    assert (tmp_path / "b" / "thing" / "sentinel.txt").exists()
+    assert src.exists()
+    assert store.get("thing", workspace="b") is not None

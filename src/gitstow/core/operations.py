@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from gitstow.core.config import Settings, Workspace
+from gitstow.core.git import repair_worktrees
 from gitstow.core.parallel import run_parallel_sync
 from gitstow.core.repo import Repo, RepoStore
 from gitstow.core.url_parser import parse_git_url
@@ -128,7 +129,13 @@ def _move_dir(src: Path, dst: Path) -> None:
     except BaseException:
         shutil.rmtree(dst, ignore_errors=True)
         raise
-    shutil.rmtree(src, ignore_errors=True)
+    try:
+        shutil.rmtree(src, ignore_errors=True)
+    except BaseException:
+        # Ctrl-C (or worse) mid-delete: the copy at dst is complete, so
+        # finishing the move beats aborting with a half-deleted source.
+        # The stale leftover surfaces via doctor as an orphan.
+        pass
 
 
 def move_repo(
@@ -228,6 +235,10 @@ def move_repo(
                 dest_path.parent.mkdir(parents=True, exist_ok=True)
                 _move_dir(src_path, dest_path)
                 moved_src = src_path
+                if (dest_path / ".git" / "worktrees").is_dir():
+                    # This repo owns linked worktrees whose absolute
+                    # back-pointers just went stale — git ships the fix.
+                    repair_worktrees(dest_path)
                 if src.owner:
                     # Remove the now-empty owner directory (ignore if not empty).
                     with contextlib.suppress(OSError):

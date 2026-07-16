@@ -280,6 +280,17 @@ def get_last_commit(repo_path: Path) -> CommitInfo:
     )
 
 
+def repair_worktrees(repo_path: Path) -> bool:
+    """Run `git worktree repair` from a repo that was just relocated.
+
+    Linked worktrees keep absolute back-pointers into the main repo's
+    .git/worktrees/; after the main repo moves, repair rewrites them.
+    Returns True on success.
+    """
+    result = _run_git(["worktree", "repair"], cwd=repo_path)
+    return result.returncode == 0
+
+
 def get_branch(repo_path: Path) -> str:
     """Get the current branch name."""
     result = _run_git(["branch", "--show-current"], cwd=repo_path)
