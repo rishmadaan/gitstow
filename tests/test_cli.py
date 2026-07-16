@@ -95,7 +95,8 @@ class TestAddParallelAndConflicts:
         return ws_dir
 
     def test_multiple_clones_run_concurrently(self, tmp_path, monkeypatch):
-        import threading, time
+        import threading
+        import time
         from unittest.mock import patch
         from typer.testing import CliRunner
         from gitstow.cli.main import app
@@ -225,6 +226,55 @@ class TestManageWorkspaceResolution:
         assert result.exit_code == 1
         combined = (result.output or "") + str(result.exception or "")
         assert "multiple workspaces" in combined or "multiple workspaces" in (result.stderr or "")
+
+
+class TestRepoMove:
+    def test_move_relocates_folder_and_recatalogs(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+
+        ws_a = tmp_path / "a"; ws_a.mkdir()
+        ws_b = tmp_path / "b"; ws_b.mkdir()
+        save_config(Settings(workspaces=[
+            Workspace(path=str(ws_a), label="a", layout="flat"),
+            Workspace(path=str(ws_b), label="b", layout="flat"),
+        ]))
+        (ws_a / "widget" / ".git").mkdir(parents=True)
+        RepoStore(path=repos_file).add(Repo(owner="", name="widget", remote_url="u", workspace="a"))
+
+        result = CliRunner().invoke(app, ["repo", "move", "widget", "b"])
+        assert result.exit_code == 0
+
+        store = RepoStore(path=repos_file)
+        assert store.get("widget", workspace="a") is None
+        assert store.get("widget", workspace="b") is not None
+        assert (ws_b / "widget" / ".git").exists()
+
+    def test_move_unknown_target_errors(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_a = tmp_path / "a"; ws_a.mkdir()
+        save_config(Settings(workspaces=[Workspace(path=str(ws_a), label="a", layout="flat")]))
+        RepoStore(path=repos_file).add(Repo(owner="", name="widget", remote_url="u", workspace="a"))
+
+        result = CliRunner().invoke(app, ["repo", "move", "widget", "nope"])
+        assert result.exit_code == 1
 
 
 class TestPullFrozenIdentity:
@@ -526,7 +576,8 @@ class TestRepoInfoStatusModel:
 
 class TestSearchParallel:
     def test_searches_run_concurrently(self, tmp_path, monkeypatch):
-        import threading, time
+        import threading
+        import time
         from unittest.mock import patch
         from typer.testing import CliRunner
         from gitstow.cli.main import app

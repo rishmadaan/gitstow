@@ -17,6 +17,7 @@ from gitstow.core.git import (
     format_size,
     is_git_repo,
 )
+from gitstow.core.operations import move_repo
 from gitstow.core.repo import RepoStore
 from gitstow.core.status_model import classify
 from gitstow.cli.helpers import resolve_repo
@@ -174,6 +175,36 @@ def remove_tags(
         console.print(f"  [green]✓[/green] Removed tags from {repo.key}: {', '.join(removed)}")
     else:
         console.print(f"  [dim]None of those tags were on {repo.key}.[/dim]")
+
+
+@manage_app.command("move")
+def move(
+    ctx: typer.Context,
+    repo_key: str = typer.Argument(help="Repo to move (owner/repo or name)."),
+    target: str = typer.Argument(help="Target workspace label."),
+) -> None:
+    """[bold]Move[/bold] a repo to another workspace — relocates its folder on disk.
+
+    \b
+    Examples:
+      gitstow repo move anthropic/claude-code active
+      gitstow -w oss repo move dupe active
+    """
+    settings = load_config()
+    store = RepoStore()
+    ws_label = (ctx.obj or {}).get("workspace")
+    repo, _ = resolve_repo(store, settings, repo_key, ws_label)
+
+    try:
+        moved = move_repo(store, settings, repo.key, repo.workspace, target)
+    except ValueError as exc:
+        err_console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(code=1)
+
+    console.print(
+        f"  [green]✓[/green] Moved {repo.key} → workspace [bold]{target}[/bold] "
+        f"(now [cyan]{moved.key}[/cyan])."
+    )
 
 
 @manage_app.command("tags")

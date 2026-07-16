@@ -77,6 +77,28 @@
     </small>
   </section>
 
+  <section class="section" id="workspace">
+    <h4>Workspace</h4>
+    {% if error %}<p class="form-error">{{ error }}</p>{% endif %}
+    {% if other_workspaces %}
+    <form method="POST" action="/repos/{{ repo.workspace }}/{{ repo.key }}/move"
+          data-confirm="Move {{ repo.key }} to another workspace? The folder will physically move on disk.">
+      <select name="target">
+        {% for label in other_workspaces %}<option value="{{ label }}">{{ label }}</option>{% endfor %}
+      </select>
+      <button type="submit" class="btn btn-primary btn-sm">Move</button>
+    </form>
+    <small style="display: block; margin-top: 0.65rem; color: var(--muted-soft); font-size: 0.84rem;">
+      Reassigns this repo and relocates its folder to the target workspace's directory,
+      re-keyed to that workspace's layout.
+    </small>
+    {% else %}
+    <p style="color: var(--muted-soft); font-size: 0.9rem;">
+      Only one workspace configured — add another to move repos between them.
+    </p>
+    {% endif %}
+  </section>
+
   <section class="section">
     <h4>Freeze</h4>
     <div class="freeze-row">

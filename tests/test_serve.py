@@ -396,6 +396,67 @@ class TestFreezeTag:
         assert RepoStore().get("foo/bar", workspace="test-ws").tags == ["ai", "tools", "wip"]
 
 
+# ---------- move ----------
+
+
+class TestMoveRepo:
+    def _two_ws(self, isolated):
+        a = isolated / "a"; a.mkdir()
+        b = isolated / "b"; b.mkdir()
+        save_config(Settings(workspaces=[
+            Workspace(path=str(a), label="a", layout="flat"),
+            Workspace(path=str(b), label="b", layout="flat"),
+        ]))
+        return a, b
+
+    def test_move_success_redirects_to_new_detail(self, client, isolated):
+        a, b = self._two_ws(isolated)
+        (a / "widget" / ".git").mkdir(parents=True)
+        RepoStore().add(Repo(owner="", name="widget", remote_url="u", workspace="a"))
+
+        r = client.post(
+            "/repos/a/widget/move", data={"target": "b"}, follow_redirects=False,
+        )
+        assert r.status_code == 303
+        assert r.headers["location"] == "/repo/b/widget"
+        assert RepoStore().get("widget", workspace="a") is None
+        assert RepoStore().get("widget", workspace="b") is not None
+        assert (b / "widget" / ".git").exists()
+
+    def test_move_error_rerenders_drawer(self, client, isolated, monkeypatch):
+        a, b = self._two_ws(isolated)
+        (a / "widget" / ".git").mkdir(parents=True)
+        (b / "widget").mkdir()  # destination collision
+        RepoStore().add(Repo(owner="", name="widget", remote_url="u", workspace="a"))
+        monkeypatch.setattr("gitstow.web.routes.pages.get_status", lambda p: _fake_status())
+
+        r = client.post("/repos/a/widget/move", data={"target": "b"})
+        assert r.status_code == 422
+        assert "already exists" in r.text
+        assert RepoStore().get("widget", workspace="a") is not None  # unmoved
+
+    def test_move_missing_repo_404(self, client, isolated):
+        self._two_ws(isolated)
+        r = client.post("/repos/a/ghost/move", data={"target": "b"})
+        assert r.status_code == 404
+
+    def test_drawer_move_section_no_nested_forms(self, client, isolated, monkeypatch):
+        import re
+        a, _ = self._two_ws(isolated)
+        (a / "widget" / ".git").mkdir(parents=True)
+        RepoStore().add(Repo(owner="", name="widget", remote_url="u", workspace="a"))
+        monkeypatch.setattr("gitstow.web.routes.pages.get_status", lambda p: _fake_status())
+
+        html = client.get("/repo/a/widget").text
+        assert 'action="/repos/a/widget/move"' in html
+        assert 'name="target"' in html
+        depth = 0
+        for tag in re.findall(r"<form\b|</form>", html):
+            depth += 1 if tag.startswith("<form") else -1
+            assert depth in (0, 1), "nested <form> detected in repo drawer"
+        assert depth == 0
+
+
 # ---------- workspaces ----------
 
 

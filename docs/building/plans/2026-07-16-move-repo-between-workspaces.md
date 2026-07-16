@@ -82,6 +82,12 @@ Ordering note: validate everything first, then disk move, then catalog write.
 Bulk/multi-select move, drag-and-drop, moving across hosts, MCP tool parity
 (can wrap `move_repo()` later).
 
+Nested-group owners (`group/subgroup/repo`) in structured workspaces land at
+`root/group/subgroup/repo` — the same place `gitstow add` clones them today —
+which two-level structured discovery cannot see (pre-existing limitation
+across add/scan/doctor, flagged in Codex review pass 6; fix is a separate
+discovery feature).
+
 ## Verification (post-implementation, by the session lead — not Codex)
 
 Review the full diff; run the suite; then verify in a real browser per

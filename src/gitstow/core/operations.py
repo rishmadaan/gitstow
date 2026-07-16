@@ -5,11 +5,19 @@ surfaces can't drift."""
 
 from __future__ import annotations
 
+import contextlib
+import errno
+import os
+import shutil
+import sys
+from pathlib import Path
 from typing import Callable, Optional
 
-from gitstow.core.config import Workspace
+from gitstow.core.config import Settings, Workspace
+from gitstow.core.git import is_git_repo, repair_worktrees
 from gitstow.core.parallel import run_parallel_sync
-from gitstow.core.repo import Repo
+from gitstow.core.repo import Repo, RepoStore
+from gitstow.core.url_parser import parse_git_url
 
 Pair = tuple[Repo, Workspace]
 
@@ -96,3 +104,246 @@ def run_bulk(
         remaining = next_round
 
     return [final[r.global_key] for r, _ in targets if r.global_key in final]
+
+
+def _strict_descendant(path: Path, root: Path) -> bool:
+    """True if resolved `path` lives strictly inside resolved `root`."""
+    p, r = path.resolve(), root.resolve()
+    return p != r and r in p.parents
+
+
+def _move_dir(src: Path, dst: Path) -> None:
+    """Relocate a directory with no ambiguous partial states.
+
+    Same filesystem: one atomic rename. Cross filesystem: copy, then delete
+    the source — a failed copy removes the partial destination (the source is
+    untouched); a failed source-delete keeps the complete destination and
+    leaves the stale source behind rather than risk deleting the only good
+    copy. shutil.move's combined fallback can't tell those two failures apart.
+    """
+    # POSIX rename silently replaces an empty dir a concurrent process just
+    # created, so claim the slot with mkdir first (fails loudly on a race)
+    # and rename onto the dir we own. Windows rename never replaces an
+    # existing dst — no-replace comes for free, and a claim dir would make
+    # every rename fail there.
+    claim = sys.platform != "win32"
+    if claim:
+        os.mkdir(dst)
+    try:
+        os.rename(src, dst)
+        return
+    except OSError as exc:
+        if claim:
+            os.rmdir(dst)  # release the claim before falling back or raising
+        if exc.errno != errno.EXDEV:
+            raise
+    try:
+        shutil.copytree(src, dst, symlinks=True)
+    except FileExistsError:
+        # dst appeared concurrently — copytree didn't create it, so it isn't
+        # ours to delete.
+        raise
+    except BaseException:
+        shutil.rmtree(dst, ignore_errors=True)
+        raise
+    try:
+        shutil.rmtree(src, ignore_errors=True)
+    except BaseException:
+        # Ctrl-C (or worse) mid-delete: the copy at dst is complete, so
+        # finishing the move beats aborting with a half-deleted source.
+        # The stale leftover surfaces via doctor as an orphan.
+        pass
+
+
+def move_repo(
+    store: RepoStore, settings: Settings, key: str, from_ws: str, to_ws: str
+) -> Repo:
+    """Reassign a repo from one workspace to another.
+
+    Moves the folder on disk to the target workspace's directory and updates
+    the catalog to match. The whole operation — validation, disk move, catalog
+    mutation — runs inside one locked bulk() block so a concurrent CLI/web
+    operation can't slip between the collision checks and the mutation. Raises
+    ValueError with a human-readable message on any rule violation; on success
+    returns the new Repo. If the catalog write fails after the folder moved,
+    the folder is moved back (best effort) before the error propagates.
+    """
+    moved_src: Path | None = None
+    dest_path: Path | None = None
+    try:
+        with store.bulk():
+            # 1. Resolve (against fresh state — bulk() reloads under the lock)
+            src = store.get(key, workspace=from_ws)
+            if src is None:
+                raise ValueError(f"Repo '{key}' not found in workspace '{from_ws}'.")
+            target = settings.get_workspace(to_ws)
+            if target is None:
+                raise ValueError(f"Workspace '{to_ws}' not found.")
+            if to_ws == from_ws:
+                raise ValueError(f"Repo '{key}' is already in workspace '{to_ws}'.")
+
+            # 2. Re-key by target layout
+            if target.layout == "flat":
+                new_owner = ""
+                # Nested keys (e.g. GitLab "group/subgroup/repo") parse as
+                # name="subgroup/repo" — a flat key must be the basename only.
+                new_name = src.name.rsplit("/", 1)[-1]
+            else:
+                new_owner = src.owner
+                if not new_owner and src.remote_url:
+                    with contextlib.suppress(ValueError):
+                        new_owner = parse_git_url(
+                            src.remote_url, default_host=settings.default_host
+                        ).owner
+                if not new_owner:
+                    raise ValueError(
+                        f"Cannot move '{key}' into structured workspace '{to_ws}': no owner "
+                        f"is known and none can be parsed from the remote URL. A structured "
+                        f"workspace files repos under owner/repo, so discovery would never "
+                        f"find a bare folder."
+                    )
+                new_name = src.name
+
+            new_repo = Repo(
+                owner=new_owner,
+                name=new_name,
+                remote_url=src.remote_url,
+                workspace=to_ws,
+                frozen=src.frozen,
+                tags=list(dict.fromkeys(list(src.tags) + list(target.auto_tags))),
+                added=src.added,
+                last_pulled=src.last_pulled,
+                last_fetched=src.last_fetched,
+            )
+
+            # 3. Collision checks
+            if store.get(new_repo.key, workspace=to_ws) is not None:
+                raise ValueError(
+                    f"A repo '{new_repo.key}' already exists in workspace '{to_ws}'."
+                )
+            dest_path = new_repo.get_path(target.get_path())
+            # is_symlink() too: a dangling symlink fails exists() but would
+            # still be silently clobbered by the rename.
+            if dest_path.exists() or dest_path.is_symlink():
+                raise ValueError(f"Destination path already exists: {dest_path}")
+            # A key containing '..' (repos.yaml is user-editable, and the web
+            # route takes the key from the URL) must never escape the
+            # workspace — this feature moves repos, not arbitrary paths.
+            if not _strict_descendant(dest_path, target.get_path()):
+                raise ValueError(
+                    f"Destination resolves outside workspace '{to_ws}': {dest_path}"
+                )
+
+            # 4. Disk move — skip when the source folder is already missing.
+            source = settings.get_workspace(from_ws)
+            if source is None:
+                # Catalog entries can outlive their workspace (removed with
+                # repos kept). Without the source path we can't move the
+                # folder, and a silent catalog-only "move" would lie about it.
+                raise ValueError(
+                    f"Source workspace '{from_ws}' is no longer configured, so the "
+                    f"folder's location is unknown. Re-add the workspace, or remove "
+                    f"and re-add the repo in its new workspace."
+                )
+            src_path = src.get_path(source.get_path())
+            if not _strict_descendant(src_path, source.get_path()):
+                raise ValueError(
+                    f"Source resolves outside workspace '{from_ws}': {src_path}"
+                )
+            # Before exists(): a dangling symlink fails exists() and would
+            # otherwise slip through as "missing on disk".
+            if src_path.is_symlink():
+                # Renaming the link would re-resolve a relative target
+                # against the new workspace — silently pointing elsewhere.
+                raise ValueError(
+                    f"'{key}' is a symlink, not a real folder. Move the actual "
+                    f"repo it points to, or recreate the link in the target "
+                    f"workspace yourself."
+                )
+            if src_path.exists():
+                if not is_git_repo(src_path):
+                    # The tracked repo is gone and something else now occupies
+                    # its path — not ours to relocate.
+                    raise ValueError(
+                        f"The folder at '{src_path}' is not a git repository — "
+                        f"refusing to move it. Rescan the workspace to fix the catalog."
+                    )
+                git_entry = src_path / ".git"
+                if git_entry.is_symlink() and not Path(os.readlink(git_entry)).is_absolute():
+                    # A relative .git symlink resolves against the repo's
+                    # location — it would arrive broken at the destination.
+                    raise ValueError(
+                        f"'{key}' has a relative .git symlink, which would break "
+                        f"after the move. Re-point it absolutely, or move the repo "
+                        f"manually."
+                    )
+                if (src_path / ".git").is_file():
+                    # A gitfile (linked git worktree): a plain rename breaks the
+                    # main repo's worktree metadata and the repo dies on the
+                    # next `git worktree prune`.
+                    raise ValueError(
+                        f"'{key}' is a linked git worktree (.git is a file). Move it "
+                        f"with 'git worktree move' instead, then rescan both workspaces."
+                    )
+                # Always ensure the parent exists (the workspace root may not
+                # have been created yet) — a missing parent would downgrade
+                # the rename to a full cross-directory copy.
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                _move_dir(src_path, dest_path)
+                moved_src = src_path
+                if (dest_path / ".git" / "worktrees").is_dir():
+                    # This repo owns linked worktrees whose absolute
+                    # back-pointers just went stale — git ships the fix.
+                    if not repair_worktrees(dest_path):
+                        # Reporting success with broken worktrees would be a
+                        # lie; raising triggers the rollback below.
+                        raise ValueError(
+                            f"'{key}' owns linked git worktrees and 'git worktree "
+                            f"repair' failed after the move — rolled back."
+                        )
+                if src.owner and _strict_descendant(src_path.parent, source.get_path()):
+                    # Remove the now-empty owner directory (ignore if not
+                    # empty). The descendant guard keeps a '.'-like owner from
+                    # aiming this at the workspace root itself.
+                    with contextlib.suppress(OSError):
+                        src_path.parent.rmdir()
+
+            # 5. Catalog update — written on bulk() exit, still under the lock.
+            # add before remove: bulk() persists even when unwinding, so an
+            # interrupt between the two leaves a recoverable duplicate entry
+            # rather than a lost one.
+            store.add(new_repo)
+            store.remove(key, workspace=from_ws)
+    except BaseException:
+        # Something failed — or Ctrl-C landed — after the folder moved. Ask
+        # the persisted catalog whether the move committed: if it did, disk
+        # already matches it and rolling the folder back would CREATE the
+        # inconsistency we're preventing.
+        committed = False
+        if moved_src is not None:
+            with contextlib.suppress(Exception):
+                store.load()
+                committed = (
+                    store.get(new_repo.key, workspace=to_ws) is not None
+                    and store.get(key, workspace=from_ws) is None
+                )
+        if (
+            not committed
+            and moved_src is not None
+            and dest_path.exists()
+            # Rollback never deletes: whatever occupies the old source path —
+            # our own partial remnant or a foreign dir recreated there — we
+            # cannot prove ownership, so stand down and leave the visible,
+            # recoverable state (repo at dest, catalog on source, doctor
+            # flags the mismatch).
+            and not moved_src.exists()
+        ):
+            with contextlib.suppress(OSError, shutil.Error):
+                moved_src.parent.mkdir(parents=True, exist_ok=True)
+                _move_dir(dest_path, moved_src)
+                if (moved_src / ".git" / "worktrees").is_dir():
+                    # Un-stale the linked worktrees' back-pointers again.
+                    repair_worktrees(moved_src)
+        raise
+
+    return new_repo
