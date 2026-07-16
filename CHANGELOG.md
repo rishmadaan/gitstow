@@ -4,6 +4,13 @@ All notable changes to gitstow will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-07-16
+
+### Added
+
+- **Move repos between workspaces.** From the dashboard's repo detail page (new Workspace section: pick a target, confirm, done) or the new `gitstow repo move <repo> <workspace>` command. The folder physically relocates on disk following the target workspace's layout (structured `owner/repo` vs flat), the catalog updates in the same locked operation, existing tags are kept and the target's auto-tags merge in, and repos that own linked git worktrees get `git worktree repair` run automatically after the move.
+- **Move safety net.** Collisions are refused before anything is touched (catalog, disk, even dangling symlinks); sources that can't move safely are refused with actionable errors (symlinked repos, linked-worktree gitfiles, relative `.git` symlinks, non-repo directories squatting on a tracked path); catalog keys can never escape their workspace on disk; and if anything fails mid-move, the rollback restores the folder without ever deleting data it can't prove is its own.
+
 ## [0.4.0] - 2026-07-12
 
 ### Added
