@@ -17,6 +17,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 
 from gitstow.core.config import load_config
 from gitstow.core.git import clone as git_clone, fetch as git_fetch, get_status, is_git_repo, pull as git_pull
+from gitstow.core.operations import move_repo
 from gitstow.core.parallel import run_parallel
 from gitstow.core.repo import Repo, RepoStore
 from gitstow.core.status_model import classify
@@ -499,6 +500,25 @@ async def toggle_freeze(workspace: str, key: str, request: Request):
         return _render_row_for(key, workspace, request)
     referer = request.headers.get("referer") or "/"
     return RedirectResponse(url=referer, status_code=303)
+
+
+@router.post("/repos/{workspace}/{key:path}/move")
+async def move_repo_route(
+    workspace: str, key: str, request: Request, target: str = Form(...),
+):
+    """Reassign a repo to another workspace, relocating its folder on disk."""
+    settings = load_config()
+    store = RepoStore()
+    if store.get(key, workspace=workspace) is None:
+        raise HTTPException(status_code=404, detail="repo not found")
+
+    try:
+        moved = move_repo(store, settings, key, workspace, target)
+    except ValueError as exc:
+        from gitstow.web.routes.pages import render_repo_detail
+        return render_repo_detail(request, workspace, key, error=str(exc), status_code=422)
+
+    return RedirectResponse(url=f"/repo/{moved.workspace}/{moved.key}", status_code=303)
 
 
 @router.post("/repos/{workspace}/{key:path}/tag")

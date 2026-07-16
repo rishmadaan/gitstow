@@ -99,6 +99,12 @@ async def settings_save(
 
 @router.get("/repo/{workspace}/{key:path}", response_class=HTMLResponse)
 async def repo_detail(workspace: str, key: str, request: Request):
+    return render_repo_detail(request, workspace, key)
+
+
+def render_repo_detail(request, workspace: str, key: str, error=None, status_code=200):
+    """Build the repo-detail drawer render. Shared by the GET detail route and
+    the move route's error path (so a failed move re-shows the drawer + error)."""
     settings = load_config()
     store = RepoStore()
     ws = settings.get_workspace(workspace)
@@ -150,8 +156,11 @@ async def repo_detail(workspace: str, key: str, request: Request):
     return render(
         request,
         "_repo_drawer.html",
+        status_code=status_code,
         page="dashboard",
         repo=ctx,
+        other_workspaces=[label for label in sorted_labels if label != repo.workspace],
+        error=error,
         last_pull_rel=_relative_time(repo.last_pulled),
         last_pull_iso=repo.last_pulled,
         last_fetched_rel=_relative_time(repo.last_fetched) if repo.last_fetched else "never",

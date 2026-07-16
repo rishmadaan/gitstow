@@ -5,11 +5,14 @@ surfaces can't drift."""
 
 from __future__ import annotations
 
+import contextlib
+import shutil
 from typing import Callable, Optional
 
-from gitstow.core.config import Workspace
+from gitstow.core.config import Settings, Workspace
 from gitstow.core.parallel import run_parallel_sync
-from gitstow.core.repo import Repo
+from gitstow.core.repo import Repo, RepoStore
+from gitstow.core.url_parser import parse_git_url
 
 Pair = tuple[Repo, Workspace]
 
@@ -96,3 +99,80 @@ def run_bulk(
         remaining = next_round
 
     return [final[r.global_key] for r, _ in targets if r.global_key in final]
+
+
+def move_repo(
+    store: RepoStore, settings: Settings, key: str, from_ws: str, to_ws: str
+) -> Repo:
+    """Reassign a repo from one workspace to another.
+
+    Moves the folder on disk to the target workspace's directory and updates
+    the catalog to match. Validates everything first, then moves the folder,
+    then writes the catalog. Raises ValueError with a human-readable message on
+    any rule violation; on success returns the new Repo.
+    """
+    # 1. Resolve
+    src = store.get(key, workspace=from_ws)
+    if src is None:
+        raise ValueError(f"Repo '{key}' not found in workspace '{from_ws}'.")
+    target = settings.get_workspace(to_ws)
+    if target is None:
+        raise ValueError(f"Workspace '{to_ws}' not found.")
+    if to_ws == from_ws:
+        raise ValueError(f"Repo '{key}' is already in workspace '{to_ws}'.")
+
+    # 2. Re-key by target layout
+    if target.layout == "flat":
+        new_owner = ""
+    else:
+        new_owner = src.owner
+        if not new_owner and src.remote_url:
+            with contextlib.suppress(ValueError):
+                new_owner = parse_git_url(
+                    src.remote_url, default_host=settings.default_host
+                ).owner
+        if not new_owner:
+            raise ValueError(
+                f"Cannot move '{key}' into structured workspace '{to_ws}': no owner "
+                f"is known and none can be parsed from the remote URL. A structured "
+                f"workspace files repos under owner/repo, so discovery would never "
+                f"find a bare folder."
+            )
+
+    new_repo = Repo(
+        owner=new_owner,
+        name=src.name,
+        remote_url=src.remote_url,
+        workspace=to_ws,
+        frozen=src.frozen,
+        tags=list(dict.fromkeys(list(src.tags) + list(target.auto_tags))),
+        added=src.added,
+        last_pulled=src.last_pulled,
+        last_fetched=src.last_fetched,
+    )
+
+    # 3. Collision checks (before touching anything)
+    if store.get(new_repo.key, workspace=to_ws) is not None:
+        raise ValueError(f"A repo '{new_repo.key}' already exists in workspace '{to_ws}'.")
+    dest_path = new_repo.get_path(target.get_path())
+    if dest_path.exists():
+        raise ValueError(f"Destination path already exists: {dest_path}")
+
+    # 4. Disk move — skip when the source folder is already missing.
+    source = settings.get_workspace(from_ws)
+    src_path = src.get_path(source.get_path()) if source else None
+    if src_path and src_path.exists():
+        if new_owner:
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(src_path), str(dest_path))
+        if src.owner:
+            # Remove the now-empty owner directory (ignore if not empty).
+            with contextlib.suppress(OSError):
+                src_path.parent.rmdir()
+
+    # 5. Catalog update — single locked mutation.
+    with store.bulk():
+        store.remove(key, workspace=from_ws)
+        store.add(new_repo)
+
+    return new_repo
