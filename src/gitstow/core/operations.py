@@ -114,10 +114,15 @@ def _move_dir(src: Path, dst: Path) -> None:
     leaves the stale source behind rather than risk deleting the only good
     copy. shutil.move's combined fallback can't tell those two failures apart.
     """
+    # Claim the destination slot first: mkdir fails if it appeared
+    # concurrently, whereas a bare rename would silently replace an empty dir
+    # another process just created. rename onto the empty dir we own is safe.
+    os.mkdir(dst)
     try:
         os.rename(src, dst)
         return
     except OSError as exc:
+        os.rmdir(dst)  # release the claim before falling back or raising
         if exc.errno != errno.EXDEV:
             raise
     try:
@@ -223,6 +228,14 @@ def move_repo(
                 )
             src_path = src.get_path(source.get_path())
             if src_path.exists():
+                if src_path.is_symlink():
+                    # Renaming the link would re-resolve a relative target
+                    # against the new workspace — silently pointing elsewhere.
+                    raise ValueError(
+                        f"'{key}' is a symlink, not a real folder. Move the actual "
+                        f"repo it points to, or recreate the link in the target "
+                        f"workspace yourself."
+                    )
                 if (src_path / ".git").is_file():
                     # A gitfile (linked git worktree): a plain rename breaks the
                     # main repo's worktree metadata and the repo dies on the

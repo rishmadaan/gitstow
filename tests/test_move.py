@@ -436,3 +436,30 @@ def test_partial_source_remnant_cleared_on_rollback(tmp_path, monkeypatch):
     assert (src / "sentinel.txt").exists()
     assert not (src / "leftover.txt").exists()
     assert not (tmp_path / "b" / "thing").exists()
+
+
+def test_symlinked_source_refused(tmp_path):
+    settings, store = _setup(tmp_path, {"a": "flat", "b": "flat"})
+    real = _mkgit(tmp_path / "elsewhere")
+    (tmp_path / "a" / "linked").symlink_to(real)
+    store.add(Repo(owner="", name="linked", remote_url="u", workspace="a"))
+
+    with pytest.raises(ValueError, match="symlink"):
+        move_repo(store, settings, "linked", "a", "b")
+
+    assert (tmp_path / "a" / "linked").is_symlink()  # untouched
+
+
+def test_move_dir_refuses_concurrently_created_destination(tmp_path):
+    from gitstow.core.operations import _move_dir
+
+    src = _mkgit(tmp_path / "src-repo")
+    dst = tmp_path / "dst-repo"
+    dst.mkdir()  # appeared between the collision check and the rename
+    (dst / "theirs.txt").write_text("not ours")
+
+    with pytest.raises(FileExistsError):
+        _move_dir(src, dst)
+
+    assert (dst / "theirs.txt").exists()   # their dir survives
+    assert (src / "sentinel.txt").exists()  # source untouched
