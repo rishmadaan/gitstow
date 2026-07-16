@@ -456,6 +456,23 @@ class TestMoveRepo:
             assert depth in (0, 1), "nested <form> detected in repo drawer"
         assert depth == 0
 
+    def test_drawer_move_picker_shows_context_not_a_preselection(
+        self, client, isolated, monkeypatch,
+    ):
+        a, _ = self._two_ws(isolated)
+        (a / "widget" / ".git").mkdir(parents=True)
+        RepoStore().add(Repo(owner="", name="widget", remote_url="u", workspace="a"))
+        monkeypatch.setattr("gitstow.web.routes.pages.get_status", lambda p: _fake_status())
+
+        html = client.get("/repo/a/widget").text
+        # the section states the current workspace
+        assert "Currently in" in html
+        # the picker defaults to a disabled placeholder, not a real workspace
+        assert 'value="" disabled selected' in html
+        assert "Move to" in html
+        # and refuses to submit empty
+        assert 'name="target" required' in html
+
 
 # ---------- workspaces ----------
 

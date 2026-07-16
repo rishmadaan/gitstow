@@ -80,10 +80,14 @@
   <section class="section" id="workspace">
     <h4>Workspace</h4>
     {% if error %}<p class="form-error">{{ error }}</p>{% endif %}
+    <p style="margin-bottom: 0.85rem; color: var(--muted); font-size: 0.9rem;">
+      Currently in <span class="ws ws-{{ repo.ws_slot }}">{{ repo.workspace }}</span>
+    </p>
     {% if other_workspaces %}
     <form method="POST" action="/repos/{{ repo.workspace }}/{{ repo.key }}/move"
           data-confirm="Move {{ repo.key }} to another workspace? The folder will physically move on disk.">
-      <select name="target">
+      <select name="target" required>
+        <option value="" disabled selected>Move to&hellip;</option>
         {% for label in other_workspaces %}<option value="{{ label }}">{{ label }}</option>{% endfor %}
       </select>
       <button type="submit" class="btn btn-primary btn-sm">Move</button>
