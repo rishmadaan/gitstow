@@ -9,11 +9,12 @@ import contextlib
 import errno
 import os
 import shutil
+import sys
 from pathlib import Path
 from typing import Callable, Optional
 
 from gitstow.core.config import Settings, Workspace
-from gitstow.core.git import repair_worktrees
+from gitstow.core.git import is_git_repo, repair_worktrees
 from gitstow.core.parallel import run_parallel_sync
 from gitstow.core.repo import Repo, RepoStore
 from gitstow.core.url_parser import parse_git_url
@@ -114,15 +115,20 @@ def _move_dir(src: Path, dst: Path) -> None:
     leaves the stale source behind rather than risk deleting the only good
     copy. shutil.move's combined fallback can't tell those two failures apart.
     """
-    # Claim the destination slot first: mkdir fails if it appeared
-    # concurrently, whereas a bare rename would silently replace an empty dir
-    # another process just created. rename onto the empty dir we own is safe.
-    os.mkdir(dst)
+    # POSIX rename silently replaces an empty dir a concurrent process just
+    # created, so claim the slot with mkdir first (fails loudly on a race)
+    # and rename onto the dir we own. Windows rename never replaces an
+    # existing dst — no-replace comes for free, and a claim dir would make
+    # every rename fail there.
+    claim = sys.platform != "win32"
+    if claim:
+        os.mkdir(dst)
     try:
         os.rename(src, dst)
         return
     except OSError as exc:
-        os.rmdir(dst)  # release the claim before falling back or raising
+        if claim:
+            os.rmdir(dst)  # release the claim before falling back or raising
         if exc.errno != errno.EXDEV:
             raise
     try:
@@ -227,14 +233,23 @@ def move_repo(
                     f"and re-add the repo in its new workspace."
                 )
             src_path = src.get_path(source.get_path())
+            # Before exists(): a dangling symlink fails exists() and would
+            # otherwise slip through as "missing on disk".
+            if src_path.is_symlink():
+                # Renaming the link would re-resolve a relative target
+                # against the new workspace — silently pointing elsewhere.
+                raise ValueError(
+                    f"'{key}' is a symlink, not a real folder. Move the actual "
+                    f"repo it points to, or recreate the link in the target "
+                    f"workspace yourself."
+                )
             if src_path.exists():
-                if src_path.is_symlink():
-                    # Renaming the link would re-resolve a relative target
-                    # against the new workspace — silently pointing elsewhere.
+                if not is_git_repo(src_path):
+                    # The tracked repo is gone and something else now occupies
+                    # its path — not ours to relocate.
                     raise ValueError(
-                        f"'{key}' is a symlink, not a real folder. Move the actual "
-                        f"repo it points to, or recreate the link in the target "
-                        f"workspace yourself."
+                        f"The folder at '{src_path}' is not a git repository — "
+                        f"refusing to move it. Rescan the workspace to fix the catalog."
                     )
                 if (src_path / ".git").is_file():
                     # A gitfile (linked git worktree): a plain rename breaks the

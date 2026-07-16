@@ -463,3 +463,25 @@ def test_move_dir_refuses_concurrently_created_destination(tmp_path):
 
     assert (dst / "theirs.txt").exists()   # their dir survives
     assert (src / "sentinel.txt").exists()  # source untouched
+
+
+def test_dangling_source_symlink_refused(tmp_path):
+    settings, store = _setup(tmp_path, {"a": "flat", "b": "flat"})
+    (tmp_path / "a" / "ghostlink").symlink_to(tmp_path / "nowhere")  # dangling
+    store.add(Repo(owner="", name="ghostlink", remote_url="u", workspace="a"))
+
+    with pytest.raises(ValueError, match="symlink"):
+        move_repo(store, settings, "ghostlink", "a", "b")
+
+    assert store.get("ghostlink", workspace="a") is not None  # catalog untouched
+
+
+def test_non_git_directory_at_source_refused(tmp_path):
+    settings, store = _setup(tmp_path, {"a": "flat", "b": "flat"})
+    (tmp_path / "a" / "impostor").mkdir()  # no .git — unrelated dir at the path
+    store.add(Repo(owner="", name="impostor", remote_url="u", workspace="a"))
+
+    with pytest.raises(ValueError, match="not a git repository"):
+        move_repo(store, settings, "impostor", "a", "b")
+
+    assert (tmp_path / "a" / "impostor").exists()  # untouched
