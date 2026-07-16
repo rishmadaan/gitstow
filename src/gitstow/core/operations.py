@@ -6,6 +6,8 @@ surfaces can't drift."""
 from __future__ import annotations
 
 import contextlib
+import errno
+import os
 import shutil
 from pathlib import Path
 from typing import Callable, Optional
@@ -102,6 +104,29 @@ def run_bulk(
     return [final[r.global_key] for r, _ in targets if r.global_key in final]
 
 
+def _move_dir(src: Path, dst: Path) -> None:
+    """Relocate a directory with no ambiguous partial states.
+
+    Same filesystem: one atomic rename. Cross filesystem: copy, then delete
+    the source — a failed copy removes the partial destination (the source is
+    untouched); a failed source-delete keeps the complete destination and
+    leaves the stale source behind rather than risk deleting the only good
+    copy. shutil.move's combined fallback can't tell those two failures apart.
+    """
+    try:
+        os.rename(src, dst)
+        return
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
+            raise
+    try:
+        shutil.copytree(src, dst, symlinks=True)
+    except BaseException:
+        shutil.rmtree(dst, ignore_errors=True)
+        raise
+    shutil.rmtree(src, ignore_errors=True)
+
+
 def move_repo(
     store: RepoStore, settings: Settings, key: str, from_ws: str, to_ws: str
 ) -> Repo:
@@ -132,6 +157,9 @@ def move_repo(
             # 2. Re-key by target layout
             if target.layout == "flat":
                 new_owner = ""
+                # Nested keys (e.g. GitLab "group/subgroup/repo") parse as
+                # name="subgroup/repo" — a flat key must be the basename only.
+                new_name = src.name.rsplit("/", 1)[-1]
             else:
                 new_owner = src.owner
                 if not new_owner and src.remote_url:
@@ -146,10 +174,11 @@ def move_repo(
                         f"workspace files repos under owner/repo, so discovery would never "
                         f"find a bare folder."
                     )
+                new_name = src.name
 
             new_repo = Repo(
                 owner=new_owner,
-                name=src.name,
+                name=new_name,
                 remote_url=src.remote_url,
                 workspace=to_ws,
                 frozen=src.frozen,
@@ -173,20 +202,10 @@ def move_repo(
             src_path = src.get_path(source.get_path()) if source else None
             if src_path and src_path.exists():
                 # Always ensure the parent exists (the workspace root may not
-                # have been created yet) — a missing parent silently downgrades
-                # shutil.move's rename to a full recursive copy.
+                # have been created yet) — a missing parent would downgrade
+                # the rename to a full cross-directory copy.
                 dest_path.parent.mkdir(parents=True, exist_ok=True)
-                try:
-                    shutil.move(str(src_path), str(dest_path))
-                except BaseException:
-                    # A failed cross-device copy leaves a partial destination
-                    # that would block every retry via the collision check.
-                    # The source is still intact, so the partial copy is ours
-                    # to delete.
-                    if not src_path.exists():
-                        raise  # rename already happened; dest is the real repo
-                    shutil.rmtree(dest_path, ignore_errors=True)
-                    raise
+                _move_dir(src_path, dest_path)
                 moved_src = src_path
                 if src.owner:
                     # Remove the now-empty owner directory (ignore if not empty).
@@ -202,7 +221,7 @@ def move_repo(
         if moved_src is not None and dest_path.exists() and not moved_src.exists():
             with contextlib.suppress(OSError, shutil.Error):
                 moved_src.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(dest_path), str(moved_src))
+                _move_dir(dest_path, moved_src)
         raise
 
     return new_repo

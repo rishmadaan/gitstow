@@ -1,5 +1,8 @@
 """Tests for move_repo() — reassign a repo between workspaces."""
 
+import errno
+import shutil
+
 import pytest
 
 from gitstow.core.config import Settings, Workspace
@@ -194,13 +197,17 @@ def test_failed_disk_move_cleans_partial_destination(tmp_path, monkeypatch):
 
     dest = tmp_path / "active" / "claude-code"
 
-    def fake_move(s, d):
+    def fake_rename(s, d):
+        raise OSError(errno.EXDEV, "Cross-device link")
+
+    def fake_copytree(s, d, **kw):
         # simulate a cross-device copy dying partway: partial dest, source intact
         dest.mkdir(parents=True)
         (dest / "partial.txt").write_text("half")
         raise OSError("No space left on device")
 
-    monkeypatch.setattr("gitstow.core.operations.shutil.move", fake_move)
+    monkeypatch.setattr("gitstow.core.operations.os.rename", fake_rename)
+    monkeypatch.setattr("gitstow.core.operations.shutil.copytree", fake_copytree)
 
     with pytest.raises(OSError, match="No space left"):
         move_repo(store, settings, "anthropic/claude-code", "oss", "active")
@@ -208,3 +215,44 @@ def test_failed_disk_move_cleans_partial_destination(tmp_path, monkeypatch):
     assert src.exists()                                   # source untouched
     assert not dest.exists()                              # partial copy removed
     assert store.get("anthropic/claude-code", workspace="oss") is not None
+
+
+def test_nested_group_key_flattens_to_basename(tmp_path):
+    settings, store = _setup(tmp_path, {"oss": "structured", "active": "flat"})
+    # GitLab-style nested key: owner="group", name="subgroup/repo"
+    _mkgit(tmp_path / "oss" / "group" / "subgroup" / "repo")
+    store.add(Repo(owner="group", name="subgroup/repo",
+                   remote_url="https://gitlab.com/group/subgroup/repo.git",
+                   workspace="oss"))
+
+    moved = move_repo(store, settings, "group/subgroup/repo", "oss", "active")
+
+    assert moved.key == "repo"
+    assert (tmp_path / "active" / "repo" / "sentinel.txt").exists()
+    assert not (tmp_path / "active" / "subgroup").exists()
+
+
+def test_source_delete_failure_keeps_complete_destination(tmp_path, monkeypatch):
+    settings, store = _setup(tmp_path, {"oss": "structured", "active": "flat"})
+    src = _mkgit(tmp_path / "oss" / "anthropic" / "claude-code")
+    store.add(Repo(owner="anthropic", name="claude-code",
+                   remote_url="https://github.com/anthropic/claude-code.git",
+                   workspace="oss"))
+
+    def fake_rename(s, d):
+        raise OSError(errno.EXDEV, "Cross-device link")
+
+    monkeypatch.setattr("gitstow.core.operations.os.rename", fake_rename)
+    real_rmtree = shutil.rmtree
+    monkeypatch.setattr(
+        "gitstow.core.operations.shutil.rmtree",
+        lambda p, ignore_errors=False: None,  # source delete silently fails
+    )
+
+    moved = move_repo(store, settings, "anthropic/claude-code", "oss", "active")
+
+    # complete copy at dest, catalog points at it; stale source left behind
+    assert (tmp_path / "active" / "claude-code" / "sentinel.txt").exists()
+    assert moved.workspace == "active"
+    assert src.exists()
+    real_rmtree(src)
