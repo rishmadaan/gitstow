@@ -4,6 +4,13 @@ All notable changes to gitstow will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.1] - 2026-07-16
+
+### Fixed
+
+- **Workspace move picker reads as an action, not a state.** The dropdown opened showing the first other workspace as if the repo were already there; it now opens on a disabled "Move to…" placeholder and refuses to submit empty.
+- **The Workspace section states where the repo currently lives** ("Currently in `<workspace>`" with the workspace badge) instead of relying on the page header alone.
+
 ## [0.5.0] - 2026-07-16
 
 ### Added
