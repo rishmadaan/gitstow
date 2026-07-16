@@ -367,3 +367,72 @@ def test_interrupt_during_source_delete_completes_move(tmp_path, monkeypatch):
     assert (tmp_path / "b" / "thing" / "sentinel.txt").exists()
     assert src.exists()
     assert store.get("thing", workspace="b") is not None
+
+
+def test_dangling_symlink_destination_refused(tmp_path):
+    settings, store = _setup(tmp_path, {"a": "flat", "b": "flat"})
+    _mkgit(tmp_path / "a" / "thing")
+    store.add(Repo(owner="", name="thing", remote_url="u", workspace="a"))
+    (tmp_path / "b" / "thing").symlink_to(tmp_path / "nowhere")  # dangling
+
+    with pytest.raises(ValueError, match="already exists"):
+        move_repo(store, settings, "thing", "a", "b")
+
+    assert (tmp_path / "b" / "thing").is_symlink()  # untouched
+
+
+def test_worktree_repair_failure_rolls_back(tmp_path, monkeypatch):
+    import subprocess
+
+    settings, store = _setup(tmp_path, {"a": "flat", "b": "flat"})
+    main = tmp_path / "a" / "proj"
+    main.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=main, check=True)
+    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "init"],
+                   cwd=main, check=True)
+    subprocess.run(["git", "worktree", "add", "-q", str(tmp_path / "lw")],
+                   cwd=main, check=True)
+    store.add(Repo(owner="", name="proj", remote_url="u", workspace="a"))
+
+    monkeypatch.setattr("gitstow.core.operations.repair_worktrees", lambda p: False)
+
+    with pytest.raises(ValueError, match="worktree repair"):
+        move_repo(store, settings, "proj", "a", "b")
+
+    assert main.exists()                              # rolled back
+    assert not (tmp_path / "b" / "proj").exists()
+    assert store.get("proj", workspace="a") is not None  # catalog untouched
+
+
+def test_partial_source_remnant_cleared_on_rollback(tmp_path, monkeypatch):
+    settings, store = _setup(tmp_path, {"a": "flat", "b": "flat"})
+    src = _mkgit(tmp_path / "a" / "thing")
+    store.add(Repo(owner="", name="thing", remote_url="u", workspace="a"))
+
+    def fake_rename(s, d):
+        raise OSError(errno.EXDEV, "Cross-device link")
+
+    calls = {"n": 0}
+    real_rmtree = shutil.rmtree
+
+    def flaky_rmtree(p, ignore_errors=False):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            (src / "leftover.txt").write_text("partial")  # delete "fails", leaves junk
+            return
+        real_rmtree(p, ignore_errors=ignore_errors)
+
+    monkeypatch.setattr("gitstow.core.operations.os.rename", fake_rename)
+    monkeypatch.setattr("gitstow.core.operations.shutil.rmtree", flaky_rmtree)
+    monkeypatch.setattr(
+        RepoStore, "_write",
+        lambda self: (_ for _ in ()).throw(OSError("disk full")),
+    )
+
+    with pytest.raises(OSError, match="disk full"):
+        move_repo(store, settings, "thing", "a", "b")
+
+    # remnant cleared, complete copy restored to the source
+    assert (src / "sentinel.txt").exists()
+    assert not (src / "leftover.txt").exists()
+    assert not (tmp_path / "b" / "thing").exists()

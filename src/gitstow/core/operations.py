@@ -205,7 +205,9 @@ def move_repo(
                     f"A repo '{new_repo.key}' already exists in workspace '{to_ws}'."
                 )
             dest_path = new_repo.get_path(target.get_path())
-            if dest_path.exists():
+            # is_symlink() too: a dangling symlink fails exists() but would
+            # still be silently clobbered by the rename.
+            if dest_path.exists() or dest_path.is_symlink():
                 raise ValueError(f"Destination path already exists: {dest_path}")
 
             # 4. Disk move — skip when the source folder is already missing.
@@ -238,7 +240,13 @@ def move_repo(
                 if (dest_path / ".git" / "worktrees").is_dir():
                     # This repo owns linked worktrees whose absolute
                     # back-pointers just went stale — git ships the fix.
-                    repair_worktrees(dest_path)
+                    if not repair_worktrees(dest_path):
+                        # Reporting success with broken worktrees would be a
+                        # lie; raising triggers the rollback below.
+                        raise ValueError(
+                            f"'{key}' owns linked git worktrees and 'git worktree "
+                            f"repair' failed after the move — rolled back."
+                        )
                 if src.owner:
                     # Remove the now-empty owner directory (ignore if not empty).
                     with contextlib.suppress(OSError):
@@ -250,10 +258,18 @@ def move_repo(
     except BaseException:
         # Catalog write failed — or Ctrl-C landed — after the folder moved:
         # roll the folder back so disk and catalog stay consistent.
-        if moved_src is not None and dest_path.exists() and not moved_src.exists():
+        if moved_src is not None and dest_path.exists():
             with contextlib.suppress(OSError, shutil.Error):
+                if moved_src.exists():
+                    # A failed cross-device delete left a partial source; the
+                    # destination is the complete copy, so clear the remnant
+                    # before restoring.
+                    shutil.rmtree(moved_src, ignore_errors=True)
                 moved_src.parent.mkdir(parents=True, exist_ok=True)
                 _move_dir(dest_path, moved_src)
+                if (moved_src / ".git" / "worktrees").is_dir():
+                    # Un-stale the linked worktrees' back-pointers again.
+                    repair_worktrees(moved_src)
         raise
 
     return new_repo
