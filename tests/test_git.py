@@ -1,5 +1,6 @@
 """Tests for git wrapper module (mocked subprocess)."""
 
+import os
 from unittest.mock import patch, MagicMock
 from pathlib import Path
 
@@ -457,6 +458,34 @@ class TestGetFileDiff:
 
         out = get_file_diff(tmp_path, "big.txt", untracked=True, max_bytes=200)
         assert len(out.encode("utf-8", errors="replace")) <= 200
+
+    def test_argv_uses_literal_pathspecs(self):
+        """Caller-supplied paths go through --literal-pathspecs so a file
+        literally named `*.txt` is a plain path, not a glob."""
+        r, w = os.pipe()
+        os.close(w)  # immediate EOF so the read loop exits at once
+        fake = MagicMock()
+        fake.stdout.fileno.return_value = r
+        with patch("gitstow.core.git.subprocess.Popen", return_value=fake) as mp:
+            get_file_diff(Path("/repo"), "*.txt")
+        os.close(r)
+        argv = mp.call_args[0][0]
+        assert argv[:2] == ["git", "--literal-pathspecs"]
+        assert argv[argv.index("--") + 1] == "*.txt"
+
+    def test_deadline_returns_partial_and_kills(self):
+        """A stalled git (select never ready) hits the deadline: returns what
+        was read and kills the process instead of blocking forever."""
+        r, w = os.pipe()
+        fake = MagicMock()
+        fake.stdout.fileno.return_value = r
+        with patch("gitstow.core.git.subprocess.Popen", return_value=fake), \
+             patch("gitstow.core.git.select.select", return_value=([], [], [])):
+            out = get_file_diff(Path("/repo"), "f.txt", timeout_s=0.2)
+        os.close(r)
+        os.close(w)
+        assert out == ""
+        fake.kill.assert_called_once()
 
 
 class TestRunInteractiveDiff:

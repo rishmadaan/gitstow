@@ -6,8 +6,10 @@ All git interaction goes through this module. Nothing else shells out to git.
 from __future__ import annotations
 
 import os
+import select
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -296,8 +298,8 @@ def _numstat_new_path(raw: str) -> str:
 
 def _numstat_map(repo_path: Path, cached: bool) -> dict[str, tuple[int, int, bool]]:
     """path -> (added, removed, binary) from one `git diff --numstat` call."""
-    args = ["-c", "core.quotePath=false", "diff", "--no-ext-diff", "--no-color",
-            "--numstat"] + (["--cached"] if cached else [])
+    args = ["--literal-pathspecs", "-c", "core.quotePath=false", "diff",
+            "--no-ext-diff", "--no-color", "--numstat"] + (["--cached"] if cached else [])
     counts: dict[str, tuple[int, int, bool]] = {}
     for line in _run_git(args, cwd=repo_path).stdout.splitlines():
         parts = line.split("\t")
@@ -379,6 +381,7 @@ def get_file_diff(
     staged: bool = False,
     untracked: bool = False,
     max_bytes: int = 512_000,
+    timeout_s: float = 10.0,
 ) -> str:
     """Raw unified diff for one file, view-only.
 
@@ -386,19 +389,28 @@ def get_file_diff(
     (git for Windows translates /dev/null itself). `--no-index` exits 1 when
     the files differ — that is success here, so we ignore the return code.
 
-    Reads at most `max_bytes` of git's stdout, then kills the process, so a
-    huge file can't buffer megabytes before the display truncates at 500
-    lines. 512KB is far beyond 500 rendered lines at any sane width; the
-    byte-capped read may drop the parser's "truncated" flag — acceptable, the
-    display cap still applies. Same env conventions as `_run_git`
-    (GIT_TERMINAL_PROMPT=0, LC_ALL=C). Degrades to "" like the rest of git.py.
+    `--literal-pathspecs` disables git's pathspec magic so a file literally
+    named `*.txt` (or containing `?`, `:(...)`) is treated as a plain path,
+    not a glob that merges unrelated diffs into one panel.
+
+    Reads at most `max_bytes` of git's stdout under a `timeout_s` deadline,
+    then kills the process, so a huge file can't buffer megabytes and a slow
+    textconv/filter can't stall forever. select() on the stdout fd bounds each
+    wait; on deadline expiry we return whatever was read (degrade-soft), which
+    also keeps the web route's threadpool worker from wedging. 512KB is far
+    beyond 500 rendered lines at any sane width; the byte-capped read may drop
+    the parser's "truncated" flag — acceptable, the display cap still applies.
+    Same env conventions as `_run_git` (GIT_TERMINAL_PROMPT=0, LC_ALL=C).
+    Degrades to "" like the rest of git.py.
     """
     if untracked:
-        args = ["diff", "--no-ext-diff", "--no-color", "--no-index", "--", "/dev/null", file]
+        args = ["--literal-pathspecs", "diff", "--no-ext-diff", "--no-color",
+                "--no-index", "--", "/dev/null", file]
     elif staged:
-        args = ["diff", "--no-ext-diff", "--no-color", "--cached", "--", file]
+        args = ["--literal-pathspecs", "diff", "--no-ext-diff", "--no-color",
+                "--cached", "--", file]
     else:
-        args = ["diff", "--no-ext-diff", "--no-color", "--", file]
+        args = ["--literal-pathspecs", "diff", "--no-ext-diff", "--no-color", "--", file]
 
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"}
     try:
@@ -409,12 +421,30 @@ def get_file_diff(
             stderr=subprocess.DEVNULL,
             env=env,
         )
-        data = proc.stdout.read(max_bytes)
-        proc.terminate()  # ponytail: partial read is fine — display truncates at 500 lines anyway
-        proc.wait(timeout=10)
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except FileNotFoundError:
         return ""
-    return data.decode("utf-8", errors="replace")
+
+    chunks: list[bytes] = []
+    remaining = max_bytes
+    deadline = time.monotonic() + timeout_s
+    try:
+        fd = proc.stdout.fileno()
+        while remaining > 0:
+            budget = deadline - time.monotonic()
+            if budget <= 0:
+                break  # overall deadline exceeded
+            ready, _, _ = select.select([fd], [], [], budget)
+            if not ready:
+                break  # slow/stalled git — return what we have
+            chunk = os.read(fd, min(remaining, 65536))
+            if not chunk:
+                break  # EOF
+            chunks.append(chunk)
+            remaining -= len(chunk)
+    finally:
+        proc.kill()  # ponytail: partial read is fine — display truncates at 500 lines
+        proc.wait()
+    return b"".join(chunks).decode("utf-8", errors="replace")
 
 
 def run_interactive_diff(repo_path: Path, staged: bool = False) -> int:

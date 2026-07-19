@@ -187,10 +187,14 @@ def render_repo_detail(request, workspace: str, key: str, error=None, status_cod
 
 
 @router.get("/repos/{workspace}/{key:path}/diff", response_class=HTMLResponse)
-async def file_diff(
+def file_diff(
     workspace: str, key: str, request: Request, file: str, group: str = "unstaged"
 ):
-    """Rendered line-by-line diff for one file — htmx-loaded on expand."""
+    """Rendered line-by-line diff for one file — htmx-loaded on expand.
+
+    Sync `def` (not `async`): the git diff work is blocking, so FastAPI runs
+    this in its threadpool — one slow diff can't freeze the event loop.
+    """
     settings = load_config()
     store = RepoStore()
     ws = settings.get_workspace(workspace)
