@@ -1110,6 +1110,27 @@ class TestDiffViewer:
         assert r.status_code == 200
         assert 'id="changes"' not in r.text
 
+    def test_drawer_caps_huge_change_list(self, client, configured, workspace_dir, monkeypatch):
+        # A repo with a giant unignored dir must not render one <details> per
+        # file (frozen browser). Each group caps at 200 rows + a note.
+        self._seed_repo(workspace_dir)
+        monkeypatch.setattr(
+            "gitstow.web.routes.pages.get_status", lambda p: _fake_status(untracked=250)
+        )
+        monkeypatch.setattr(
+            "gitstow.web.routes.pages.get_changed_files",
+            lambda p: ChangedFiles(untracked=[f"f{i}.txt" for i in range(250)]),
+        )
+        monkeypatch.setattr("gitstow.web.routes.pages.get_last_commit", lambda p: CommitInfo())
+        monkeypatch.setattr("gitstow.web.routes.pages.get_disk_size", lambda p: 0)
+        r = client.get("/repo/test-ws/owner/repo")
+        assert r.status_code == 200
+        # Exactly 200 rendered rows for the group, not 250.
+        assert r.text.count('<details class="diff-file">') == 200
+        assert "showing first 200 of 250" in r.text
+        # The group-header count stays the TRUE total.
+        assert '<span class="diff-count">250</span>' in r.text
+
     def _mock_member(self, monkeypatch, path="f", group="unstaged"):
         """Make `path` a member of the given Changes group so the endpoint's
         authorization check passes."""
@@ -1182,12 +1203,23 @@ class TestDiffViewer:
         assert r.status_code == 200
         assert "/etc/passwd" in r.text
 
-    def test_diff_endpoint_rejects_non_member_file(self, client, configured, workspace_dir, monkeypatch):
+    def test_diff_endpoint_non_member_file_degrades_to_stale_note(self, client, configured, workspace_dir, monkeypatch):
+        # In-repo but NOT in the requested group's Changes list (repo changed
+        # between page render and expand, or an ignored .env). A 404 would leave
+        # the htmx panel stuck on "loading…", so we return a 200 stale note —
+        # and the file's diff is never computed (get_file_diff not called), so
+        # an ignored .env still isn't served.
         self._seed_repo(workspace_dir)
         self._mock_member(monkeypatch, path="tracked.py")
-        # In-repo but NOT in the Changes list (e.g. an ignored .env) → 404.
+        called = []
+        monkeypatch.setattr(
+            "gitstow.web.routes.pages.get_file_diff",
+            lambda *a, **kw: called.append(a) or "",
+        )
         r = client.get("/repos/test-ws/owner/repo/diff?file=.env&group=unstaged")
-        assert r.status_code == 404
+        assert r.status_code == 200
+        assert "no longer has these changes" in r.text
+        assert called == []  # the diff was never computed → .env content not served
 
     def test_diff_endpoint_rejects_bad_group(self, client, configured, workspace_dir, monkeypatch):
         self._seed_repo(workspace_dir)

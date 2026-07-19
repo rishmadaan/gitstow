@@ -441,12 +441,25 @@ def get_file_diff(
     except FileNotFoundError:
         return ""
 
-    # One bounded read on a daemon thread: read() returns after max_bytes or
-    # EOF (blocking pipe), so it can't over-buffer; if git stalls, the join
-    # times out and we kill. Daemon so a truly hung read never blocks exit.
-    buf: list[bytes] = []
-    reader = threading.Thread(target=lambda: buf.append(proc.stdout.read(max_bytes)),
-                              daemon=True)
+    # Bounded chunked read on a daemon thread. One blocking read(max_bytes)
+    # would return empty at the deadline for a git that writes some bytes then
+    # stalls — the read is still parked when the join times out. Looping small
+    # reads means the chunks already written are captured; after we kill(), the
+    # pipe hits EOF and the final read flushes them. Daemon so a truly hung read
+    # never blocks exit. Reads are capped to max_bytes total so a huge file
+    # can't over-buffer.
+    chunks: list[bytes] = []
+
+    def _read() -> None:
+        total = 0
+        while total < max_bytes:
+            chunk = proc.stdout.read(min(65536, max_bytes - total))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+
+    reader = threading.Thread(target=_read, daemon=True)
     reader.start()
     reader.join(timeout_s)
     try:
@@ -454,7 +467,8 @@ def get_file_diff(
         proc.wait()
     except OSError:
         pass
-    return (buf[0] if buf else b"").decode("utf-8", errors="replace")
+    reader.join(2)  # post-kill EOF lets the stalled read flush its partial chunks in
+    return b"".join(chunks).decode("utf-8", errors="replace")
 
 
 def run_interactive_diff(repo_path: Path, staged: bool = False) -> int:

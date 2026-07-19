@@ -1,4 +1,6 @@
-{% if diff.conflicted %}
+{% if stale %}
+  <div class="diff-note">This file no longer has these changes — reload the page for the current list.</div>
+{% elif diff.conflicted %}
   <div class="diff-note">Conflicted file — resolve the merge in a terminal.</div>
 {% elif diff.binary %}
   <div class="diff-note">Binary file changed — no text diff.</div>

@@ -499,18 +499,28 @@ class TestGetFileDiff:
         argv = mp.call_args[0][0]
         assert argv[argv.index("--") + 1:] == ["old.py", "new.py"]
 
-    def test_deadline_returns_partial_and_kills(self):
-        """A stalled git (read never returns) hits the deadline: returns what
-        was captured (nothing) and kills the process instead of blocking."""
+    def test_deadline_flushes_partial_and_kills(self):
+        """A git that writes a chunk then stalls hits the deadline: the partial
+        output is flushed in after kill() (which triggers the pipe's EOF), not
+        lost, and the process is killed instead of blocking forever."""
         import threading as _t
 
         gate = _t.Event()
+        reads = iter([b"partial diff\n"])
+
+        def fake_read(n):
+            chunk = next(reads, None)
+            if chunk is not None:
+                return chunk
+            gate.wait()  # stall until kill() releases us, then report EOF
+            return b""
+
         fake = MagicMock()
-        fake.stdout.read.side_effect = lambda n: (gate.wait(), b"")[1]
+        fake.stdout.read.side_effect = fake_read
+        fake.kill.side_effect = gate.set  # kill unblocks the stalled read → EOF
         with patch("gitstow.core.git.subprocess.Popen", return_value=fake):
             out = get_file_diff(Path("/repo"), "f.txt", timeout_s=0.2)
-        gate.set()  # release the daemon reader so it can exit cleanly
-        assert out == ""
+        assert out == "partial diff\n"  # partial IS returned, not empty
         fake.kill.assert_called_once()
 
     def test_staged_rename_real_git(self, tmp_path):

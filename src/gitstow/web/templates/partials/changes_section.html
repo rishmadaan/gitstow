@@ -1,10 +1,11 @@
 <section class="section" id="changes">
   <h4>Changes</h4>
+  {% set cap = 200 %}
   {% for group, files in [("staged", changes.staged), ("unstaged", changes.unstaged)] %}
     {% if files %}
     <div class="diff-group">
       <div class="diff-group-head">{{ group }} <span class="diff-count">{{ files|length }}</span></div>
-      {% for f in files %}
+      {% for f in files[:cap] %}
       <details class="diff-file">
         <summary title="{{ f.kind }}: {{ f.path }} — click to view the diff">
           <span class="diff-kind diff-kind-{{ f.kind }}">{{ f.kind[0]|upper }}</span>
@@ -18,13 +19,14 @@
              hx-swap="innerHTML"><div class="diff-note">loading…</div></div>
       </details>
       {% endfor %}
+      {% if files|length > cap %}<div class="diff-note">showing first {{ cap }} of {{ files|length }} — full list in a terminal via git status</div>{% endif %}
     </div>
     {% endif %}
   {% endfor %}
   {% if changes.untracked %}
   <div class="diff-group">
     <div class="diff-group-head">untracked <span class="diff-count">{{ changes.untracked|length }}</span></div>
-    {% for path in changes.untracked %}
+    {% for path in changes.untracked[:cap] %}
     <details class="diff-file">
       <summary title="untracked: {{ path }} — click to view the file as all-new lines">
         <span class="diff-kind diff-kind-added">U</span>
@@ -37,6 +39,7 @@
            hx-swap="innerHTML"><div class="diff-note">loading…</div></div>
     </details>
     {% endfor %}
+    {% if changes.untracked|length > cap %}<div class="diff-note">showing first {{ cap }} of {{ changes.untracked|length }} — full list in a terminal via git status</div>{% endif %}
   </div>
   {% endif %}
 </section>

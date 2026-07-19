@@ -232,7 +232,13 @@ def file_diff(
     if group not in members:
         raise HTTPException(status_code=400, detail="invalid group")
     if file not in members[group]:
-        raise HTTPException(status_code=404, detail="file not in repo changes")
+        # The repo changed between page render and this expand — the row is
+        # stale. A 404 would leave the panel stuck on "loading…" (htmx doesn't
+        # swap error responses), so return a 200 note instead.
+        return render(
+            request, "partials/diff_view.html", page="dashboard",
+            diff=None, stale=True, file=file,
+        )
 
     # A staged rename needs its source path too, or git renders a full add.
     # `changes` is already fetched above; look up the matching FileChange.
