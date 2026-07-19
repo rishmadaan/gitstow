@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from gitstow.core.config import Settings, Workspace, save_config
-from gitstow.core.git import FetchResult, PullResult, RepoStatus
+from gitstow.core.git import ChangedFiles, CommitInfo, FetchResult, FileChange, PullResult, RepoStatus
 from gitstow.core.repo import Repo, RepoStore
 from gitstow.web.server import create_app
 
@@ -806,7 +806,15 @@ class TestCrossOriginProtection:
         r = client.post("/shutdown", headers={"Host": "evil.example"})
         assert r.status_code == 403
 
-    def test_get_never_blocked(self, client, configured):
+    def test_dns_rebinding_host_rejected_on_get(self, client, configured):
+        # GETs must be rebind-proof too — attacker JS on a rebound domain could
+        # otherwise enumerate the dashboard and exfiltrate diff content.
+        r = client.get("/", headers={"Host": "evil.example:7853"})
+        assert r.status_code == 403
+
+    def test_get_with_bad_origin_but_valid_host_allowed(self, client, configured):
+        # Origin is only checked on POST; a same-origin GET (allowed Host)
+        # carrying a stray Origin still serves.
         r = client.get("/", headers={"Origin": "http://evil.example"})
         assert r.status_code == 200
 
@@ -1062,3 +1070,208 @@ class TestMicroVisual:
         html = client.get("/workspaces").text
         # workspace paths must not render inside input-like boxes
         assert 'class="path-code"' in html
+
+
+# ---------- diff viewer (Task 5: drawer Changes section + diff endpoint) ----------
+
+
+class TestDiffViewer:
+    def _seed_repo(self, workspace_dir):
+        _make_repo_on_disk(workspace_dir, "owner", "repo")
+        RepoStore().add(Repo(owner="owner", name="repo", remote_url="", workspace="test-ws"))
+
+    def test_drawer_shows_changes_when_dirty(self, client, configured, workspace_dir, monkeypatch):
+        self._seed_repo(workspace_dir)
+        monkeypatch.setattr(
+            "gitstow.web.routes.pages.get_status", lambda p: _fake_status(dirty=1)
+        )
+        monkeypatch.setattr(
+            "gitstow.web.routes.pages.get_changed_files",
+            lambda p: ChangedFiles(
+                unstaged=[FileChange(path="src/app.py", kind="modified", added=3, removed=2)],
+                untracked=["notes.txt"],
+            ),
+        )
+        monkeypatch.setattr("gitstow.web.routes.pages.get_last_commit", lambda p: CommitInfo())
+        monkeypatch.setattr("gitstow.web.routes.pages.get_disk_size", lambda p: 0)
+        r = client.get("/repo/test-ws/owner/repo")
+        assert r.status_code == 200
+        assert 'id="changes"' in r.text
+        assert "src/app.py" in r.text and "notes.txt" in r.text
+        assert "+3" in r.text and "−2" in r.text
+        assert 'hx-trigger="toggle once from:closest details"' in r.text
+
+    def test_drawer_hides_changes_when_clean(self, client, configured, workspace_dir, monkeypatch):
+        self._seed_repo(workspace_dir)
+        monkeypatch.setattr("gitstow.web.routes.pages.get_status", lambda p: _fake_status())
+        monkeypatch.setattr("gitstow.web.routes.pages.get_last_commit", lambda p: CommitInfo())
+        monkeypatch.setattr("gitstow.web.routes.pages.get_disk_size", lambda p: 0)
+        r = client.get("/repo/test-ws/owner/repo")
+        assert r.status_code == 200
+        assert 'id="changes"' not in r.text
+
+    def test_drawer_caps_huge_change_list(self, client, configured, workspace_dir, monkeypatch):
+        # A repo with a giant unignored dir must not render one <details> per
+        # file (frozen browser). Each group caps at 200 rows + a note.
+        self._seed_repo(workspace_dir)
+        monkeypatch.setattr(
+            "gitstow.web.routes.pages.get_status", lambda p: _fake_status(untracked=250)
+        )
+        monkeypatch.setattr(
+            "gitstow.web.routes.pages.get_changed_files",
+            lambda p: ChangedFiles(untracked=[f"f{i}.txt" for i in range(250)]),
+        )
+        monkeypatch.setattr("gitstow.web.routes.pages.get_last_commit", lambda p: CommitInfo())
+        monkeypatch.setattr("gitstow.web.routes.pages.get_disk_size", lambda p: 0)
+        r = client.get("/repo/test-ws/owner/repo")
+        assert r.status_code == 200
+        # Exactly 200 rendered rows for the group, not 250.
+        assert r.text.count('<details class="diff-file">') == 200
+        assert "showing first 200 of 250" in r.text
+        # The group-header count stays the TRUE total.
+        assert '<span class="diff-count">250</span>' in r.text
+
+    def _mock_member(self, monkeypatch, path="f", group="unstaged"):
+        """Make `path` a member of the given Changes group so the endpoint's
+        authorization check passes."""
+        fc = FileChange(path=path, kind="modified")
+        kwargs = {"unstaged": [], "staged": [], "untracked": []}
+        kwargs[group] = [path] if group == "untracked" else [fc]
+        monkeypatch.setattr(
+            "gitstow.web.routes.pages.get_changed_files",
+            lambda p: ChangedFiles(**kwargs),
+        )
+
+    def test_diff_endpoint_renders_hunks(self, client, configured, workspace_dir, monkeypatch):
+        self._seed_repo(workspace_dir)
+        self._mock_member(monkeypatch)
+        monkeypatch.setattr(
+            "gitstow.web.routes.pages.get_file_diff",
+            lambda p, f, **kw: "--- a/f\n+++ b/f\n@@ -1,2 +1,2 @@\n ctx\n-old\n+new\n",
+        )
+        r = client.get("/repos/test-ws/owner/repo/diff?file=f&group=unstaged")
+        assert r.status_code == 200
+        assert "diff-line-add" in r.text and "diff-line-del" in r.text
+        assert "old" in r.text and "new" in r.text
+
+    def test_diff_endpoint_passes_rename_old_path(self, client, configured, workspace_dir, monkeypatch):
+        """A staged rename's source path reaches get_file_diff, so git renders
+        the rename edit instead of a full add of an all-new file."""
+        self._seed_repo(workspace_dir)
+        renamed = FileChange(path="new.py", kind="renamed", old_path="old.py")
+        monkeypatch.setattr(
+            "gitstow.web.routes.pages.get_changed_files",
+            lambda p: ChangedFiles(staged=[renamed], unstaged=[], untracked=[]),
+        )
+        captured = {}
+
+        def fake_diff(p, f, **kw):
+            captured.update(kw)
+            return "--- a/old.py\n+++ b/new.py\n@@ -1 +1 @@\n-x\n+y\n"
+
+        monkeypatch.setattr("gitstow.web.routes.pages.get_file_diff", fake_diff)
+        r = client.get("/repos/test-ws/owner/repo/diff?file=new.py&group=staged")
+        assert r.status_code == 200
+        assert captured.get("old_path") == "old.py"
+        assert captured.get("staged") is True
+
+    def test_diff_endpoint_rejects_path_traversal(self, client, configured, workspace_dir):
+        self._seed_repo(workspace_dir)
+        # Traversal guard fires before the membership check → 400, not 404.
+        r = client.get("/repos/test-ws/owner/repo/diff?file=../../../etc/passwd&group=untracked")
+        assert r.status_code == 400
+
+    def test_diff_endpoint_rejects_absolute_path(self, client, configured, workspace_dir):
+        self._seed_repo(workspace_dir)
+        # An absolute path escapes the repo root → 400 (lexical guard).
+        r = client.get("/repos/test-ws/owner/repo/diff?file=/etc/passwd&group=untracked")
+        assert r.status_code == 400
+
+    def test_diff_endpoint_serves_changed_symlink(self, client, configured, workspace_dir, monkeypatch):
+        self._seed_repo(workspace_dir)
+        # A changed symlink pointing outside the repo is safe to view: git
+        # diffs the link's target *string*, never follows it. A REAL symlink on
+        # disk is what makes this honest — the old resolve()-based guard would
+        # follow it to /etc/passwd and 400; the lexical guard must not.
+        (workspace_dir / "owner" / "repo" / "link.txt").symlink_to("/etc/passwd")
+        self._mock_member(monkeypatch, path="link.txt")
+        monkeypatch.setattr(
+            "gitstow.web.routes.pages.get_file_diff",
+            lambda p, f, **kw: "--- a/link.txt\n+++ b/link.txt\n@@ -1 +1 @@\n-/old\n+/etc/passwd\n",
+        )
+        r = client.get("/repos/test-ws/owner/repo/diff?file=link.txt&group=unstaged")
+        assert r.status_code == 200
+        assert "/etc/passwd" in r.text
+
+    def test_diff_endpoint_non_member_file_degrades_to_stale_note(self, client, configured, workspace_dir, monkeypatch):
+        # In-repo but NOT in the requested group's Changes list (repo changed
+        # between page render and expand, or an ignored .env). A 404 would leave
+        # the htmx panel stuck on "loading…", so we return a 200 stale note —
+        # and the file's diff is never computed (get_file_diff not called), so
+        # an ignored .env still isn't served.
+        self._seed_repo(workspace_dir)
+        self._mock_member(monkeypatch, path="tracked.py")
+        called = []
+        monkeypatch.setattr(
+            "gitstow.web.routes.pages.get_file_diff",
+            lambda *a, **kw: called.append(a) or "",
+        )
+        r = client.get("/repos/test-ws/owner/repo/diff?file=.env&group=unstaged")
+        assert r.status_code == 200
+        assert "no longer has these changes" in r.text
+        assert called == []  # the diff was never computed → .env content not served
+
+    def test_diff_endpoint_rejects_bad_group(self, client, configured, workspace_dir, monkeypatch):
+        self._seed_repo(workspace_dir)
+        self._mock_member(monkeypatch)
+        r = client.get("/repos/test-ws/owner/repo/diff?file=f&group=bogus")
+        assert r.status_code == 400
+
+    def test_diff_endpoint_missing_on_disk(self, client, configured, workspace_dir):
+        _make_repo_on_disk(workspace_dir, "owner", "repo")
+        RepoStore().add(Repo(owner="owner", name="gone", remote_url="", workspace="test-ws"))
+        # Registered but its directory never existed on disk → 404, not 500.
+        r = client.get("/repos/test-ws/owner/gone/diff?file=f&group=unstaged")
+        assert r.status_code == 404
+
+    def test_diff_endpoint_escapes_hostile_content(self, client, configured, workspace_dir, monkeypatch):
+        self._seed_repo(workspace_dir)
+        self._mock_member(monkeypatch)
+        monkeypatch.setattr(
+            "gitstow.web.routes.pages.get_file_diff",
+            lambda p, f, **kw: "--- a/f\n+++ b/f\n@@ -0,0 +1 @@\n+<script>alert(1)</script>\n",
+        )
+        r = client.get("/repos/test-ws/owner/repo/diff?file=f&group=unstaged")
+        assert "<script>alert(1)</script>" not in r.text
+        assert "&lt;script&gt;" in r.text
+
+    def test_diff_endpoint_renders_pure_rename_meta(self, client, configured, workspace_dir, monkeypatch):
+        # A pure rename (git mv + add, similarity 100%) emits metadata-only
+        # diff text with zero hunks — the panel must say what happened, not
+        # "No changes to show" under a row that says the file was renamed.
+        self._seed_repo(workspace_dir)
+        renamed = FileChange(path="b.txt", kind="renamed", old_path="a.txt")
+        monkeypatch.setattr(
+            "gitstow.web.routes.pages.get_changed_files",
+            lambda p: ChangedFiles(staged=[renamed], unstaged=[], untracked=[]),
+        )
+        monkeypatch.setattr(
+            "gitstow.web.routes.pages.get_file_diff",
+            lambda p, f, **kw: (
+                "diff --git a/a.txt b/b.txt\n"
+                "similarity index 100%\n"
+                "rename from a.txt\n"
+                "rename to b.txt\n"
+            ),
+        )
+        r = client.get("/repos/test-ws/owner/repo/diff?file=b.txt&group=staged")
+        assert r.status_code == 200
+        assert "Renamed with no content changes" in r.text
+
+    def test_dashboard_badge_links_to_changes(self, client, configured, workspace_dir, monkeypatch):
+        self._seed_repo(workspace_dir)
+        monkeypatch.setattr(
+            "gitstow.web.routes.dashboard.get_status", lambda p: _fake_status(dirty=2)
+        )
+        r = client.get("/")
+        assert "/repo/test-ws/owner/repo#changes" in r.text

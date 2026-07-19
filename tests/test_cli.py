@@ -1020,3 +1020,136 @@ class TestEmptyFilterJsonPurity:
         result = CliRunner().invoke(app, ["status", "--json"])
         payload = json.loads(result.output)
         assert payload == []
+
+
+class TestDiffCommand:
+    def _seed(self, tmp_path, monkeypatch):
+        """One workspace 'ws' with one repo 'owner/repo' present on disk."""
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        import subprocess as _sp
+        ws_dir = tmp_path / "ws"
+        repo_dir = ws_dir / "owner" / "repo"
+        repo_dir.mkdir(parents=True)
+        _sp.run(["git", "init", "-q"], cwd=repo_dir, check=True)  # real repo → is_repo_readable passes
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+        store = RepoStore()
+        store.add(Repo(owner="owner", name="repo", remote_url="", workspace="ws"))
+        return repo_dir
+
+    def test_clean_repo_prints_no_changes(self, tmp_path, monkeypatch):
+        from gitstow.core.git import RepoStatus
+
+        self._seed(tmp_path, monkeypatch)
+        monkeypatch.setattr("gitstow.cli.diff_cmd.get_status", lambda p: RepoStatus(branch="main"))
+        result = runner.invoke(app, ["diff", "owner/repo"])
+        assert result.exit_code == 0
+        assert "no local changes" in result.output
+
+    def test_dirty_repo_hands_off_to_git(self, tmp_path, monkeypatch):
+        from gitstow.core.git import RepoStatus
+
+        repo_path = self._seed(tmp_path, monkeypatch)
+        monkeypatch.setattr("gitstow.cli.diff_cmd.get_status", lambda p: RepoStatus(branch="main", dirty=1))
+        called = {}
+
+        def fake_diff(path, staged=False):
+            called.update(path=path, staged=staged)
+            return 0
+
+        monkeypatch.setattr("gitstow.cli.diff_cmd.run_interactive_diff", fake_diff)
+        result = runner.invoke(app, ["diff", "owner/repo", "--staged"])
+        assert result.exit_code == 0
+        assert called == {"path": repo_path, "staged": True}
+
+    def test_missing_repo_errors(self, tmp_path, monkeypatch):
+        repo_path = self._seed(tmp_path, monkeypatch)
+        import shutil
+        shutil.rmtree(repo_path)
+        result = runner.invoke(app, ["diff", "owner/repo"])
+        assert result.exit_code == 1
+
+    def test_unreadable_repo_errors(self, tmp_path, monkeypatch):
+        self._seed(tmp_path, monkeypatch)
+        monkeypatch.setattr("gitstow.cli.diff_cmd.is_repo_readable", lambda p: False)
+        result = runner.invoke(app, ["diff", "owner/repo"])
+        assert result.exit_code == 1
+        assert "not a readable git repository" in result.output
+
+    def test_unreadable_repo_errors_json_mode_pure_stdout(self, tmp_path, monkeypatch):
+        self._seed(tmp_path, monkeypatch)
+        monkeypatch.setattr("gitstow.cli.diff_cmd.is_repo_readable", lambda p: False)
+        result = runner.invoke(app, ["diff", "owner/repo", "--json"])
+        assert result.exit_code == 1
+        assert result.stdout == ""  # json purity: error goes to stderr only
+        assert "not a readable git repository" in result.stderr
+
+    def test_untracked_only_repo_prints_note(self, tmp_path, monkeypatch):
+        from gitstow.core.git import RepoStatus
+
+        self._seed(tmp_path, monkeypatch)
+        monkeypatch.setattr(
+            "gitstow.cli.diff_cmd.get_status",
+            lambda p: RepoStatus(branch="main", untracked=2),
+        )
+        called = {"ran": False}
+        monkeypatch.setattr(
+            "gitstow.cli.diff_cmd.run_interactive_diff",
+            lambda p, staged=False: called.update(ran=True) or 0,
+        )
+        result = runner.invoke(app, ["diff", "owner/repo"])
+        assert result.exit_code == 0
+        assert "only untracked files (2)" in result.output
+        assert called["ran"] is False  # skips the empty passthrough
+
+    def test_json_output_shape_and_purity(self, tmp_path, monkeypatch):
+        import json as _json
+
+        from gitstow.core.git import ChangedFiles, FileChange
+
+        self._seed(tmp_path, monkeypatch)
+        monkeypatch.setattr(
+            "gitstow.cli.diff_cmd.get_changed_files",
+            lambda p: ChangedFiles(
+                staged=[FileChange(path="a.py", kind="added", added=5)],
+                unstaged=[FileChange(path="b.py", kind="modified", added=1, removed=1)],
+                untracked=["c.txt"],
+            ),
+        )
+        result = runner.invoke(app, ["diff", "owner/repo", "--json"])
+        assert result.exit_code == 0
+        data = _json.loads(result.output)  # pure JSON, parses cleanly
+        assert data["repo"] == "owner/repo" and data["workspace"] == "ws"
+        assert data["untracked"] == ["c.txt"]
+        assert data["staged"][0]["path"] == "a.py"
+        assert data["unstaged"][0]["removed"] == 1
+        assert "note:" not in result.output  # no decorations
+
+    def test_json_clean_repo_is_empty_lists(self, tmp_path, monkeypatch):
+        import json as _json
+
+        from gitstow.core.git import ChangedFiles
+
+        self._seed(tmp_path, monkeypatch)
+        monkeypatch.setattr(
+            "gitstow.cli.diff_cmd.get_changed_files", lambda p: ChangedFiles()
+        )
+        result = runner.invoke(app, ["diff", "owner/repo", "--json"])
+        assert result.exit_code == 0
+        data = _json.loads(result.output)
+        assert data["staged"] == [] and data["unstaged"] == [] and data["untracked"] == []
+
+    def test_quiet_suppresses_clean_message(self, tmp_path, monkeypatch):
+        from gitstow.core.git import RepoStatus
+
+        self._seed(tmp_path, monkeypatch)
+        monkeypatch.setattr("gitstow.cli.diff_cmd.get_status", lambda p: RepoStatus(branch="main"))
+        result = runner.invoke(app, ["diff", "owner/repo", "--quiet"])
+        assert result.exit_code == 0
+        assert result.output.strip() == ""

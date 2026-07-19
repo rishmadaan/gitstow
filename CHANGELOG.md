@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added
+
+- **`gitstow diff <repo> [--staged]` command** — view-only colored git diff passthrough for a single repo's uncommitted changes; a clean repo prints "no local changes". The web dashboard gains a matching Changes section on the repo detail page (staged/unstaged/untracked groups, click a file to expand its line diff, with binary/truncation guardrails), and the dashboard's dirty badge links straight to it (`#changes`).
+
 ### Fixed
 
 - **Orphaned repo records are now self-serve clearable.** When a workspace is removed but its repo records stay in the store (the default `--keep-repos` behavior), those records previously caused a crash (`gitstow -w <label> remove` raised a raw traceback) and could only be cleared by hand-editing `repos.yaml`. Now: `gitstow workspace remove <label>` on a removed label clears its orphaned records; every repo command exits with a clean error pointing at that command instead of crashing; `doctor`'s hint names the command instead of suggesting a YAML edit; and the web dashboard's Workspaces page shows an "Orphaned records" section with a Clear button, warns when removing a workspace leaves records behind, and matches the CLI's clearing behavior. Note: freeze/tag/untag on orphaned records (previously silently succeeded on invisible repos) now exit with the same guidance.

@@ -1,7 +1,8 @@
 <tr{% if repo.frozen %} class="frozen"{% endif %} data-key="{{ repo.key|lower }}" data-workspace="{{ repo.workspace }}" data-tags="{{ repo.tags|join(' ')|lower }}" data-status="{{ repo.status_class }}" data-frozen="{{ '1' if repo.frozen else '' }}">
   <td class="row-num" title="Row {{ repo.num }}">{{ repo.num }}</td>
   <td>
-    <span class="status status-{{ repo.status_class }}" title="{{ repo.status_tooltip }}"><span class="dot"></span>{{ repo.status_label }}</span>
+    {% if repo.changes_link %}<a class="status-link" href="{{ repo.changes_link }}" title="{{ repo.status_tooltip }} — click to see what changed"><span class="status status-{{ repo.status_class }}"><span class="dot"></span>{{ repo.status_label }}</span></a>
+    {% else %}<span class="status status-{{ repo.status_class }}" title="{{ repo.status_tooltip }}"><span class="dot"></span>{{ repo.status_label }}</span>{% endif %}
     {% if repo.frozen %}<svg class="lock" title="Frozen — 'Pull all' skips this repo. Unfreeze from the ⋯ menu." viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>{% endif %}
   </td>
   <td><a href="/repo/{{ repo.workspace }}/{{ repo.key }}" class="repo-link" title="{{ repo.repo_link_tooltip }}">{{ repo.display_name }}</a></td>

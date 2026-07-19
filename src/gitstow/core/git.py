@@ -8,7 +8,8 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -86,24 +87,30 @@ def _run_git(
     args: list[str],
     cwd: Path | None = None,
     timeout: int = 60,
+    binary: bool = False,
 ) -> subprocess.CompletedProcess:
     """Run a git command and return the result.
 
     GIT_TERMINAL_PROMPT=0 — a repo needing credentials fails fast instead of
     hanging the whole bulk operation on an invisible username prompt.
     LC_ALL=C — git output stays English so message matching is stable.
+
+    binary=True captures raw bytes (no text=True). Universal-newline
+    translation would rewrite a lone \\r inside NUL-delimited output, silently
+    corrupting a filename that legitimately contains a carriage return —
+    callers of NUL-delimited git output must decode the bytes themselves.
     """
     cmd = ["git"] + args
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"}
+    text_kwargs = {} if binary else {"text": True, "encoding": "utf-8",
+                                     "errors": "replace"}
     return subprocess.run(
         cmd,
         cwd=cwd,
         capture_output=True,
-        text=True,
         timeout=timeout,
-        encoding="utf-8",
-        errors="replace",
         env=env,
+        **text_kwargs,
     )
 
 
@@ -123,6 +130,15 @@ def is_git_repo(path: Path) -> bool:
     """Check if a path is a git repository."""
     git_dir = path / ".git"
     return git_dir.exists() and (git_dir.is_dir() or git_dir.is_file())
+
+
+def is_repo_readable(repo_path: Path) -> bool:
+    """Whether git can actually resolve the repo (not just a stray .git).
+
+    A linked worktree whose `.git` FILE points at a deleted gitdir passes
+    is_git_repo but fails every real git command — this catches that.
+    """
+    return _run_git(["rev-parse", "--git-dir"], cwd=repo_path).returncode == 0
 
 
 def clone(
@@ -214,7 +230,12 @@ def get_status(repo_path: Path) -> RepoStatus:
 
     This is ONE subprocess call vs gita's 4-5 separate calls.
     """
-    result = _run_git(["status", "--porcelain=v2", "--branch"], cwd=repo_path)
+    # --untracked-files=normal pins git's default untracked-listing behavior,
+    # overriding a user's `status.showUntrackedFiles=no` config (which would
+    # otherwise silently hide untracked files from every gitstow surface).
+    result = _run_git(
+        ["status", "--porcelain=v2", "--branch", "--untracked-files=normal"], cwd=repo_path
+    )
     if result.returncode != 0:
         # Fallback: just get the branch name
         branch_result = _run_git(["branch", "--show-current"], cwd=repo_path)
@@ -252,6 +273,260 @@ def get_status(repo_path: Path) -> RepoStatus:
         status.has_upstream = False
 
     return status
+
+
+@dataclass
+class FileChange:
+    """One changed file in the working tree or index."""
+
+    path: str
+    kind: str            # "modified" | "added" | "deleted" | "renamed"
+    added: int = 0       # line counts; 0 for binary files
+    removed: int = 0
+    binary: bool = False
+    old_path: str = ""   # set when kind == "renamed"
+
+
+@dataclass
+class ChangedFiles:
+    """Working-tree changes grouped the way GitHub Desktop groups them."""
+
+    staged: list[FileChange] = field(default_factory=list)
+    unstaged: list[FileChange] = field(default_factory=list)
+    untracked: list[str] = field(default_factory=list)
+
+    def __bool__(self) -> bool:
+        # A repo that went clean between status and listing must read as empty,
+        # not as a truthy (always non-None) instance.
+        return bool(self.staged or self.unstaged or self.untracked)
+
+
+_KIND = {"A": "added", "D": "deleted", "R": "renamed", "C": "added"}
+
+
+def _numstat_map(repo_path: Path, cached: bool) -> dict[str, tuple[int, int, bool]]:
+    """path -> (added, removed, binary) from one NUL-delimited numstat call.
+
+    ``git diff --numstat -z`` (format verified against real git): normal
+    entries are ``added TAB removed TAB path NUL``; renames are
+    ``added TAB removed TAB NUL src NUL dst NUL``. Keyed by the destination
+    path so it lines up with the porcelain-v2 new path. This replaces the old
+    ``old => new`` / ``{brace}`` heuristic, which crashed on filenames that
+    legitimately contained braces and ` => `.
+    """
+    # --find-renames pins rename detection on regardless of the user's
+    # diff.renames config, so numstat rename records line up with the
+    # --find-renames status records in get_changed_files.
+    # -z makes numstat paths literal (no C-quoting), so core.quotePath is moot —
+    # verified against real git: names with tabs/quotes/backslashes emit raw.
+    args = ["--literal-pathspecs", "diff",
+            "--no-ext-diff", "--no-color", "--numstat", "-z", "--find-renames"] + (
+                ["--cached"] if cached else [])
+    # Decode the raw bytes ourselves: no universal-newline translation to
+    # mangle a \r inside a filename. Non-UTF-8 filename bytes (possible only on
+    # Linux filesystems; APFS/NTFS enforce Unicode) decode lossily — accepted
+    # ceiling, since surrogate-escape round-tripping would poison the JSON layer
+    # for a pathology this tool's platforms can't produce.
+    stdout = _run_git(args, cwd=repo_path, binary=True).stdout.decode(
+        "utf-8", errors="replace")
+    tokens = stdout.split("\0")
+    counts: dict[str, tuple[int, int, bool]] = {}
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if not tok:
+            i += 1
+            continue
+        # Bound the split so a path containing literal tabs survives intact
+        # (added TAB removed TAB path — path may itself carry tabs).
+        fields = tok.split("\t", 2)
+        if len(fields) < 3:
+            i += 1
+            continue
+        a, r, path = fields[0], fields[1], fields[2]
+        if path == "":
+            # rename: empty inline path → next two tokens are src, dst
+            path = tokens[i + 2] if i + 2 < len(tokens) else ""
+            i += 3
+        else:
+            i += 1
+        binary = a == "-"
+        counts[path] = (0 if binary else int(a), 0 if binary else int(r), binary)
+    return counts
+
+
+def _add_change(changes: ChangedFiles, xy: str, path: str, old_path: str,
+                staged_counts: dict, unstaged_counts: dict) -> None:
+    if xy[0] != ".":
+        a, r, binary = staged_counts.get(path, (0, 0, False))
+        # old_path only belongs to the column that is actually a rename/copy;
+        # a `2 RM` line renames in the index but plain-edits in the worktree.
+        changes.staged.append(FileChange(
+            path=path, kind=_KIND.get(xy[0], "modified"),
+            added=a, removed=r, binary=binary,
+            old_path=old_path if xy[0] in "RC" else ""))
+    if xy[1] != ".":
+        a, r, binary = unstaged_counts.get(path, (0, 0, False))
+        changes.unstaged.append(FileChange(
+            path=path, kind=_KIND.get(xy[1], "modified"),
+            added=a, removed=r, binary=binary,
+            old_path=old_path if xy[1] in "RC" else ""))
+
+
+def get_changed_files(repo_path: Path) -> ChangedFiles:
+    """Per-file working-tree changes: one porcelain-v2 status call for
+    grouping + change kind, two numstat calls for per-file line counts.
+
+    Porcelain v2 -z entry formats (git-status docs). Records are NUL-terminated
+    and -z makes every path literal (no C-quoting), so filenames containing
+    quotes, backslashes, tabs, or newlines round-trip verbatim:
+      1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>
+      2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path>NUL<origPath>
+      u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>
+      ? <path>
+    X = staged column, Y = unstaged column, "." = unchanged. Under -z a rename's
+    <origPath> is the NEXT NUL-terminated token (not tab-joined as in line mode);
+    no `# branch.*` headers appear without --branch.
+    """
+    # --untracked-files=all enumerates every file inside a wholly-untracked
+    # directory (git's default "normal" mode emits just "? newdir/", which the
+    # per-file Changes listing can't expand). Badge counts use get_status
+    # (default mode), so totals may differ from this listing when new
+    # directories exist — intentional: this is the GitHub-Desktop file listing.
+    # --find-renames pins rename detection on regardless of the user's
+    # status.renames config, so A/D records and numstat rename records agree.
+    result = _run_git(["status", "--porcelain=v2", "-z",
+                       "--untracked-files=all", "--find-renames"],
+                      cwd=repo_path, binary=True)
+    if result.returncode != 0:
+        return ChangedFiles()
+    # Decode raw bytes ourselves — text-mode universal-newline translation would
+    # rewrite a \r inside a NUL-delimited filename (see _run_git binary= note).
+    stdout = result.stdout.decode("utf-8", errors="replace")
+
+    staged_counts = _numstat_map(repo_path, cached=True)
+    unstaged_counts = _numstat_map(repo_path, cached=False)
+    changes = ChangedFiles()
+
+    # Token walker over NUL-terminated records. A `2 ` (rename/copy) record is
+    # followed by its <origPath> as the next token, so we pull it from the same
+    # iterator. The trailing empty token after the final NUL is skipped.
+    records = iter(stdout.split("\0"))
+    for rec in records:
+        if not rec:
+            continue
+        if rec.startswith("? "):
+            changes.untracked.append(rec[2:])
+        elif rec.startswith("1 "):
+            _add_change(changes, rec.split(" ", 2)[1], rec.split(" ", 8)[8],
+                        "", staged_counts, unstaged_counts)
+        elif rec.startswith("2 "):
+            old = next(records, "")
+            _add_change(changes, rec.split(" ", 2)[1], rec.split(" ", 9)[9], old,
+                        staged_counts, unstaged_counts)
+        elif rec.startswith("u "):
+            # Unmerged (conflict) — show as an unstaged modification.
+            _add_change(changes, ".M", rec.split(" ", 10)[10],
+                        "", staged_counts, unstaged_counts)
+    return changes
+
+
+def get_file_diff(
+    repo_path: Path,
+    file: str,
+    *,
+    staged: bool = False,
+    untracked: bool = False,
+    old_path: str = "",
+    max_bytes: int = 512_000,
+    timeout_s: float = 10.0,
+) -> str:
+    """Raw unified diff for one file, view-only.
+
+    Untracked files diff against /dev/null so they render as all-new lines
+    (git for Windows translates /dev/null itself). `--no-index` exits 1 when
+    the files differ — that is success here, so we ignore the return code.
+
+    `--literal-pathspecs` disables git's pathspec magic so a file literally
+    named `*.txt` (or containing `?`, `:(...)`) is treated as a plain path,
+    not a glob that merges unrelated diffs into one panel.
+
+    `old_path` (a rename's source) is passed alongside `file` after `--` so a
+    staged rename renders as the rename edit; passing only the new name makes
+    git show a full add of an all-new file.
+
+    Reads at most `max_bytes` of git's stdout in a daemon reader thread joined
+    with a `timeout_s` deadline, then kills the process, so a huge file can't
+    buffer megabytes and a slow textconv/filter can't stall forever. A thread
+    (not select() on the pipe fd, which is POSIX-only and breaks on Windows —
+    which pyproject targets) keeps this portable; on deadline expiry we return
+    whatever landed (degrade-soft), which also keeps the web route's threadpool
+    worker from wedging. 512KB is far beyond 500 rendered lines at any sane
+    width; the byte-capped read may drop the parser's "truncated" flag —
+    acceptable, the display cap still applies. Same env conventions as
+    `_run_git` (GIT_TERMINAL_PROMPT=0, LC_ALL=C). Degrades to "" like the rest
+    of git.py.
+    """
+    paths = [old_path, file] if old_path else [file]
+    if untracked:
+        args = ["--literal-pathspecs", "diff", "--no-ext-diff", "--no-color",
+                "--no-index", "--", "/dev/null", file]
+    elif staged:
+        args = ["--literal-pathspecs", "diff", "--no-ext-diff", "--no-color",
+                "--cached", "--", *paths]
+    else:
+        args = ["--literal-pathspecs", "diff", "--no-ext-diff", "--no-color", "--", *paths]
+
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"}
+    try:
+        proc = subprocess.Popen(
+            ["git"] + args,
+            cwd=repo_path,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            env=env,
+        )
+    except FileNotFoundError:
+        return ""
+
+    # Bounded chunked read on a daemon thread. One blocking read(max_bytes)
+    # would return empty at the deadline for a git that writes some bytes then
+    # stalls — the read is still parked when the join times out. Looping small
+    # reads means the chunks already written are captured; after we kill(), the
+    # pipe hits EOF and the final read flushes them. Daemon so a truly hung read
+    # never blocks exit. Reads are capped to max_bytes total so a huge file
+    # can't over-buffer.
+    chunks: list[bytes] = []
+
+    def _read() -> None:
+        total = 0
+        while total < max_bytes:
+            chunk = proc.stdout.read(min(65536, max_bytes - total))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+
+    reader = threading.Thread(target=_read, daemon=True)
+    reader.start()
+    reader.join(timeout_s)
+    try:
+        proc.kill()  # ponytail: partial read is fine — display truncates at 500 lines
+        proc.wait()
+    except OSError:
+        pass
+    reader.join(2)  # post-kill EOF lets the stalled read flush its partial chunks in
+    return b"".join(chunks).decode("utf-8", errors="replace")
+
+
+def run_interactive_diff(repo_path: Path, staged: bool = False) -> int:
+    """Hand the terminal to `git diff` — inherits TTY, color, and pager.
+
+    The one intentional exception to captured _run_git calls: repainting
+    git's terminal diff would be worse than letting git do it.
+    """
+    args = ["git", "diff"] + (["--cached"] if staged else [])
+    return subprocess.run(args, cwd=repo_path).returncode
 
 
 def get_remote_url(repo_path: Path) -> str | None:

@@ -5,11 +5,22 @@ In Phase B-1 these render real data where possible; mutations land in later phas
 
 from __future__ import annotations
 
+import os.path
+
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from gitstow.core.config import load_config, save_config
-from gitstow.core.git import format_size, get_disk_size, get_last_commit, get_status, is_git_repo
+from gitstow.core.diff import parse_unified_diff
+from gitstow.core.git import (
+    format_size,
+    get_changed_files,
+    get_disk_size,
+    get_file_diff,
+    get_last_commit,
+    get_status,
+    is_git_repo,
+)
 from gitstow.core.repo import RepoStore
 from gitstow.core.status_model import classify
 from gitstow.web.routes.dashboard import _present, _relative_time
@@ -126,6 +137,12 @@ def render_repo_detail(request, workspace: str, key: str, error=None, status_cod
     state = classify(exists=exists, frozen=repo.frozen, status=status)
     status_class, status_label, _pull_variant = _present(state)
 
+    # Changes section data — only when there is something to show (spec:
+    # section renders only for repos with local changes).
+    changes = None
+    if exists and state.has_local_changes:
+        changes = get_changed_files(repo_path)
+
     # Disk size (can be slow; protect with try)
     try:
         size_bytes = get_disk_size(repo_path) if exists else 0
@@ -165,4 +182,78 @@ def render_repo_detail(request, workspace: str, key: str, error=None, status_cod
         last_pull_iso=repo.last_pulled,
         last_fetched_rel=_relative_time(repo.last_fetched) if repo.last_fetched else "never",
         last_fetched_iso=repo.last_fetched,
+        changes=changes,
+    )
+
+
+@router.get("/repos/{workspace}/{key:path}/diff", response_class=HTMLResponse)
+def file_diff(
+    workspace: str, key: str, request: Request, file: str, group: str = "unstaged"
+):
+    """Rendered line-by-line diff for one file — htmx-loaded on expand.
+
+    Sync `def` (not `async`): the git diff work is blocking, so FastAPI runs
+    this in its threadpool — one slow diff can't freeze the event loop.
+    """
+    settings = load_config()
+    store = RepoStore()
+    ws = settings.get_workspace(workspace)
+    repo = store.get(key, workspace=workspace) if ws else None
+    if ws is None or repo is None:
+        raise HTTPException(status_code=404, detail="repo not found")
+    repo_path = repo.get_path(ws.get_path())
+
+    # Registry repo whose directory was deleted: don't hand a nonexistent cwd
+    # to git subprocess (FileNotFoundError → 500). Same existence idiom as the
+    # repo drawer.
+    if not (repo_path.exists() and is_git_repo(repo_path)):
+        raise HTTPException(status_code=404, detail="repo missing on disk")
+
+    # Trust boundary: `file` comes from the query string — refuse anything
+    # that points outside the repo (e.g. ../../etc/passwd via --no-index).
+    # Lexical check only: a *changed symlink* pointing outside the repo is
+    # safe to view (git diffs the link's target string, never reads it), so we
+    # must not resolve()/follow symlinks here. Defense-in-depth, before the
+    # membership check below.
+    root = repo_path.resolve()
+    norm = os.path.normpath(os.path.join(str(root), file))
+    if not (norm == str(root) or norm.startswith(str(root) + os.sep)):
+        raise HTTPException(status_code=400, detail="file outside repo")
+
+    # Authorization: only serve files actually in this repo's Changes list.
+    # Without this, any repo-relative path is a readable diff (e.g. an ignored
+    # .env via --no-index), and GETs bypass the POST-only Host/Origin guard.
+    changes = get_changed_files(repo_path)
+    members = {
+        "staged": {f.path for f in changes.staged},
+        "unstaged": {f.path for f in changes.unstaged},
+        "untracked": set(changes.untracked),
+    }
+    if group not in members:
+        raise HTTPException(status_code=400, detail="invalid group")
+    if file not in members[group]:
+        # The repo changed between page render and this expand — the row is
+        # stale. A 404 would leave the panel stuck on "loading…" (htmx doesn't
+        # swap error responses), so return a 200 note instead.
+        return render(
+            request, "partials/diff_view.html", page="dashboard",
+            diff=None, stale=True, file=file,
+        )
+
+    # A staged rename needs its source path too, or git renders a full add.
+    # `changes` is already fetched above; look up the matching FileChange.
+    old_path = ""
+    if group in ("staged", "unstaged"):
+        change = next((f for f in getattr(changes, group) if f.path == file), None)
+        old_path = change.old_path if change else ""
+
+    raw = get_file_diff(
+        repo_path, file,
+        staged=(group == "staged"),
+        untracked=(group == "untracked"),
+        old_path=old_path,
+    )
+    return render(
+        request, "partials/diff_view.html", page="dashboard",
+        diff=parse_unified_diff(raw), file=file,
     )
