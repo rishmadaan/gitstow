@@ -40,9 +40,8 @@ dark theme.
 
 ### 2. Diff parsing + rendering (web)
 
-- Small parser: unified diff text → hunks of (kind: add/del/context, old
-  line-no, new line-no, text). Lives in `web/` or `core/` — it exists to feed
-  the template.
+- Small parser in `core/diff.py`: unified diff text → hunks of (kind:
+  add/del/context, old line-no, new line-no, text) — feeds the Jinja template.
 - Guardrails:
   - Binary files → "binary file changed" row, no content.
   - Diffs over ~500 lines → truncate with "showing first 500 lines" notice.
