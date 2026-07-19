@@ -5,6 +5,8 @@ In Phase B-1 these render real data where possible; mutations land in later phas
 
 from __future__ import annotations
 
+import os.path
+
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
@@ -204,9 +206,14 @@ async def file_diff(
         raise HTTPException(status_code=404, detail="repo missing on disk")
 
     # Trust boundary: `file` comes from the query string — refuse anything
-    # that resolves outside the repo (e.g. ../../etc/passwd via --no-index).
-    # Defense-in-depth, before the membership check below.
-    if not (repo_path / file).resolve().is_relative_to(repo_path.resolve()):
+    # that points outside the repo (e.g. ../../etc/passwd via --no-index).
+    # Lexical check only: a *changed symlink* pointing outside the repo is
+    # safe to view (git diffs the link's target string, never reads it), so we
+    # must not resolve()/follow symlinks here. Defense-in-depth, before the
+    # membership check below.
+    root = repo_path.resolve()
+    norm = os.path.normpath(os.path.join(str(root), file))
+    if not (norm == str(root) or norm.startswith(str(root) + os.sep)):
         raise HTTPException(status_code=400, detail="file outside repo")
 
     # Authorization: only serve files actually in this repo's Changes list.

@@ -378,12 +378,20 @@ def get_file_diff(
     *,
     staged: bool = False,
     untracked: bool = False,
+    max_bytes: int = 512_000,
 ) -> str:
     """Raw unified diff for one file, view-only.
 
     Untracked files diff against /dev/null so they render as all-new lines
     (git for Windows translates /dev/null itself). `--no-index` exits 1 when
     the files differ — that is success here, so we ignore the return code.
+
+    Reads at most `max_bytes` of git's stdout, then kills the process, so a
+    huge file can't buffer megabytes before the display truncates at 500
+    lines. 512KB is far beyond 500 rendered lines at any sane width; the
+    byte-capped read may drop the parser's "truncated" flag — acceptable, the
+    display cap still applies. Same env conventions as `_run_git`
+    (GIT_TERMINAL_PROMPT=0, LC_ALL=C). Degrades to "" like the rest of git.py.
     """
     if untracked:
         args = ["diff", "--no-ext-diff", "--no-color", "--no-index", "--", "/dev/null", file]
@@ -391,7 +399,22 @@ def get_file_diff(
         args = ["diff", "--no-ext-diff", "--no-color", "--cached", "--", file]
     else:
         args = ["diff", "--no-ext-diff", "--no-color", "--", file]
-    return _run_git(args, cwd=repo_path).stdout
+
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"}
+    try:
+        proc = subprocess.Popen(
+            ["git"] + args,
+            cwd=repo_path,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            env=env,
+        )
+        data = proc.stdout.read(max_bytes)
+        proc.terminate()  # ponytail: partial read is fine — display truncates at 500 lines anyway
+        proc.wait(timeout=10)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return ""
+    return data.decode("utf-8", errors="replace")
 
 
 def run_interactive_diff(repo_path: Path, staged: bool = False) -> int:

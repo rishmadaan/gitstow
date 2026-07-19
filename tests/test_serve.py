@@ -806,7 +806,15 @@ class TestCrossOriginProtection:
         r = client.post("/shutdown", headers={"Host": "evil.example"})
         assert r.status_code == 403
 
-    def test_get_never_blocked(self, client, configured):
+    def test_dns_rebinding_host_rejected_on_get(self, client, configured):
+        # GETs must be rebind-proof too — attacker JS on a rebound domain could
+        # otherwise enumerate the dashboard and exfiltrate diff content.
+        r = client.get("/", headers={"Host": "evil.example:7853"})
+        assert r.status_code == 403
+
+    def test_get_with_bad_origin_but_valid_host_allowed(self, client, configured):
+        # Origin is only checked on POST; a same-origin GET (allowed Host)
+        # carrying a stray Origin still serves.
         r = client.get("/", headers={"Origin": "http://evil.example"})
         assert r.status_code == 200
 
@@ -1130,6 +1138,28 @@ class TestDiffViewer:
         # Traversal guard fires before the membership check → 400, not 404.
         r = client.get("/repos/test-ws/owner/repo/diff?file=../../../etc/passwd&group=untracked")
         assert r.status_code == 400
+
+    def test_diff_endpoint_rejects_absolute_path(self, client, configured, workspace_dir):
+        self._seed_repo(workspace_dir)
+        # An absolute path escapes the repo root → 400 (lexical guard).
+        r = client.get("/repos/test-ws/owner/repo/diff?file=/etc/passwd&group=untracked")
+        assert r.status_code == 400
+
+    def test_diff_endpoint_serves_changed_symlink(self, client, configured, workspace_dir, monkeypatch):
+        self._seed_repo(workspace_dir)
+        # A changed symlink pointing outside the repo is safe to view: git
+        # diffs the link's target *string*, never follows it. A REAL symlink on
+        # disk is what makes this honest — the old resolve()-based guard would
+        # follow it to /etc/passwd and 400; the lexical guard must not.
+        (workspace_dir / "owner" / "repo" / "link.txt").symlink_to("/etc/passwd")
+        self._mock_member(monkeypatch, path="link.txt")
+        monkeypatch.setattr(
+            "gitstow.web.routes.pages.get_file_diff",
+            lambda p, f, **kw: "--- a/link.txt\n+++ b/link.txt\n@@ -1 +1 @@\n-/old\n+/etc/passwd\n",
+        )
+        r = client.get("/repos/test-ws/owner/repo/diff?file=link.txt&group=unstaged")
+        assert r.status_code == 200
+        assert "/etc/passwd" in r.text
 
     def test_diff_endpoint_rejects_non_member_file(self, client, configured, workspace_dir, monkeypatch):
         self._seed_repo(workspace_dir)

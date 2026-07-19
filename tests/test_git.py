@@ -410,25 +410,53 @@ from gitstow.core.git import get_file_diff, run_interactive_diff
 
 
 class TestGetFileDiff:
-    @patch("gitstow.core.git._run_git")
-    def test_unstaged_diff_args(self, mock_run):
-        mock_run.return_value = _proc("diff --git a/f b/f\n")
-        out = get_file_diff(Path("/repo"), "f")
-        assert out == "diff --git a/f b/f\n"
-        assert mock_run.call_args[0][0] == ["diff", "--no-ext-diff", "--no-color", "--", "f"]
+    def test_unstaged_staged_untracked_real_git(self, tmp_path):
+        """Real repo end-to-end: get_file_diff must produce +/- lines for an
+        unstaged edit, a staged edit, and an untracked (all-new) file."""
+        import subprocess as sp
 
-    @patch("gitstow.core.git._run_git")
-    def test_staged_diff_args(self, mock_run):
-        mock_run.return_value = _proc("")
-        get_file_diff(Path("/repo"), "f", staged=True)
-        assert mock_run.call_args[0][0] == ["diff", "--no-ext-diff", "--no-color", "--cached", "--", "f"]
+        def git(*a):
+            sp.run(["git", *a], cwd=tmp_path, check=True, capture_output=True, text=True)
 
-    @patch("gitstow.core.git._run_git")
-    def test_untracked_diffs_against_dev_null(self, mock_run):
-        mock_run.return_value = _proc("+new line\n", returncode=1)  # --no-index exits 1 on diff
-        out = get_file_diff(Path("/repo"), "f", untracked=True)
-        assert out == "+new line\n"
-        assert mock_run.call_args[0][0] == ["diff", "--no-ext-diff", "--no-color", "--no-index", "--", "/dev/null", "f"]
+        git("init")
+        git("config", "user.email", "t@example.com")
+        git("config", "user.name", "Test")
+        f = tmp_path / "f.txt"
+        f.write_text("one\ntwo\nthree\n")
+        git("add", "-A")
+        git("commit", "-m", "init")
+
+        # Unstaged edit
+        f.write_text("one\nCHANGED\nthree\n")
+        unstaged = get_file_diff(tmp_path, "f.txt")
+        assert "-two" in unstaged and "+CHANGED" in unstaged
+
+        # Stage it → staged diff shows it, unstaged now empty
+        git("add", "f.txt")
+        staged = get_file_diff(tmp_path, "f.txt", staged=True)
+        assert "-two" in staged and "+CHANGED" in staged
+
+        # Untracked file diffs against /dev/null → all-new lines
+        (tmp_path / "new.txt").write_text("alpha\nbeta\n")
+        untracked = get_file_diff(tmp_path, "new.txt", untracked=True)
+        assert "+alpha" in untracked and "+beta" in untracked
+
+    def test_max_bytes_caps_read(self, tmp_path):
+        """A diff larger than max_bytes is truncated at the byte boundary,
+        never fully buffered."""
+        import subprocess as sp
+
+        def git(*a):
+            sp.run(["git", *a], cwd=tmp_path, check=True, capture_output=True, text=True)
+
+        git("init")
+        git("config", "user.email", "t@example.com")
+        git("config", "user.name", "Test")
+        big = tmp_path / "big.txt"
+        big.write_text("".join(f"line {i}\n" for i in range(5000)))
+
+        out = get_file_diff(tmp_path, "big.txt", untracked=True, max_bytes=200)
+        assert len(out.encode("utf-8", errors="replace")) <= 200
 
 
 class TestRunInteractiveDiff:

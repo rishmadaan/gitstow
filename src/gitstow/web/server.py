@@ -48,10 +48,13 @@ def render(request, template_name: str, status_code: int = 200, **context) -> ob
 
 
 # gitstow ui executes git and deletes directories. Binding to 127.0.0.1 stops
-# LAN access, but NOT cross-origin form POSTs from any website the user visits,
-# nor DNS-rebinding. Browsers attach Origin to all cross-origin POSTs — reject
-# anything that isn't loopback. Header-less requests (curl) pass: CSRF is a
-# browser vector, and this is not authentication.
+# LAN access, but NOT DNS-rebinding (attacker JS on a rebound domain can read
+# the dashboard, incl. diff content, over GET) nor cross-origin form POSTs.
+# The Host-header check guards ALL requests against rebinding — a legit
+# same-origin request to 127.0.0.1/localhost carries an allowed Host, a
+# rebound one does not. POSTs additionally check Origin (browsers attach it to
+# all cross-origin POSTs). Header-less requests (curl) pass: CSRF/rebinding are
+# browser vectors, and this is not authentication.
 _ALLOWED_HOSTNAMES = {"127.0.0.1", "localhost", "::1"}
 
 
@@ -73,14 +76,14 @@ def create_app() -> FastAPI:
     )
 
     @app.middleware("http")
-    async def _reject_cross_origin_writes(request: Request, call_next):
+    async def _reject_rebind_and_cross_origin(request: Request, call_next):
+        host = _header_hostname(request.headers.get("host"))
+        if host is not None and host not in _ALLOWED_HOSTNAMES:
+            return JSONResponse({"error": "unexpected Host header"}, status_code=403)
         if request.method == "POST":
             origin = request.headers.get("origin")
             if origin is not None and _header_hostname(origin) not in _ALLOWED_HOSTNAMES:
                 return JSONResponse({"error": "cross-origin request rejected"}, status_code=403)
-            host = _header_hostname(request.headers.get("host"))
-            if host is not None and host not in _ALLOWED_HOSTNAMES:
-                return JSONResponse({"error": "unexpected Host header"}, status_code=403)
         return await call_next(request)
 
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
