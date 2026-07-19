@@ -311,7 +311,9 @@ def _numstat_map(repo_path: Path, cached: bool) -> dict[str, tuple[int, int, boo
     # --find-renames pins rename detection on regardless of the user's
     # diff.renames config, so numstat rename records line up with the
     # --find-renames status records in get_changed_files.
-    args = ["--literal-pathspecs", "-c", "core.quotePath=false", "diff",
+    # -z makes numstat paths literal (no C-quoting), so core.quotePath is moot —
+    # verified against real git: names with tabs/quotes/backslashes emit raw.
+    args = ["--literal-pathspecs", "diff",
             "--no-ext-diff", "--no-color", "--numstat", "-z", "--find-renames"] + (
                 ["--cached"] if cached else [])
     tokens = _run_git(args, cwd=repo_path).stdout.split("\0")
@@ -322,7 +324,9 @@ def _numstat_map(repo_path: Path, cached: bool) -> dict[str, tuple[int, int, boo
         if not tok:
             i += 1
             continue
-        fields = tok.split("\t")
+        # Bound the split so a path containing literal tabs survives intact
+        # (added TAB removed TAB path — path may itself carry tabs).
+        fields = tok.split("\t", 2)
         if len(fields) < 3:
             i += 1
             continue
@@ -360,12 +364,16 @@ def get_changed_files(repo_path: Path) -> ChangedFiles:
     """Per-file working-tree changes: one porcelain-v2 status call for
     grouping + change kind, two numstat calls for per-file line counts.
 
-    Porcelain v2 entry formats (git-status docs):
+    Porcelain v2 -z entry formats (git-status docs). Records are NUL-terminated
+    and -z makes every path literal (no C-quoting), so filenames containing
+    quotes, backslashes, tabs, or newlines round-trip verbatim:
       1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>
-      2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path>\t<origPath>
+      2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path>NUL<origPath>
       u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>
       ? <path>
-    X = staged column, Y = unstaged column, "." = unchanged.
+    X = staged column, Y = unstaged column, "." = unchanged. Under -z a rename's
+    <origPath> is the NEXT NUL-terminated token (not tab-joined as in line mode);
+    no `# branch.*` headers appear without --branch.
     """
     # --untracked-files=all enumerates every file inside a wholly-untracked
     # directory (git's default "normal" mode emits just "? newdir/", which the
@@ -374,7 +382,7 @@ def get_changed_files(repo_path: Path) -> ChangedFiles:
     # directories exist — intentional: this is the GitHub-Desktop file listing.
     # --find-renames pins rename detection on regardless of the user's
     # status.renames config, so A/D records and numstat rename records agree.
-    result = _run_git(["-c", "core.quotePath=false", "status", "--porcelain=v2",
+    result = _run_git(["status", "--porcelain=v2", "-z",
                        "--untracked-files=all", "--find-renames"], cwd=repo_path)
     if result.returncode != 0:
         return ChangedFiles()
@@ -383,22 +391,25 @@ def get_changed_files(repo_path: Path) -> ChangedFiles:
     unstaged_counts = _numstat_map(repo_path, cached=False)
     changes = ChangedFiles()
 
-    # ponytail: filenames with literal tabs/quotes/backslashes stay C-quoted
-    # (structural quoting survives core.quotePath=false) — NUL-delimited -z
-    # parsing if anyone ever hits it.
-    for line in result.stdout.splitlines():
-        if line.startswith("? "):
-            changes.untracked.append(line[2:])
-        elif line.startswith("1 "):
-            _add_change(changes, line.split(" ", 2)[1], line.split(" ", 8)[8],
+    # Token walker over NUL-terminated records. A `2 ` (rename/copy) record is
+    # followed by its <origPath> as the next token, so we pull it from the same
+    # iterator. The trailing empty token after the final NUL is skipped.
+    records = iter(result.stdout.split("\0"))
+    for rec in records:
+        if not rec:
+            continue
+        if rec.startswith("? "):
+            changes.untracked.append(rec[2:])
+        elif rec.startswith("1 "):
+            _add_change(changes, rec.split(" ", 2)[1], rec.split(" ", 8)[8],
                         "", staged_counts, unstaged_counts)
-        elif line.startswith("2 "):
-            path, _, old = line.split(" ", 9)[9].partition("\t")
-            _add_change(changes, line.split(" ", 2)[1], path, old,
+        elif rec.startswith("2 "):
+            old = next(records, "")
+            _add_change(changes, rec.split(" ", 2)[1], rec.split(" ", 9)[9], old,
                         staged_counts, unstaged_counts)
-        elif line.startswith("u "):
+        elif rec.startswith("u "):
             # Unmerged (conflict) — show as an unstaged modification.
-            _add_change(changes, ".M", line.split(" ", 10)[10],
+            _add_change(changes, ".M", rec.split(" ", 10)[10],
                         "", staged_counts, unstaged_counts)
     return changes
 

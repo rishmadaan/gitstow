@@ -311,9 +311,9 @@ class TestGetChangedFiles:
         def fake(args, cwd=None, **kw):
             if "status" in args:
                 return _proc(
-                    "1 .M N... 100644 100644 100644 abc def src/app.py\n"
-                    "1 A. N... 000000 100644 100644 abc def new.py\n"
-                    "? notes.txt\n"
+                    "1 .M N... 100644 100644 100644 abc def src/app.py\0"
+                    "1 A. N... 000000 100644 100644 abc def new.py\0"
+                    "? notes.txt\0"
                 )
             if "--cached" in args:
                 return _proc("5\t0\tnew.py\0")
@@ -329,7 +329,7 @@ class TestGetChangedFiles:
     def test_partially_staged_file_appears_in_both_groups(self, mock_run):
         def fake(args, cwd=None, **kw):
             if "status" in args:
-                return _proc("1 MM N... 100644 100644 100644 abc def both.py\n")
+                return _proc("1 MM N... 100644 100644 100644 abc def both.py\0")
             return _proc("1\t1\tboth.py\0")
         mock_run.side_effect = fake
 
@@ -342,8 +342,8 @@ class TestGetChangedFiles:
         def fake(args, cwd=None, **kw):
             if "status" in args:
                 return _proc(
-                    "2 R. N... 100644 100644 100644 abc def R100 new_name.py\told_name.py\n"
-                    "1 .M N... 100644 100644 100644 abc def logo.png\n"
+                    "2 R. N... 100644 100644 100644 abc def R100 new_name.py\0old_name.py\0"
+                    "1 .M N... 100644 100644 100644 abc def logo.png\0"
                 )
             if "--cached" in args:
                 # -z rename entry: added TAB removed TAB NUL src NUL dst NUL
@@ -361,7 +361,7 @@ class TestGetChangedFiles:
         crash the old heuristic (deleted) — -z parsing keys by the dst path."""
         def fake(args, cwd=None, **kw):
             if "status" in args:
-                return _proc("2 R. N... 100644 100644 100644 abc def R90 br{new}.txt\tbr{ace}.txt\n")
+                return _proc("2 R. N... 100644 100644 100644 abc def R90 br{new}.txt\0br{ace}.txt\0")
             if "--cached" in args:
                 return _proc("2\t1\t\0br{ace}.txt\0br{new}.txt\0")
             return _proc("")
@@ -377,7 +377,7 @@ class TestGetChangedFiles:
         renamed (staged) column only — the unstaged edit is not `a → b`."""
         def fake(args, cwd=None, **kw):
             if "status" in args:
-                return _proc("2 RM N... 100644 100644 100644 abc def R100 new.py\told.py\n")
+                return _proc("2 RM N... 100644 100644 100644 abc def R100 new.py\0old.py\0")
             if "--cached" in args:
                 return _proc("0\t0\t\0old.py\0new.py\0")
             return _proc("2\t1\tnew.py\0")
@@ -412,7 +412,7 @@ class TestGetChangedFiles:
         def fake(args, cwd=None, **kw):
             if "status" in args:
                 return _proc(
-                    "u UU N... 100644 100644 100644 100644 h1 h2 h3 conflicted.py\n"
+                    "u UU N... 100644 100644 100644 100644 h1 h2 h3 conflicted.py\0"
                 )
             return _proc("")
         mock_run.side_effect = fake
@@ -459,6 +459,48 @@ class TestGetChangedFiles:
 
         c = get_changed_files(tmp_path)
         assert set(c.untracked) == {"newdir/a.txt", "newdir/b.txt"}
+
+    def test_quote_tab_backslash_names_round_trip_real_git(self, tmp_path):
+        """Retired ceiling: filenames with literal quotes/tabs/backslashes are
+        C-quoted by porcelain v2 in line mode even with core.quotePath=false.
+        -z parsing returns the literal names (no quotes, no escapes) in the
+        right groups, and get_file_diff can still diff them."""
+        import subprocess as sp
+
+        def git(*a):
+            sp.run(["git", *a], cwd=tmp_path, check=True, capture_output=True, text=True)
+
+        git("init")
+        git("config", "user.email", "t@example.com")
+        git("config", "user.name", "Test")
+
+        quote = tmp_path / 'with"quote.txt'
+        quote.write_text("one\ntwo\n")
+        expect_modified = {'with"quote.txt'}
+        tab_ok = True
+        try:
+            (tmp_path / "tab\tname.txt").write_text("x\n")
+        except OSError:
+            tab_ok = False  # filesystem rejects tabs in names — skip that leg
+        if tab_ok:
+            expect_modified.add("tab\tname.txt")
+
+        git("add", "-A")
+        git("commit", "-m", "init")
+
+        # Modify the tracked weird-named files → unstaged modifications.
+        quote.write_text("one\nCHANGED\n")
+        if tab_ok:
+            (tmp_path / "tab\tname.txt").write_text("y\n")
+        # Untracked file whose name contains a literal backslash.
+        (tmp_path / "back\\slash.txt").write_text("new\n")
+
+        c = get_changed_files(tmp_path)
+        assert {fc.path for fc in c.unstaged} == expect_modified
+        assert "back\\slash.txt" in c.untracked
+
+        diff = get_file_diff(tmp_path, 'with"quote.txt')
+        assert "-two" in diff and "+CHANGED" in diff
 
 
 from gitstow.core.git import get_file_diff, run_interactive_diff
