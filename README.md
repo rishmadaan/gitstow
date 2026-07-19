@@ -75,8 +75,10 @@ gitstow pull --tag ai           # Only repos tagged 'ai'
 gitstow pull --exclude-tag stale # Everything except stale repos
 gitstow status                  # Git status dashboard
 gitstow -w active status --dirty # Repos with local changes in active workspace
+gitstow diff <repo>              # View a repo's uncommitted changes (staged/unstaged) — view-only
+gitstow diff <repo> --staged     # View staged changes only
 ```
-`status` shows local changes as a composition (e.g. "2 modified · 1 staged · 3 untracked") rather than a single "dirty" bucket, and keeps the remote relationship (ahead/behind/diverged) in its own column.
+`status` shows local changes as a composition (e.g. "2 modified · 1 staged · 3 untracked") rather than a single "dirty" bucket, and keeps the remote relationship (ahead/behind/diverged) in its own column. `diff` prints the colored git diff for a single repo (clean repos print "no local changes").
 
 ### Freeze & Tags
 ```bash
@@ -145,7 +147,7 @@ gitstow ui                  # opens http://127.0.0.1:7853 in your browser
 gitstow ui --port 8080
 gitstow ui --no-browser
 ```
-Persistent local web dashboard for daily repo management — a tab you leave open. Shows dirty state across your library, pulls single repos or all-of-them with a parallel summary panel, adds/removes repos, edits tags, freezes stale ones. Auto-refreshes row status every 30 seconds. Binds `127.0.0.1` only (arbitrary git execution must not be LAN-reachable). Click **Shutdown** in the footer — or Ctrl+C — to stop.
+Persistent local web dashboard for daily repo management — a tab you leave open. Shows dirty state across your library, pulls single repos or all-of-them with a parallel summary panel, adds/removes repos, edits tags, freezes stale ones. The repo detail page has a Changes section — staged/unstaged/untracked groups, click a file to expand its colored line diff. Auto-refreshes row status every 30 seconds. Binds `127.0.0.1` only (arbitrary git execution must not be LAN-reachable). Click **Shutdown** in the footer — or Ctrl+C — to stop.
 
 ### JSON Output
 Every command supports `--json` for scripting and AI consumption:
@@ -164,6 +166,7 @@ gitstow status --json
 | `gitstow pull` | Bulk update all (or filtered) repos |
 | `gitstow list` | List repos grouped by owner/workspace |
 | `gitstow status` | Git status dashboard |
+| `gitstow diff <repo> [--staged]` | View a repo's uncommitted changes (staged/unstaged) — view-only |
 | `gitstow remove <repo>` | Remove a repo from tracking |
 | `gitstow migrate <path>` | Adopt existing repos into structure |
 | **Workspaces** | |
