@@ -14,7 +14,7 @@
         </summary>
         <div class="diff-body"
              hx-get="/repos/{{ repo.workspace }}/{{ repo.key }}/diff?file={{ f.path|urlencode }}&group={{ group }}"
-             hx-trigger="intersect once"
+             hx-trigger="toggle once from:closest details"
              hx-swap="innerHTML"><div class="diff-note">loading…</div></div>
       </details>
       {% endfor %}
@@ -33,7 +33,7 @@
       </summary>
       <div class="diff-body"
            hx-get="/repos/{{ repo.workspace }}/{{ repo.key }}/diff?file={{ path|urlencode }}&group=untracked"
-           hx-trigger="intersect once"
+           hx-trigger="toggle once from:closest details"
            hx-swap="innerHTML"><div class="diff-note">loading…</div></div>
     </details>
     {% endfor %}

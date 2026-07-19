@@ -1091,6 +1091,7 @@ class TestDiffViewer:
         assert 'id="changes"' in r.text
         assert "src/app.py" in r.text and "notes.txt" in r.text
         assert "+3" in r.text and "−2" in r.text
+        assert 'hx-trigger="toggle once from:closest details"' in r.text
 
     def test_drawer_hides_changes_when_clean(self, client, configured, workspace_dir, monkeypatch):
         self._seed_repo(workspace_dir)
