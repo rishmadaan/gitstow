@@ -108,10 +108,12 @@ from gitstow.cli.setup_ai import setup_ai  # noqa: E402
 from gitstow.cli.workspace_cmd import workspace_app  # noqa: E402
 from gitstow.cli.serve import ui  # noqa: E402
 from gitstow.cli.update import update  # noqa: E402
+from gitstow.cli.diff_cmd import diff_cmd  # noqa: E402
 
 app.command()(add)
 app.command()(pull)
 app.command()(fetch)
+app.command("diff")(diff_cmd)
 app.command("list")(list_repos)
 app.command()(status)
 app.command()(remove)

@@ -1020,3 +1020,54 @@ class TestEmptyFilterJsonPurity:
         result = CliRunner().invoke(app, ["status", "--json"])
         payload = json.loads(result.output)
         assert payload == []
+
+
+class TestDiffCommand:
+    def _seed(self, tmp_path, monkeypatch):
+        """One workspace 'ws' with one repo 'owner/repo' present on disk."""
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"
+        (ws_dir / "owner" / "repo" / ".git").mkdir(parents=True)
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+        store = RepoStore()
+        store.add(Repo(owner="owner", name="repo", remote_url="", workspace="ws"))
+        return ws_dir / "owner" / "repo"
+
+    def test_clean_repo_prints_no_changes(self, tmp_path, monkeypatch):
+        from gitstow.core.git import RepoStatus
+
+        self._seed(tmp_path, monkeypatch)
+        monkeypatch.setattr("gitstow.cli.diff_cmd.get_status", lambda p: RepoStatus(branch="main"))
+        result = runner.invoke(app, ["diff", "owner/repo"])
+        assert result.exit_code == 0
+        assert "no local changes" in result.output
+
+    def test_dirty_repo_hands_off_to_git(self, tmp_path, monkeypatch):
+        from gitstow.core.git import RepoStatus
+
+        repo_path = self._seed(tmp_path, monkeypatch)
+        monkeypatch.setattr("gitstow.cli.diff_cmd.get_status", lambda p: RepoStatus(branch="main", dirty=1))
+        called = {}
+
+        def fake_diff(path, staged=False):
+            called.update(path=path, staged=staged)
+            return 0
+
+        monkeypatch.setattr("gitstow.cli.diff_cmd.run_interactive_diff", fake_diff)
+        result = runner.invoke(app, ["diff", "owner/repo", "--staged"])
+        assert result.exit_code == 0
+        assert called == {"path": repo_path, "staged": True}
+
+    def test_missing_repo_errors(self, tmp_path, monkeypatch):
+        repo_path = self._seed(tmp_path, monkeypatch)
+        import shutil
+        shutil.rmtree(repo_path)
+        result = runner.invoke(app, ["diff", "owner/repo"])
+        assert result.exit_code == 1
