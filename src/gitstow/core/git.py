@@ -357,6 +357,38 @@ def get_changed_files(repo_path: Path) -> ChangedFiles:
     return changes
 
 
+def get_file_diff(
+    repo_path: Path,
+    file: str,
+    *,
+    staged: bool = False,
+    untracked: bool = False,
+) -> str:
+    """Raw unified diff for one file, view-only.
+
+    Untracked files diff against /dev/null so they render as all-new lines
+    (git for Windows translates /dev/null itself). `--no-index` exits 1 when
+    the files differ — that is success here, so we ignore the return code.
+    """
+    if untracked:
+        args = ["diff", "--no-index", "--", "/dev/null", file]
+    elif staged:
+        args = ["diff", "--cached", "--", file]
+    else:
+        args = ["diff", "--", file]
+    return _run_git(args, cwd=repo_path).stdout
+
+
+def run_interactive_diff(repo_path: Path, staged: bool = False) -> int:
+    """Hand the terminal to `git diff` — inherits TTY, color, and pager.
+
+    The one intentional exception to captured _run_git calls: repainting
+    git's terminal diff would be worse than letting git do it.
+    """
+    args = ["git", "diff"] + (["--cached"] if staged else [])
+    return subprocess.run(args, cwd=repo_path).returncode
+
+
 def get_remote_url(repo_path: Path) -> str | None:
     """Get the remote origin URL."""
     result = _run_git(["remote", "get-url", "origin"], cwd=repo_path)

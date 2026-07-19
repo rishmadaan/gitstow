@@ -351,3 +351,40 @@ class TestGetChangedFiles:
     def test_unreadable_repo_returns_empty(self, mock_run):
         mock_run.return_value = _proc("fatal: not a git repository", returncode=128)
         assert get_changed_files(Path("/repo")) == ChangedFiles()
+
+
+from gitstow.core.git import get_file_diff, run_interactive_diff
+
+
+class TestGetFileDiff:
+    @patch("gitstow.core.git._run_git")
+    def test_unstaged_diff_args(self, mock_run):
+        mock_run.return_value = _proc("diff --git a/f b/f\n")
+        out = get_file_diff(Path("/repo"), "f")
+        assert out == "diff --git a/f b/f\n"
+        assert mock_run.call_args[0][0] == ["diff", "--", "f"]
+
+    @patch("gitstow.core.git._run_git")
+    def test_staged_diff_args(self, mock_run):
+        mock_run.return_value = _proc("")
+        get_file_diff(Path("/repo"), "f", staged=True)
+        assert mock_run.call_args[0][0] == ["diff", "--cached", "--", "f"]
+
+    @patch("gitstow.core.git._run_git")
+    def test_untracked_diffs_against_dev_null(self, mock_run):
+        mock_run.return_value = _proc("+new line\n", returncode=1)  # --no-index exits 1 on diff
+        out = get_file_diff(Path("/repo"), "f", untracked=True)
+        assert out == "+new line\n"
+        assert mock_run.call_args[0][0] == ["diff", "--no-index", "--", "/dev/null", "f"]
+
+
+class TestRunInteractiveDiff:
+    @patch("gitstow.core.git.subprocess.run")
+    def test_inherits_tty_and_passes_staged(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0)
+        code = run_interactive_diff(Path("/repo"), staged=True)
+        assert code == 0
+        args, kwargs = mock_run.call_args
+        assert args[0] == ["git", "diff", "--cached"]
+        assert kwargs.get("cwd") == Path("/repo")
+        assert "capture_output" not in kwargs  # output goes straight to the TTY
