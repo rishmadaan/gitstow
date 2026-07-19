@@ -512,6 +512,30 @@ class TestWorkspaces:
         r = client.post("/workspaces/ghost/remove")
         assert r.status_code == 404
 
+    def test_add_rejects_invalid_label(self, client, configured):
+        r = client.post(
+            "/workspaces/add",
+            data={"label": "bad/label", "path": "/tmp/x", "layout": "flat"},
+        )
+        assert r.status_code == 200
+        assert "Invalid label" in r.text
+        from gitstow.core.config import load_config
+        assert load_config().get_workspace("bad/label") is None
+
+    def test_remove_with_remaining_records_warns_and_shows_orphans(self, client, configured):
+        RepoStore().add(Repo(owner="foo", name="bar", remote_url="u", workspace="test-ws"))
+        r = client.post("/workspaces/test-ws/remove")
+        assert r.status_code == 200
+        assert "remain tracked" in r.text
+        assert "Clear records" in r.text  # orphan section renders with a clear button
+
+    def test_remove_orphan_label_clears_records(self, client, configured):
+        RepoStore().add(Repo(owner="foo", name="bar", remote_url="u", workspace="gone"))
+        r = client.post("/workspaces/gone/remove")
+        assert r.status_code == 200
+        assert "Cleared 1 orphaned" in r.text
+        assert RepoStore().list_by_workspace("gone") == []
+
     def test_scan_empty_dir(self, client, configured):
         r = client.post("/workspaces/test-ws/scan")
         assert r.status_code == 200

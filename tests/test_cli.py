@@ -355,6 +355,75 @@ class TestRemoveContainment:
         assert RepoStore(path=repos_file).get("../outside-target", workspace="ws") is not None
 
 
+class TestOrphanedWorkspaceRecords:
+    """Repos tracked under a workspace label that is no longer in config."""
+
+    def _seed_orphan(self, tmp_path, monkeypatch):
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+
+        ws_dir = tmp_path / "oss"; ws_dir.mkdir()
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="oss", layout="structured")]))
+        store = RepoStore(path=repos_file)
+        store.add(Repo(owner="anthropic", name="claude-code", remote_url="u", workspace="oss"))
+        store.add(Repo(owner="charm", name="gum", remote_url="u", workspace="gone"))
+        store.add(Repo(owner="charm", name="vhs", remote_url="u", workspace="gone"))
+        return repos_file
+
+    def test_remove_orphan_errors_cleanly_not_traceback(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+
+        self._seed_orphan(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["-w", "gone", "remove", "charm/gum", "--yes"])
+        assert result.exit_code == 1
+        # clean typer.Exit, not a crash of any kind
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+        # Rich wraps lines mid-phrase — normalize before asserting
+        combined = " ".join(((result.output or "") + (result.stderr or "")).split())
+        assert "no longer configured" in combined
+        assert "workspace remove gone" in combined
+
+    def test_workspace_remove_clears_orphaned_records(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.repo import RepoStore
+
+        repos_file = self._seed_orphan(tmp_path, monkeypatch)
+        # Only one configured workspace — the "cannot remove the only workspace"
+        # guard must not block clearing an orphaned label.
+        result = CliRunner().invoke(app, ["workspace", "remove", "gone"])
+        assert result.exit_code == 0
+        assert "Cleared 2 orphaned" in result.output
+
+        store = RepoStore(path=repos_file)
+        assert store.list_by_workspace("gone") == []
+        assert store.get("anthropic/claude-code", workspace="oss") is not None
+
+    def test_workspace_remove_unknown_label_still_errors(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+
+        self._seed_orphan(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["workspace", "remove", "nope"])
+        assert result.exit_code == 1
+
+    def test_freeze_orphan_errors_cleanly(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+
+        self._seed_orphan(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["-w", "gone", "repo", "freeze", "charm/gum"])
+        assert result.exit_code == 1
+        assert result.exception is None or isinstance(result.exception, SystemExit)
+
+
 class TestWorkspaceLabelValidation:
     @pytest.mark.parametrize("bad_label", ["has:colon", "has/slash", "Has Space", "UPPER", "", "foo\n"])
     def test_workspace_add_rejects_invalid_labels(self, bad_label, tmp_path, monkeypatch):

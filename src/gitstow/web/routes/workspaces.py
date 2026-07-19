@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from gitstow.core.config import Workspace, load_config, save_config
+from gitstow.core.config import Workspace, is_valid_label, load_config, save_config
 from gitstow.core.discovery import discover_repos
 from gitstow.core.repo import Repo, RepoStore
 from gitstow.web.server import render
@@ -37,7 +37,15 @@ def _list_workspaces_context(error: str | None = None, notice: str | None = None
             "count": len(store.list_by_workspace(ws.label)),
             "slot": _ws_slot(ws.label, sorted_labels),
         })
-    return {"workspaces": rows, "error": error, "notice": notice}
+
+    # Repo records under labels no longer in config — invisible to list/status
+    configured = {ws.label for ws in workspaces}
+    orphans = [
+        {"label": lbl, "count": n}
+        for lbl, n in store.all_workspaces().items()
+        if lbl not in configured
+    ]
+    return {"workspaces": rows, "orphans": orphans, "error": error, "notice": notice}
 
 
 @router.get("/workspaces", response_class=HTMLResponse)
@@ -61,6 +69,12 @@ async def add_workspace(
     if not label or not path:
         ctx = _list_workspaces_context(error="Label and path are both required.")
         return render(request, "workspaces.html", page="workspaces", **ctx)
+    if not is_valid_label(label):
+        # Labels appear in URLs (scan/remove routes) — same charset rule as the CLI
+        ctx = _list_workspaces_context(
+            error=f"Invalid label '{label}'. Use lowercase letters, digits, '-' or '_'."
+        )
+        return render(request, "workspaces.html", page="workspaces", **ctx)
     if layout not in ("structured", "flat"):
         ctx = _list_workspaces_context(error=f"Layout must be 'structured' or 'flat' (got '{layout}').")
         return render(request, "workspaces.html", page="workspaces", **ctx)
@@ -79,11 +93,34 @@ async def add_workspace(
 @router.post("/workspaces/{label}/remove")
 async def remove_workspace(label: str, request: Request):
     settings = load_config()
+    store = RepoStore()
     ws = settings.get_workspace(label)
     if ws is None:
-        raise HTTPException(status_code=404, detail="workspace not found")
+        # Label may survive only as orphaned repo records — clear them
+        # (mirrors CLI `workspace remove` on an unconfigured label).
+        if not store.list_by_workspace(label):
+            raise HTTPException(status_code=404, detail="workspace not found")
+        with store.bulk():
+            orphans = store.list_by_workspace(label)  # re-list under the lock
+            for repo in orphans:
+                store.remove(repo.key, workspace=label)
+        ctx = _list_workspaces_context(
+            notice=f"Cleared {len(orphans)} orphaned repo "
+            f"record{'s' if len(orphans) != 1 else ''} for '{label}'."
+        )
+        return render(request, "workspaces.html", page="workspaces", **ctx)
+
     settings.workspaces = [w for w in settings.workspaces if w.label != label]
     save_config(settings)
+
+    remaining = len(store.list_by_workspace(label))
+    if remaining:
+        ctx = _list_workspaces_context(
+            notice=f"Workspace '{label}' removed. {remaining} repo "
+            f"record{'s' if remaining != 1 else ''} remain tracked under it — "
+            f"clear them below, or re-add the workspace to keep them."
+        )
+        return render(request, "workspaces.html", page="workspaces", **ctx)
     return RedirectResponse(url="/workspaces", status_code=303)
 
 

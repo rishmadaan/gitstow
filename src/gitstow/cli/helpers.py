@@ -40,6 +40,21 @@ def get_workspace_for_repo(
     return settings.get_workspace(repo.workspace)
 
 
+def _require_workspace(settings: Settings, label: str, key: str) -> Workspace:
+    """Workspace for a resolved repo, or a clean exit if its workspace was removed
+    from config while its record stayed in repos.yaml (orphaned record)."""
+    ws = settings.get_workspace(label)
+    if ws is None:
+        err_console.print(
+            f"[red]Error:[/red] Repo [bold]{key}[/bold] is tracked under workspace "
+            f"[bold]{label}[/bold], which is no longer configured.\n"
+            f"  Clear its orphaned records: [bold]gitstow workspace remove {label}[/bold] "
+            f"— or re-add the workspace to keep them."
+        )
+        raise typer.Exit(code=1)
+    return ws
+
+
 def resolve_repo(
     store: RepoStore,
     settings: Settings,
@@ -58,7 +73,7 @@ def resolve_repo(
                 f"in workspace [bold]{workspace_label}[/bold]."
             )
             raise typer.Exit(code=1)
-        ws = settings.get_workspace(workspace_label)
+        ws = _require_workspace(settings, workspace_label, key)
         return repo, ws
 
     # Try unique resolution
@@ -67,7 +82,7 @@ def resolve_repo(
         err_console.print(f"[red]Error:[/red] Repo [bold]{key}[/bold] not found.")
         raise typer.Exit(code=1)
     if len(matches) == 1:
-        ws = settings.get_workspace(matches[0].workspace)
+        ws = _require_workspace(settings, matches[0].workspace, key)
         return matches[0], ws
 
     # Ambiguous — prompt if interactive, error if piped
@@ -81,10 +96,11 @@ def resolve_repo(
 
     # Interactive prompt
     from beaupy import select as bselect
-    options = [
-        f"[cyan]{r.workspace}[/cyan] — {r.get_path(settings.get_workspace(r.workspace).get_path())}"
-        for r in matches
-    ]
+    options = []
+    for r in matches:
+        r_ws = settings.get_workspace(r.workspace)
+        loc = r.get_path(r_ws.get_path()) if r_ws else "workspace not configured"
+        options.append(f"[cyan]{r.workspace}[/cyan] — {loc}")
     err_console.print(
         f"\n  Repo [bold]{key}[/bold] found in {len(matches)} workspaces:\n"
     )
@@ -93,7 +109,7 @@ def resolve_repo(
         raise typer.Exit()
     idx = options.index(choice)
     repo = matches[idx]
-    ws = settings.get_workspace(repo.workspace)
+    ws = _require_workspace(settings, repo.workspace, key)
     return repo, ws
 
 

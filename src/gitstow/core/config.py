@@ -5,12 +5,20 @@ Supports multiple workspaces, each with its own path and layout mode.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
 
 from gitstow.core.paths import CONFIG_FILE, DEFAULT_ROOT, ensure_app_dirs
+
+_LABEL_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+
+
+def is_valid_label(label: str) -> bool:
+    """Labels appear in global keys (workspace:key) and URLs — restrict the charset."""
+    return bool(_LABEL_RE.fullmatch(label))
 
 
 @dataclass

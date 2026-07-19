@@ -140,8 +140,8 @@ def doctor(
         for label, count in orphaned_ws.items():
             console.print(f"       [{label}] {count} repo{'s' if count != 1 else ''}")
         console.print(
-            "       [dim]Re-add the workspace with 'gitstow workspace add <path> --label <label>' "
-            "or untrack the repos by editing ~/.gitstow/repos.yaml.[/dim]"
+            "       [dim]Clear with 'gitstow workspace remove <label>', or re-add the workspace "
+            "with 'gitstow workspace add <path> --label <label>'.[/dim]"
         )
 
     # 4. SSH connectivity hint

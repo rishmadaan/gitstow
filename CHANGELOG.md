@@ -4,6 +4,13 @@ All notable changes to gitstow will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Orphaned repo records are now self-serve clearable.** When a workspace is removed but its repo records stay in the store (the default `--keep-repos` behavior), those records previously caused a crash (`gitstow -w <label> remove` raised a raw traceback) and could only be cleared by hand-editing `repos.yaml`. Now: `gitstow workspace remove <label>` on a removed label clears its orphaned records; every repo command exits with a clean error pointing at that command instead of crashing; `doctor`'s hint names the command instead of suggesting a YAML edit; and the web dashboard's Workspaces page shows an "Orphaned records" section with a Clear button, warns when removing a workspace leaves records behind, and matches the CLI's clearing behavior. Note: freeze/tag/untag on orphaned records (previously silently succeeded on invisible repos) now exit with the same guidance.
+- **Web workspace labels are validated** with the same charset rule as the CLI — previously a label like `bad/label` could be created from the dashboard, producing scan/remove buttons that 404.
+
 ## [0.5.1] - 2026-07-16
 
 ### Fixed

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Optional
 
@@ -10,7 +9,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from gitstow.core.config import Workspace, load_config, save_config
+from gitstow.core.config import Workspace, is_valid_label, load_config, save_config
 from gitstow.core.discovery import discover_repos
 from gitstow.core.repo import Repo, RepoStore
 
@@ -21,13 +20,6 @@ workspace_app = typer.Typer(
 
 console = Console()
 err_console = Console(stderr=True)
-
-_LABEL_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
-
-
-def is_valid_label(label: str) -> bool:
-    """Labels appear in global keys (workspace:key) and URLs — restrict the charset."""
-    return bool(_LABEL_RE.fullmatch(label))
 
 
 @workspace_app.command("list")
@@ -141,12 +133,27 @@ def workspace_remove(
     """[bold red]Remove[/bold red] a workspace from the configuration.
 
     Does not delete files on disk. By default, repos remain tracked in the store.
+    If the label is no longer configured but orphaned repo records remain in the
+    store, clears those records.
     """
     settings = load_config()
     ws = settings.get_workspace(label)
     if ws is None:
-        err_console.print(f"[red]Error:[/red] Workspace [bold]{label}[/bold] not found.")
-        raise typer.Exit(code=1)
+        store = RepoStore()
+        if not store.list_by_workspace(label):
+            err_console.print(f"[red]Error:[/red] Workspace [bold]{label}[/bold] not found.")
+            raise typer.Exit(code=1)
+        # Label lives only in repos.yaml (workspace removed earlier with --keep-repos,
+        # or config edited by hand) — clearing the records is the only meaningful action.
+        with store.bulk():
+            orphans = store.list_by_workspace(label)  # re-list under the lock
+            for repo in orphans:
+                store.remove(repo.key, workspace=label)
+        console.print(
+            f"  [green]✓[/green] Cleared {len(orphans)} orphaned repo "
+            f"record{'s' if len(orphans) != 1 else ''} for removed workspace [bold]{label}[/bold]"
+        )
+        return
 
     if len(settings.get_workspaces()) == 1:
         err_console.print("[red]Error:[/red] Cannot remove the only workspace.")

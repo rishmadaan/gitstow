@@ -66,6 +66,22 @@
   </small>
   {% endif %}
 
+  {% if orphans %}
+  <article class="error-banner" style="margin-bottom: 2rem;">
+    <strong>Orphaned records</strong>
+    <p>Repos still tracked under workspaces that no longer exist — invisible to list and status.</p>
+    {% for o in orphans %}
+    <div class="row-actions" style="margin-top: 0.6rem; align-items: center;">
+      <code class="path-code">{{ o.label }}</code>
+      <span style="color: var(--muted);">{{ o.count }} {{ 'repo' if o.count == 1 else 'repos' }}</span>
+      <form method="POST" action="/workspaces/{{ o.label }}/remove" style="margin: 0;" data-confirm="Clear {{ o.count }} orphaned repo record(s) for {{ o.label }}? Files on disk are untouched.">
+        <button type="submit" class="btn btn-danger btn-sm">Clear records</button>
+      </form>
+    </div>
+    {% endfor %}
+  </article>
+  {% endif %}
+
   <article class="card">
     <h4>Add a workspace</h4>
     <form method="POST" action="/workspaces/add">
