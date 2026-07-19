@@ -1102,8 +1102,20 @@ class TestDiffViewer:
         assert r.status_code == 200
         assert 'id="changes"' not in r.text
 
+    def _mock_member(self, monkeypatch, path="f", group="unstaged"):
+        """Make `path` a member of the given Changes group so the endpoint's
+        authorization check passes."""
+        fc = FileChange(path=path, kind="modified")
+        kwargs = {"unstaged": [], "staged": [], "untracked": []}
+        kwargs[group] = [path] if group == "untracked" else [fc]
+        monkeypatch.setattr(
+            "gitstow.web.routes.pages.get_changed_files",
+            lambda p: ChangedFiles(**kwargs),
+        )
+
     def test_diff_endpoint_renders_hunks(self, client, configured, workspace_dir, monkeypatch):
         self._seed_repo(workspace_dir)
+        self._mock_member(monkeypatch)
         monkeypatch.setattr(
             "gitstow.web.routes.pages.get_file_diff",
             lambda p, f, **kw: "--- a/f\n+++ b/f\n@@ -1,2 +1,2 @@\n ctx\n-old\n+new\n",
@@ -1115,11 +1127,33 @@ class TestDiffViewer:
 
     def test_diff_endpoint_rejects_path_traversal(self, client, configured, workspace_dir):
         self._seed_repo(workspace_dir)
+        # Traversal guard fires before the membership check → 400, not 404.
         r = client.get("/repos/test-ws/owner/repo/diff?file=../../../etc/passwd&group=untracked")
         assert r.status_code == 400
 
+    def test_diff_endpoint_rejects_non_member_file(self, client, configured, workspace_dir, monkeypatch):
+        self._seed_repo(workspace_dir)
+        self._mock_member(monkeypatch, path="tracked.py")
+        # In-repo but NOT in the Changes list (e.g. an ignored .env) → 404.
+        r = client.get("/repos/test-ws/owner/repo/diff?file=.env&group=unstaged")
+        assert r.status_code == 404
+
+    def test_diff_endpoint_rejects_bad_group(self, client, configured, workspace_dir, monkeypatch):
+        self._seed_repo(workspace_dir)
+        self._mock_member(monkeypatch)
+        r = client.get("/repos/test-ws/owner/repo/diff?file=f&group=bogus")
+        assert r.status_code == 400
+
+    def test_diff_endpoint_missing_on_disk(self, client, configured, workspace_dir):
+        _make_repo_on_disk(workspace_dir, "owner", "repo")
+        RepoStore().add(Repo(owner="owner", name="gone", remote_url="", workspace="test-ws"))
+        # Registered but its directory never existed on disk → 404, not 500.
+        r = client.get("/repos/test-ws/owner/gone/diff?file=f&group=unstaged")
+        assert r.status_code == 404
+
     def test_diff_endpoint_escapes_hostile_content(self, client, configured, workspace_dir, monkeypatch):
         self._seed_repo(workspace_dir)
+        self._mock_member(monkeypatch)
         monkeypatch.setattr(
             "gitstow.web.routes.pages.get_file_diff",
             lambda p, f, **kw: "--- a/f\n+++ b/f\n@@ -0,0 +1 @@\n+<script>alert(1)</script>\n",

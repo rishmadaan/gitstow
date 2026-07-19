@@ -77,6 +77,7 @@ gitstow status                  # Git status dashboard
 gitstow -w active status --dirty # Repos with local changes in active workspace
 gitstow diff <repo>              # View a repo's uncommitted changes (staged/unstaged) — view-only
 gitstow diff <repo> --staged     # View staged changes only
+gitstow diff <repo> --json       # List changed files (staged/unstaged/untracked) as JSON
 ```
 `status` shows local changes as a composition (e.g. "2 modified · 1 staged · 3 untracked") rather than a single "dirty" bucket, and keeps the remote relationship (ahead/behind/diverged) in its own column. `diff` prints the colored git diff for a single repo (clean repos print "no local changes").
 

@@ -338,8 +338,13 @@ def get_changed_files(repo_path: Path) -> ChangedFiles:
       ? <path>
     X = staged column, Y = unstaged column, "." = unchanged.
     """
-    result = _run_git(["-c", "core.quotePath=false", "status", "--porcelain=v2"],
-                      cwd=repo_path)
+    # --untracked-files=all enumerates every file inside a wholly-untracked
+    # directory (git's default "normal" mode emits just "? newdir/", which the
+    # per-file Changes listing can't expand). Badge counts use get_status
+    # (default mode), so totals may differ from this listing when new
+    # directories exist — intentional: this is the GitHub-Desktop file listing.
+    result = _run_git(["-c", "core.quotePath=false", "status", "--porcelain=v2",
+                       "--untracked-files=all"], cwd=repo_path)
     if result.returncode != 0:
         return ChangedFiles()
 
@@ -347,6 +352,9 @@ def get_changed_files(repo_path: Path) -> ChangedFiles:
     unstaged_counts = _numstat_map(repo_path, cached=False)
     changes = ChangedFiles()
 
+    # ponytail: filenames with literal tabs/quotes/backslashes stay C-quoted
+    # (structural quoting survives core.quotePath=false) — NUL-delimited -z
+    # parsing if anyone ever hits it.
     for line in result.stdout.splitlines():
         if line.startswith("? "):
             changes.untracked.append(line[2:])

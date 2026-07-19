@@ -197,10 +197,31 @@ async def file_diff(
         raise HTTPException(status_code=404, detail="repo not found")
     repo_path = repo.get_path(ws.get_path())
 
+    # Registry repo whose directory was deleted: don't hand a nonexistent cwd
+    # to git subprocess (FileNotFoundError → 500). Same existence idiom as the
+    # repo drawer.
+    if not (repo_path.exists() and is_git_repo(repo_path)):
+        raise HTTPException(status_code=404, detail="repo missing on disk")
+
     # Trust boundary: `file` comes from the query string — refuse anything
     # that resolves outside the repo (e.g. ../../etc/passwd via --no-index).
+    # Defense-in-depth, before the membership check below.
     if not (repo_path / file).resolve().is_relative_to(repo_path.resolve()):
         raise HTTPException(status_code=400, detail="file outside repo")
+
+    # Authorization: only serve files actually in this repo's Changes list.
+    # Without this, any repo-relative path is a readable diff (e.g. an ignored
+    # .env via --no-index), and GETs bypass the POST-only Host/Origin guard.
+    changes = get_changed_files(repo_path)
+    members = {
+        "staged": {f.path for f in changes.staged},
+        "unstaged": {f.path for f in changes.unstaged},
+        "untracked": set(changes.untracked),
+    }
+    if group not in members:
+        raise HTTPException(status_code=400, detail="invalid group")
+    if file not in members[group]:
+        raise HTTPException(status_code=404, detail="file not in repo changes")
 
     raw = get_file_diff(
         repo_path, file,

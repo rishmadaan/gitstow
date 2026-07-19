@@ -391,6 +391,20 @@ class TestGetChangedFiles:
         fc = next(fc for fc in c.unstaged if fc.path == "unicodé.txt")
         assert fc.added > 0 and fc.removed > 0
 
+    def test_untracked_directory_enumerates_files_real_git(self, tmp_path):
+        """--untracked-files=all lists every file in a wholly-untracked
+        directory, not a single unexpandable '? newdir/' entry."""
+        import subprocess as sp
+
+        sp.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+        newdir = tmp_path / "newdir"
+        newdir.mkdir()
+        (newdir / "a.txt").write_text("a\n")
+        (newdir / "b.txt").write_text("b\n")
+
+        c = get_changed_files(tmp_path)
+        assert set(c.untracked) == {"newdir/a.txt", "newdir/b.txt"}
+
 
 from gitstow.core.git import get_file_diff, run_interactive_diff
 
