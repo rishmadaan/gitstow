@@ -30,14 +30,17 @@ class ParsedDiff:
     binary: bool = False
     conflicted: bool = False
     truncated: bool = False
+    meta: str = ""
 
 
 def parse_unified_diff(text: str, max_lines: int = MAX_LINES) -> ParsedDiff:
     """Parse `git diff` output for ONE file into hunks with line numbers.
 
     Lines before the first @@ header (diff --git, index, ---, +++) are
-    skipped; "\\ No newline at end of file" markers are skipped; anything
-    past max_lines truncates the result.
+    skipped, but rename/mode-change lines among them are captured into
+    `meta` in case the diff turns out to have no hunks at all;
+    "\\ No newline at end of file" markers are skipped; anything past
+    max_lines truncates the result.
     """
     parsed = ParsedDiff()
     old_no = new_no = 0
@@ -69,7 +72,16 @@ def parse_unified_diff(text: str, max_lines: int = MAX_LINES) -> ParsedDiff:
                 continue
             parsed.hunks.append(Hunk(header=line.rstrip()))
             continue
-        if not parsed.hunks or line.startswith("\\"):
+        if not parsed.hunks:
+            # Pre-hunk metadata lines — only meaningful if we finish with no
+            # hunks at all (a pure rename or mode change carries no content
+            # diff). Rename beats a mode-change note if both are present.
+            if line.startswith(("rename from", "rename to")):
+                parsed.meta = "renamed with no content changes"
+            elif line.startswith(("old mode", "new mode")) and not parsed.meta:
+                parsed.meta = "file mode changed"
+            continue
+        if line.startswith("\\"):
             continue
         if shown >= max_lines:
             parsed.truncated = True

@@ -5,7 +5,13 @@
 {% elif diff.binary %}
   <div class="diff-note">Binary file changed — no text diff.</div>
 {% elif not diff.hunks %}
+  {% if diff.meta == "renamed with no content changes" %}
+  <div class="diff-note">Renamed with no content changes.</div>
+  {% elif diff.meta == "file mode changed" %}
+  <div class="diff-note">File mode changed.</div>
+  {% else %}
   <div class="diff-note">No changes to show.</div>
+  {% endif %}
 {% else %}
   <div class="diff-scroll">
     <table class="diff-table">

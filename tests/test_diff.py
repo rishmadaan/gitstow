@@ -121,3 +121,31 @@ def test_unmerged_path_marker_marks_conflicted():
     assert d.conflicted is True
     assert d.binary is False
     assert d.hunks == []
+
+
+def test_pure_rename_sets_meta_with_no_hunks():
+    # A staged `git mv` + add (similarity 100%) — git emits only metadata,
+    # zero hunks. Must be distinguishable from "no changes" in the UI.
+    text = (
+        "diff --git a/a.txt b/b.txt\n"
+        "similarity index 100%\n"
+        "rename from a.txt\n"
+        "rename to b.txt\n"
+    )
+    d = parse_unified_diff(text)
+    assert d.hunks == []
+    assert d.meta == "renamed with no content changes"
+
+
+def test_mode_only_change_sets_meta_with_no_hunks():
+    text = "diff --git a/s.sh b/s.sh\nold mode 100644\nnew mode 100755\n"
+    d = parse_unified_diff(text)
+    assert d.hunks == []
+    assert d.meta == "file mode changed"
+
+
+def test_normal_diff_with_hunks_unaffected_by_meta():
+    # Template only consults `meta` when there are no hunks — a normal diff
+    # renders its hunks regardless of what meta holds.
+    d = parse_unified_diff(SIMPLE)
+    assert len(d.hunks) == 1

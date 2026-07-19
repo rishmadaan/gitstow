@@ -1245,6 +1245,29 @@ class TestDiffViewer:
         assert "<script>alert(1)</script>" not in r.text
         assert "&lt;script&gt;" in r.text
 
+    def test_diff_endpoint_renders_pure_rename_meta(self, client, configured, workspace_dir, monkeypatch):
+        # A pure rename (git mv + add, similarity 100%) emits metadata-only
+        # diff text with zero hunks — the panel must say what happened, not
+        # "No changes to show" under a row that says the file was renamed.
+        self._seed_repo(workspace_dir)
+        renamed = FileChange(path="b.txt", kind="renamed", old_path="a.txt")
+        monkeypatch.setattr(
+            "gitstow.web.routes.pages.get_changed_files",
+            lambda p: ChangedFiles(staged=[renamed], unstaged=[], untracked=[]),
+        )
+        monkeypatch.setattr(
+            "gitstow.web.routes.pages.get_file_diff",
+            lambda p, f, **kw: (
+                "diff --git a/a.txt b/b.txt\n"
+                "similarity index 100%\n"
+                "rename from a.txt\n"
+                "rename to b.txt\n"
+            ),
+        )
+        r = client.get("/repos/test-ws/owner/repo/diff?file=b.txt&group=staged")
+        assert r.status_code == 200
+        assert "Renamed with no content changes" in r.text
+
     def test_dashboard_badge_links_to_changes(self, client, configured, workspace_dir, monkeypatch):
         self._seed_repo(workspace_dir)
         monkeypatch.setattr(
