@@ -87,24 +87,30 @@ def _run_git(
     args: list[str],
     cwd: Path | None = None,
     timeout: int = 60,
+    binary: bool = False,
 ) -> subprocess.CompletedProcess:
     """Run a git command and return the result.
 
     GIT_TERMINAL_PROMPT=0 — a repo needing credentials fails fast instead of
     hanging the whole bulk operation on an invisible username prompt.
     LC_ALL=C — git output stays English so message matching is stable.
+
+    binary=True captures raw bytes (no text=True). Universal-newline
+    translation would rewrite a lone \\r inside NUL-delimited output, silently
+    corrupting a filename that legitimately contains a carriage return —
+    callers of NUL-delimited git output must decode the bytes themselves.
     """
     cmd = ["git"] + args
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"}
+    text_kwargs = {} if binary else {"text": True, "encoding": "utf-8",
+                                     "errors": "replace"}
     return subprocess.run(
         cmd,
         cwd=cwd,
         capture_output=True,
-        text=True,
         timeout=timeout,
-        encoding="utf-8",
-        errors="replace",
         env=env,
+        **text_kwargs,
     )
 
 
@@ -316,7 +322,14 @@ def _numstat_map(repo_path: Path, cached: bool) -> dict[str, tuple[int, int, boo
     args = ["--literal-pathspecs", "diff",
             "--no-ext-diff", "--no-color", "--numstat", "-z", "--find-renames"] + (
                 ["--cached"] if cached else [])
-    tokens = _run_git(args, cwd=repo_path).stdout.split("\0")
+    # Decode the raw bytes ourselves: no universal-newline translation to
+    # mangle a \r inside a filename. Non-UTF-8 filename bytes (possible only on
+    # Linux filesystems; APFS/NTFS enforce Unicode) decode lossily — accepted
+    # ceiling, since surrogate-escape round-tripping would poison the JSON layer
+    # for a pathology this tool's platforms can't produce.
+    stdout = _run_git(args, cwd=repo_path, binary=True).stdout.decode(
+        "utf-8", errors="replace")
+    tokens = stdout.split("\0")
     counts: dict[str, tuple[int, int, bool]] = {}
     i = 0
     while i < len(tokens):
@@ -383,9 +396,13 @@ def get_changed_files(repo_path: Path) -> ChangedFiles:
     # --find-renames pins rename detection on regardless of the user's
     # status.renames config, so A/D records and numstat rename records agree.
     result = _run_git(["status", "--porcelain=v2", "-z",
-                       "--untracked-files=all", "--find-renames"], cwd=repo_path)
+                       "--untracked-files=all", "--find-renames"],
+                      cwd=repo_path, binary=True)
     if result.returncode != 0:
         return ChangedFiles()
+    # Decode raw bytes ourselves — text-mode universal-newline translation would
+    # rewrite a \r inside a NUL-delimited filename (see _run_git binary= note).
+    stdout = result.stdout.decode("utf-8", errors="replace")
 
     staged_counts = _numstat_map(repo_path, cached=True)
     unstaged_counts = _numstat_map(repo_path, cached=False)
@@ -394,7 +411,7 @@ def get_changed_files(repo_path: Path) -> ChangedFiles:
     # Token walker over NUL-terminated records. A `2 ` (rename/copy) record is
     # followed by its <origPath> as the next token, so we pull it from the same
     # iterator. The trailing empty token after the final NUL is skipped.
-    records = iter(result.stdout.split("\0"))
+    records = iter(stdout.split("\0"))
     for rec in records:
         if not rec:
             continue

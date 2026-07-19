@@ -112,3 +112,12 @@ def test_conflict_header_triggers_before_hunks():
     d = parse_unified_diff(text)
     assert d.conflicted is True
     assert d.hunks == []
+
+
+def test_unmerged_path_marker_marks_conflicted():
+    # A modify/delete conflict emits ONLY `* Unmerged path <file>` — no
+    # `diff --cc` header, no @@@ hunks. Must read as a conflict, not "no changes".
+    d = parse_unified_diff("* Unmerged path conflict.py\n")
+    assert d.conflicted is True
+    assert d.binary is False
+    assert d.hunks == []

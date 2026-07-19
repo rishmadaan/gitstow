@@ -48,6 +48,11 @@ def parse_unified_diff(text: str, max_lines: int = MAX_LINES) -> ParsedDiff:
             # marker that a binary merge conflict emits with no @@@ hunks.
             parsed.conflicted = True
             return parsed
+        if line.startswith("* Unmerged path"):
+            # Modify/delete conflict: git diff emits only this one line — no
+            # diff --cc header, no @@@ hunks. Still a conflict, not "no changes".
+            parsed.conflicted = True
+            return parsed
         if line.startswith("Binary files"):
             parsed.binary = True
             return parsed

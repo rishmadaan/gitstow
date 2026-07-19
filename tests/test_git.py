@@ -305,19 +305,28 @@ def _proc(stdout="", returncode=0):
     return m
 
 
+def _bproc(stdout="", returncode=0):
+    # get_changed_files/_numstat_map now read git via binary=True and decode
+    # the raw bytes themselves — mocks for those calls must return bytes.
+    m = MagicMock()
+    m.stdout = stdout.encode("utf-8") if isinstance(stdout, str) else stdout
+    m.returncode = returncode
+    return m
+
+
 class TestGetChangedFiles:
     @patch("gitstow.core.git._run_git")
     def test_groups_staged_unstaged_untracked(self, mock_run):
         def fake(args, cwd=None, **kw):
             if "status" in args:
-                return _proc(
+                return _bproc(
                     "1 .M N... 100644 100644 100644 abc def src/app.py\0"
                     "1 A. N... 000000 100644 100644 abc def new.py\0"
                     "? notes.txt\0"
                 )
             if "--cached" in args:
-                return _proc("5\t0\tnew.py\0")
-            return _proc("3\t2\tsrc/app.py\0")
+                return _bproc("5\t0\tnew.py\0")
+            return _bproc("3\t2\tsrc/app.py\0")
         mock_run.side_effect = fake
 
         c = get_changed_files(Path("/repo"))
@@ -329,8 +338,8 @@ class TestGetChangedFiles:
     def test_partially_staged_file_appears_in_both_groups(self, mock_run):
         def fake(args, cwd=None, **kw):
             if "status" in args:
-                return _proc("1 MM N... 100644 100644 100644 abc def both.py\0")
-            return _proc("1\t1\tboth.py\0")
+                return _bproc("1 MM N... 100644 100644 100644 abc def both.py\0")
+            return _bproc("1\t1\tboth.py\0")
         mock_run.side_effect = fake
 
         c = get_changed_files(Path("/repo"))
@@ -341,14 +350,14 @@ class TestGetChangedFiles:
     def test_rename_and_binary(self, mock_run):
         def fake(args, cwd=None, **kw):
             if "status" in args:
-                return _proc(
+                return _bproc(
                     "2 R. N... 100644 100644 100644 abc def R100 new_name.py\0old_name.py\0"
                     "1 .M N... 100644 100644 100644 abc def logo.png\0"
                 )
             if "--cached" in args:
                 # -z rename entry: added TAB removed TAB NUL src NUL dst NUL
-                return _proc("0\t0\t\0old_name.py\0new_name.py\0")
-            return _proc("-\t-\tlogo.png\0")
+                return _bproc("0\t0\t\0old_name.py\0new_name.py\0")
+            return _bproc("-\t-\tlogo.png\0")
         mock_run.side_effect = fake
 
         c = get_changed_files(Path("/repo"))
@@ -361,10 +370,10 @@ class TestGetChangedFiles:
         crash the old heuristic (deleted) — -z parsing keys by the dst path."""
         def fake(args, cwd=None, **kw):
             if "status" in args:
-                return _proc("2 R. N... 100644 100644 100644 abc def R90 br{new}.txt\0br{ace}.txt\0")
+                return _bproc("2 R. N... 100644 100644 100644 abc def R90 br{new}.txt\0br{ace}.txt\0")
             if "--cached" in args:
-                return _proc("2\t1\t\0br{ace}.txt\0br{new}.txt\0")
-            return _proc("")
+                return _bproc("2\t1\t\0br{ace}.txt\0br{new}.txt\0")
+            return _bproc("")
         mock_run.side_effect = fake
 
         c = get_changed_files(Path("/repo"))
@@ -377,10 +386,10 @@ class TestGetChangedFiles:
         renamed (staged) column only — the unstaged edit is not `a → b`."""
         def fake(args, cwd=None, **kw):
             if "status" in args:
-                return _proc("2 RM N... 100644 100644 100644 abc def R100 new.py\0old.py\0")
+                return _bproc("2 RM N... 100644 100644 100644 abc def R100 new.py\0old.py\0")
             if "--cached" in args:
-                return _proc("0\t0\t\0old.py\0new.py\0")
-            return _proc("2\t1\tnew.py\0")
+                return _bproc("0\t0\t\0old.py\0new.py\0")
+            return _bproc("2\t1\tnew.py\0")
         mock_run.side_effect = fake
 
         c = get_changed_files(Path("/repo"))
@@ -395,7 +404,7 @@ class TestGetChangedFiles:
 
         def fake(args, cwd=None, **kw):
             seen.append(args)
-            return _proc("")
+            return _bproc("")
         mock_run.side_effect = fake
 
         get_changed_files(Path("/repo"))
@@ -411,10 +420,10 @@ class TestGetChangedFiles:
     def test_unmerged_appears_in_unstaged_as_modified(self, mock_run):
         def fake(args, cwd=None, **kw):
             if "status" in args:
-                return _proc(
+                return _bproc(
                     "u UU N... 100644 100644 100644 100644 h1 h2 h3 conflicted.py\0"
                 )
-            return _proc("")
+            return _bproc("")
         mock_run.side_effect = fake
 
         c = get_changed_files(Path("/repo"))
@@ -444,6 +453,37 @@ class TestGetChangedFiles:
         paths = [fc.path for fc in c.unstaged]
         assert "unicodé.txt" in paths
         fc = next(fc for fc in c.unstaged if fc.path == "unicodé.txt")
+        assert fc.added > 0 and fc.removed > 0
+
+    def test_carriage_return_in_filename_survives_real_git(self, tmp_path):
+        """A valid POSIX filename containing a literal \\r must round-trip
+        intact — binary reads avoid the text-mode \\r→\\n translation that would
+        silently rewrite the name inside NUL-delimited git output."""
+        import subprocess as sp
+
+        def git(*a):
+            sp.run(["git", *a], cwd=tmp_path, check=True,
+                   capture_output=True, text=True)
+
+        name = "cr\rname.txt"
+        try:
+            f = tmp_path / name
+            f.write_text("one\ntwo\nthree\n")
+        except OSError:
+            import pytest
+            pytest.skip("filesystem rejects carriage return in filename")
+
+        git("init")
+        git("config", "user.email", "t@example.com")
+        git("config", "user.name", "Test")
+        git("add", "-A")
+        git("commit", "-m", "init")
+        f.write_text("one\nchanged\nthree\nfour\n")
+
+        c = get_changed_files(tmp_path)
+        paths = [fc.path for fc in c.unstaged]
+        assert name in paths                       # \r preserved, not → \n
+        fc = next(fc for fc in c.unstaged if fc.path == name)
         assert fc.added > 0 and fc.removed > 0
 
     def test_untracked_directory_enumerates_files_real_git(self, tmp_path):
