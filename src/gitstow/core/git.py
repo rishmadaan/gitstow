@@ -274,6 +274,11 @@ class ChangedFiles:
     unstaged: list[FileChange] = field(default_factory=list)
     untracked: list[str] = field(default_factory=list)
 
+    def __bool__(self) -> bool:
+        # A repo that went clean between status and listing must read as empty,
+        # not as a truthy (always non-None) instance.
+        return bool(self.staged or self.unstaged or self.untracked)
+
 
 _KIND = {"A": "added", "D": "deleted", "R": "renamed", "C": "added"}
 
@@ -291,7 +296,8 @@ def _numstat_new_path(raw: str) -> str:
 
 def _numstat_map(repo_path: Path, cached: bool) -> dict[str, tuple[int, int, bool]]:
     """path -> (added, removed, binary) from one `git diff --numstat` call."""
-    args = ["diff", "--numstat"] + (["--cached"] if cached else [])
+    args = ["-c", "core.quotePath=false", "diff", "--no-ext-diff", "--no-color",
+            "--numstat"] + (["--cached"] if cached else [])
     counts: dict[str, tuple[int, int, bool]] = {}
     for line in _run_git(args, cwd=repo_path).stdout.splitlines():
         parts = line.split("\t")
@@ -332,7 +338,8 @@ def get_changed_files(repo_path: Path) -> ChangedFiles:
       ? <path>
     X = staged column, Y = unstaged column, "." = unchanged.
     """
-    result = _run_git(["status", "--porcelain=v2"], cwd=repo_path)
+    result = _run_git(["-c", "core.quotePath=false", "status", "--porcelain=v2"],
+                      cwd=repo_path)
     if result.returncode != 0:
         return ChangedFiles()
 
@@ -371,11 +378,11 @@ def get_file_diff(
     the files differ — that is success here, so we ignore the return code.
     """
     if untracked:
-        args = ["diff", "--no-index", "--", "/dev/null", file]
+        args = ["diff", "--no-ext-diff", "--no-color", "--no-index", "--", "/dev/null", file]
     elif staged:
-        args = ["diff", "--cached", "--", file]
+        args = ["diff", "--no-ext-diff", "--no-color", "--cached", "--", file]
     else:
-        args = ["diff", "--", file]
+        args = ["diff", "--no-ext-diff", "--no-color", "--", file]
     return _run_git(args, cwd=repo_path).stdout
 
 

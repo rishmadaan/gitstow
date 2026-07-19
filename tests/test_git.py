@@ -289,7 +289,7 @@ class TestGetChangedFiles:
     @patch("gitstow.core.git._run_git")
     def test_groups_staged_unstaged_untracked(self, mock_run):
         def fake(args, cwd=None, **kw):
-            if args[0] == "status":
+            if "status" in args:
                 return _proc(
                     "1 .M N... 100644 100644 100644 abc def src/app.py\n"
                     "1 A. N... 000000 100644 100644 abc def new.py\n"
@@ -308,7 +308,7 @@ class TestGetChangedFiles:
     @patch("gitstow.core.git._run_git")
     def test_partially_staged_file_appears_in_both_groups(self, mock_run):
         def fake(args, cwd=None, **kw):
-            if args[0] == "status":
+            if "status" in args:
                 return _proc("1 MM N... 100644 100644 100644 abc def both.py\n")
             return _proc("1\t1\tboth.py\n")
         mock_run.side_effect = fake
@@ -320,7 +320,7 @@ class TestGetChangedFiles:
     @patch("gitstow.core.git._run_git")
     def test_rename_and_binary(self, mock_run):
         def fake(args, cwd=None, **kw):
-            if args[0] == "status":
+            if "status" in args:
                 return _proc(
                     "2 R. N... 100644 100644 100644 abc def R100 new_name.py\told_name.py\n"
                     "1 .M N... 100644 100644 100644 abc def logo.png\n"
@@ -337,7 +337,7 @@ class TestGetChangedFiles:
     @patch("gitstow.core.git._run_git")
     def test_brace_rename_path_in_numstat(self, mock_run):
         def fake(args, cwd=None, **kw):
-            if args[0] == "status":
+            if "status" in args:
                 return _proc("2 R. N... 100644 100644 100644 abc def R90 src/b.py\tsrc/a.py\n")
             if "--cached" in args:
                 return _proc("2\t1\tsrc/{a.py => b.py}\n")
@@ -352,6 +352,45 @@ class TestGetChangedFiles:
         mock_run.return_value = _proc("fatal: not a git repository", returncode=128)
         assert get_changed_files(Path("/repo")) == ChangedFiles()
 
+    @patch("gitstow.core.git._run_git")
+    def test_unmerged_appears_in_unstaged_as_modified(self, mock_run):
+        def fake(args, cwd=None, **kw):
+            if "status" in args:
+                return _proc(
+                    "u UU N... 100644 100644 100644 100644 h1 h2 h3 conflicted.py\n"
+                )
+            return _proc("")
+        mock_run.side_effect = fake
+
+        c = get_changed_files(Path("/repo"))
+        assert [f.path for f in c.unstaged] == ["conflicted.py"]
+        assert c.unstaged[0].kind == "modified"
+        assert c.staged == []
+
+    def test_unicode_path_unquoted_real_git(self, tmp_path):
+        """Real git repo — porcelain/numstat C-quote non-ASCII paths unless
+        core.quotePath=false is set. Assert the literal name comes back."""
+        import subprocess as sp
+
+        def git(*a):
+            sp.run(["git", *a], cwd=tmp_path, check=True,
+                   capture_output=True, text=True)
+
+        git("init")
+        git("config", "user.email", "t@example.com")
+        git("config", "user.name", "Test")
+        f = tmp_path / "unicodé.txt"
+        f.write_text("one\ntwo\nthree\n")
+        git("add", "-A")
+        git("commit", "-m", "init")
+        f.write_text("one\nchanged\nthree\nfour\n")
+
+        c = get_changed_files(tmp_path)
+        paths = [fc.path for fc in c.unstaged]
+        assert "unicodé.txt" in paths
+        fc = next(fc for fc in c.unstaged if fc.path == "unicodé.txt")
+        assert fc.added > 0 and fc.removed > 0
+
 
 from gitstow.core.git import get_file_diff, run_interactive_diff
 
@@ -362,20 +401,20 @@ class TestGetFileDiff:
         mock_run.return_value = _proc("diff --git a/f b/f\n")
         out = get_file_diff(Path("/repo"), "f")
         assert out == "diff --git a/f b/f\n"
-        assert mock_run.call_args[0][0] == ["diff", "--", "f"]
+        assert mock_run.call_args[0][0] == ["diff", "--no-ext-diff", "--no-color", "--", "f"]
 
     @patch("gitstow.core.git._run_git")
     def test_staged_diff_args(self, mock_run):
         mock_run.return_value = _proc("")
         get_file_diff(Path("/repo"), "f", staged=True)
-        assert mock_run.call_args[0][0] == ["diff", "--cached", "--", "f"]
+        assert mock_run.call_args[0][0] == ["diff", "--no-ext-diff", "--no-color", "--cached", "--", "f"]
 
     @patch("gitstow.core.git._run_git")
     def test_untracked_diffs_against_dev_null(self, mock_run):
         mock_run.return_value = _proc("+new line\n", returncode=1)  # --no-index exits 1 on diff
         out = get_file_diff(Path("/repo"), "f", untracked=True)
         assert out == "+new line\n"
-        assert mock_run.call_args[0][0] == ["diff", "--no-index", "--", "/dev/null", "f"]
+        assert mock_run.call_args[0][0] == ["diff", "--no-ext-diff", "--no-color", "--no-index", "--", "/dev/null", "f"]
 
 
 class TestRunInteractiveDiff:

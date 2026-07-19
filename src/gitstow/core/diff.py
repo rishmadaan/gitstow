@@ -28,6 +28,7 @@ class Hunk:
 class ParsedDiff:
     hunks: list[Hunk] = field(default_factory=list)
     binary: bool = False
+    conflicted: bool = False
     truncated: bool = False
 
 
@@ -44,6 +45,10 @@ def parse_unified_diff(text: str, max_lines: int = MAX_LINES) -> ParsedDiff:
     for line in text.splitlines():
         if line.startswith("Binary files"):
             parsed.binary = True
+            return parsed
+        if line.startswith("@@@"):
+            # Combined diff for an unmerged path — can't render as a 2-way diff.
+            parsed.conflicted = True
             return parsed
         if line.startswith("@@"):
             try:

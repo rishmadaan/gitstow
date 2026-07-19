@@ -71,3 +71,20 @@ def test_no_newline_marker_skipped():
 def test_empty_input():
     d = parse_unified_diff("")
     assert d.hunks == [] and not d.binary
+
+
+def test_combined_diff_marks_conflicted():
+    text = (
+        "diff --cc conflict.py\n"
+        "index 111,222..333\n"
+        "--- a/conflict.py\n"
+        "+++ b/conflict.py\n"
+        "@@@ -1,3 -1,3 +1,3 @@@\n"
+        "  keep\n"
+        "- ours\n"
+        " -theirs\n"
+        "++merged\n"
+    )
+    d = parse_unified_diff(text)
+    assert d.conflicted is True
+    assert d.hunks == []

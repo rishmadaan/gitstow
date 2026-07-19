@@ -30,7 +30,13 @@ def diff_cmd(
     if not path.exists() or not is_git_repo(path):
         err_console.print(f"[red]Error:[/red] [bold]{r.key}[/bold] is missing on disk at {path}")
         raise typer.Exit(code=1)
-    if get_status(path).clean:
+    status = get_status(path)
+    if status.clean:
         console.print(f"[green]✓[/green] [bold]{r.key}[/bold] has no local changes")
         return
+    if not staged and status.staged and not status.dirty:
+        err_console.print(
+            "[yellow]note:[/yellow] all changes are staged — showing staged diff "
+            "requires [bold]--staged[/bold]"
+        )
     raise typer.Exit(code=run_interactive_diff(path, staged=staged))
