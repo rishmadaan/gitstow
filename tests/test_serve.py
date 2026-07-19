@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from gitstow.core.config import Settings, Workspace, save_config
-from gitstow.core.git import FetchResult, PullResult, RepoStatus
+from gitstow.core.git import ChangedFiles, FetchResult, FileChange, PullResult, RepoStatus
 from gitstow.core.repo import Repo, RepoStore
 from gitstow.web.server import create_app
 
@@ -1062,3 +1062,71 @@ class TestMicroVisual:
         html = client.get("/workspaces").text
         # workspace paths must not render inside input-like boxes
         assert 'class="path-code"' in html
+
+
+# ---------- diff viewer (Task 5: drawer Changes section + diff endpoint) ----------
+
+
+class TestDiffViewer:
+    def _seed_repo(self, workspace_dir):
+        _make_repo_on_disk(workspace_dir, "owner", "repo")
+        RepoStore().add(Repo(owner="owner", name="repo", remote_url="", workspace="test-ws"))
+
+    def test_drawer_shows_changes_when_dirty(self, client, configured, workspace_dir, monkeypatch):
+        self._seed_repo(workspace_dir)
+        monkeypatch.setattr(
+            "gitstow.web.routes.pages.get_status", lambda p: _fake_status(dirty=1)
+        )
+        monkeypatch.setattr(
+            "gitstow.web.routes.pages.get_changed_files",
+            lambda p: ChangedFiles(
+                unstaged=[FileChange(path="src/app.py", kind="modified", added=3, removed=2)],
+                untracked=["notes.txt"],
+            ),
+        )
+        r = client.get("/repo/test-ws/owner/repo")
+        assert r.status_code == 200
+        assert 'id="changes"' in r.text
+        assert "src/app.py" in r.text and "notes.txt" in r.text
+        assert "+3" in r.text and "−2" in r.text
+
+    def test_drawer_hides_changes_when_clean(self, client, configured, workspace_dir, monkeypatch):
+        self._seed_repo(workspace_dir)
+        monkeypatch.setattr("gitstow.web.routes.pages.get_status", lambda p: _fake_status())
+        r = client.get("/repo/test-ws/owner/repo")
+        assert r.status_code == 200
+        assert 'id="changes"' not in r.text
+
+    def test_diff_endpoint_renders_hunks(self, client, configured, workspace_dir, monkeypatch):
+        self._seed_repo(workspace_dir)
+        monkeypatch.setattr(
+            "gitstow.web.routes.pages.get_file_diff",
+            lambda p, f, **kw: "--- a/f\n+++ b/f\n@@ -1,2 +1,2 @@\n ctx\n-old\n+new\n",
+        )
+        r = client.get("/repos/test-ws/owner/repo/diff?file=f&group=unstaged")
+        assert r.status_code == 200
+        assert "diff-line-add" in r.text and "diff-line-del" in r.text
+        assert "old" in r.text and "new" in r.text
+
+    def test_diff_endpoint_rejects_path_traversal(self, client, configured, workspace_dir):
+        self._seed_repo(workspace_dir)
+        r = client.get("/repos/test-ws/owner/repo/diff?file=../../../etc/passwd&group=untracked")
+        assert r.status_code == 400
+
+    def test_diff_endpoint_escapes_hostile_content(self, client, configured, workspace_dir, monkeypatch):
+        self._seed_repo(workspace_dir)
+        monkeypatch.setattr(
+            "gitstow.web.routes.pages.get_file_diff",
+            lambda p, f, **kw: "--- a/f\n+++ b/f\n@@ -0,0 +1 @@\n+<script>alert(1)</script>\n",
+        )
+        r = client.get("/repos/test-ws/owner/repo/diff?file=f&group=unstaged")
+        assert "<script>alert(1)</script>" not in r.text
+        assert "&lt;script&gt;" in r.text
+
+    def test_dashboard_badge_links_to_changes(self, client, configured, workspace_dir, monkeypatch):
+        self._seed_repo(workspace_dir)
+        monkeypatch.setattr(
+            "gitstow.web.routes.dashboard.get_status", lambda p: _fake_status(dirty=2)
+        )
+        r = client.get("/")
+        assert "/repo/test-ws/owner/repo#changes" in r.text
