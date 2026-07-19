@@ -15,6 +15,7 @@ from gitstow.core.git import (
     format_size,
     RepoStatus,
 )
+from gitstow.core.git import ChangedFiles, FileChange, get_changed_files
 
 
 class TestIsGitInstalled:
@@ -275,3 +276,78 @@ class TestRunGitEnv:
         assert env["GIT_TERMINAL_PROMPT"] == "0"   # never hang on auth prompts
         assert env["LC_ALL"] == "C"                # stable English output
         assert "PATH" in env                       # inherited environment preserved
+
+
+def _proc(stdout="", returncode=0):
+    m = MagicMock()
+    m.stdout = stdout
+    m.returncode = returncode
+    return m
+
+
+class TestGetChangedFiles:
+    @patch("gitstow.core.git._run_git")
+    def test_groups_staged_unstaged_untracked(self, mock_run):
+        def fake(args, cwd=None, **kw):
+            if args[0] == "status":
+                return _proc(
+                    "1 .M N... 100644 100644 100644 abc def src/app.py\n"
+                    "1 A. N... 000000 100644 100644 abc def new.py\n"
+                    "? notes.txt\n"
+                )
+            if "--cached" in args:
+                return _proc("5\t0\tnew.py\n")
+            return _proc("3\t2\tsrc/app.py\n")
+        mock_run.side_effect = fake
+
+        c = get_changed_files(Path("/repo"))
+        assert c.untracked == ["notes.txt"]
+        assert c.unstaged == [FileChange(path="src/app.py", kind="modified", added=3, removed=2)]
+        assert c.staged == [FileChange(path="new.py", kind="added", added=5, removed=0)]
+
+    @patch("gitstow.core.git._run_git")
+    def test_partially_staged_file_appears_in_both_groups(self, mock_run):
+        def fake(args, cwd=None, **kw):
+            if args[0] == "status":
+                return _proc("1 MM N... 100644 100644 100644 abc def both.py\n")
+            return _proc("1\t1\tboth.py\n")
+        mock_run.side_effect = fake
+
+        c = get_changed_files(Path("/repo"))
+        assert [f.path for f in c.staged] == ["both.py"]
+        assert [f.path for f in c.unstaged] == ["both.py"]
+
+    @patch("gitstow.core.git._run_git")
+    def test_rename_and_binary(self, mock_run):
+        def fake(args, cwd=None, **kw):
+            if args[0] == "status":
+                return _proc(
+                    "2 R. N... 100644 100644 100644 abc def R100 new_name.py\told_name.py\n"
+                    "1 .M N... 100644 100644 100644 abc def logo.png\n"
+                )
+            if "--cached" in args:
+                return _proc("0\t0\told_name.py => new_name.py\n")
+            return _proc("-\t-\tlogo.png\n")
+        mock_run.side_effect = fake
+
+        c = get_changed_files(Path("/repo"))
+        assert c.staged == [FileChange(path="new_name.py", kind="renamed", old_path="old_name.py")]
+        assert c.unstaged == [FileChange(path="logo.png", kind="modified", binary=True)]
+
+    @patch("gitstow.core.git._run_git")
+    def test_brace_rename_path_in_numstat(self, mock_run):
+        def fake(args, cwd=None, **kw):
+            if args[0] == "status":
+                return _proc("2 R. N... 100644 100644 100644 abc def R90 src/b.py\tsrc/a.py\n")
+            if "--cached" in args:
+                return _proc("2\t1\tsrc/{a.py => b.py}\n")
+            return _proc("")
+        mock_run.side_effect = fake
+
+        c = get_changed_files(Path("/repo"))
+        assert c.staged[0].added == 2 and c.staged[0].removed == 1
+
+    @patch("gitstow.core.git._run_git")
+    def test_unreadable_repo_returns_empty(self, mock_run):
+        mock_run.return_value = _proc("fatal: not a git repository", returncode=128)
+        assert get_changed_files(Path("/repo")) == ChangedFiles()

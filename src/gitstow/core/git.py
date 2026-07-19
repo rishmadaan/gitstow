@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -252,6 +252,109 @@ def get_status(repo_path: Path) -> RepoStatus:
         status.has_upstream = False
 
     return status
+
+
+@dataclass
+class FileChange:
+    """One changed file in the working tree or index."""
+
+    path: str
+    kind: str            # "modified" | "added" | "deleted" | "renamed"
+    added: int = 0       # line counts; 0 for binary files
+    removed: int = 0
+    binary: bool = False
+    old_path: str = ""   # set when kind == "renamed"
+
+
+@dataclass
+class ChangedFiles:
+    """Working-tree changes grouped the way GitHub Desktop groups them."""
+
+    staged: list[FileChange] = field(default_factory=list)
+    unstaged: list[FileChange] = field(default_factory=list)
+    untracked: list[str] = field(default_factory=list)
+
+
+_KIND = {"A": "added", "D": "deleted", "R": "renamed", "C": "added"}
+
+
+def _numstat_new_path(raw: str) -> str:
+    """Numstat renders renames as 'old => new' or 'dir/{old => new}/file'."""
+    if " => " not in raw:
+        return raw
+    if "{" in raw:
+        pre, rest = raw.split("{", 1)
+        mid, post = rest.split("}", 1)
+        return pre + mid.split(" => ")[1] + post
+    return raw.split(" => ")[1]
+
+
+def _numstat_map(repo_path: Path, cached: bool) -> dict[str, tuple[int, int, bool]]:
+    """path -> (added, removed, binary) from one `git diff --numstat` call."""
+    args = ["diff", "--numstat"] + (["--cached"] if cached else [])
+    counts: dict[str, tuple[int, int, bool]] = {}
+    for line in _run_git(args, cwd=repo_path).stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        a, r, raw = parts[0], parts[1], "\t".join(parts[2:])
+        binary = a == "-"
+        counts[_numstat_new_path(raw)] = (
+            0 if binary else int(a),
+            0 if binary else int(r),
+            binary,
+        )
+    return counts
+
+
+def _add_change(changes: ChangedFiles, xy: str, path: str, old_path: str,
+                staged_counts: dict, unstaged_counts: dict) -> None:
+    if xy[0] != ".":
+        a, r, binary = staged_counts.get(path, (0, 0, False))
+        changes.staged.append(FileChange(
+            path=path, kind=_KIND.get(xy[0], "modified"),
+            added=a, removed=r, binary=binary, old_path=old_path))
+    if xy[1] != ".":
+        a, r, binary = unstaged_counts.get(path, (0, 0, False))
+        changes.unstaged.append(FileChange(
+            path=path, kind=_KIND.get(xy[1], "modified"),
+            added=a, removed=r, binary=binary, old_path=old_path))
+
+
+def get_changed_files(repo_path: Path) -> ChangedFiles:
+    """Per-file working-tree changes: one porcelain-v2 status call for
+    grouping + change kind, two numstat calls for per-file line counts.
+
+    Porcelain v2 entry formats (git-status docs):
+      1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>
+      2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path>\t<origPath>
+      u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>
+      ? <path>
+    X = staged column, Y = unstaged column, "." = unchanged.
+    """
+    result = _run_git(["status", "--porcelain=v2"], cwd=repo_path)
+    if result.returncode != 0:
+        return ChangedFiles()
+
+    staged_counts = _numstat_map(repo_path, cached=True)
+    unstaged_counts = _numstat_map(repo_path, cached=False)
+    changes = ChangedFiles()
+
+    for line in result.stdout.splitlines():
+        if line.startswith("? "):
+            changes.untracked.append(line[2:])
+        elif line.startswith("1 "):
+            _add_change(changes, line.split(" ", 2)[1], line.split(" ", 8)[8],
+                        "", staged_counts, unstaged_counts)
+        elif line.startswith("2 "):
+            path, _, old = line.split(" ", 9)[9].partition("\t")
+            _add_change(changes, line.split(" ", 2)[1], path, old,
+                        staged_counts, unstaged_counts)
+        elif line.startswith("u "):
+            # Unmerged (conflict) — show as an unstaged modification.
+            _add_change(changes, ".M", line.split(" ", 10)[10],
+                        "", staged_counts, unstaged_counts)
+    return changes
 
 
 def get_remote_url(repo_path: Path) -> str | None:
