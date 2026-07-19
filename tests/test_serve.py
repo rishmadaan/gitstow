@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from gitstow.core.config import Settings, Workspace, save_config
-from gitstow.core.git import ChangedFiles, FetchResult, FileChange, PullResult, RepoStatus
+from gitstow.core.git import ChangedFiles, CommitInfo, FetchResult, FileChange, PullResult, RepoStatus
 from gitstow.core.repo import Repo, RepoStore
 from gitstow.web.server import create_app
 
@@ -1084,6 +1084,8 @@ class TestDiffViewer:
                 untracked=["notes.txt"],
             ),
         )
+        monkeypatch.setattr("gitstow.web.routes.pages.get_last_commit", lambda p: CommitInfo())
+        monkeypatch.setattr("gitstow.web.routes.pages.get_disk_size", lambda p: 0)
         r = client.get("/repo/test-ws/owner/repo")
         assert r.status_code == 200
         assert 'id="changes"' in r.text
@@ -1093,6 +1095,8 @@ class TestDiffViewer:
     def test_drawer_hides_changes_when_clean(self, client, configured, workspace_dir, monkeypatch):
         self._seed_repo(workspace_dir)
         monkeypatch.setattr("gitstow.web.routes.pages.get_status", lambda p: _fake_status())
+        monkeypatch.setattr("gitstow.web.routes.pages.get_last_commit", lambda p: CommitInfo())
+        monkeypatch.setattr("gitstow.web.routes.pages.get_disk_size", lambda p: 0)
         r = client.get("/repo/test-ws/owner/repo")
         assert r.status_code == 200
         assert 'id="changes"' not in r.text
