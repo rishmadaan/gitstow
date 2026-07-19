@@ -6,10 +6,9 @@ All git interaction goes through this module. Nothing else shells out to git.
 from __future__ import annotations
 
 import os
-import select
 import shutil
 import subprocess
-import time
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -285,33 +284,39 @@ class ChangedFiles:
 _KIND = {"A": "added", "D": "deleted", "R": "renamed", "C": "added"}
 
 
-def _numstat_new_path(raw: str) -> str:
-    """Numstat renders renames as 'old => new' or 'dir/{old => new}/file'."""
-    if " => " not in raw:
-        return raw
-    if "{" in raw:
-        pre, rest = raw.split("{", 1)
-        mid, post = rest.split("}", 1)
-        return pre + mid.split(" => ")[1] + post
-    return raw.split(" => ")[1]
-
-
 def _numstat_map(repo_path: Path, cached: bool) -> dict[str, tuple[int, int, bool]]:
-    """path -> (added, removed, binary) from one `git diff --numstat` call."""
+    """path -> (added, removed, binary) from one NUL-delimited numstat call.
+
+    ``git diff --numstat -z`` (format verified against real git): normal
+    entries are ``added TAB removed TAB path NUL``; renames are
+    ``added TAB removed TAB NUL src NUL dst NUL``. Keyed by the destination
+    path so it lines up with the porcelain-v2 new path. This replaces the old
+    ``old => new`` / ``{brace}`` heuristic, which crashed on filenames that
+    legitimately contained braces and ` => `.
+    """
     args = ["--literal-pathspecs", "-c", "core.quotePath=false", "diff",
-            "--no-ext-diff", "--no-color", "--numstat"] + (["--cached"] if cached else [])
+            "--no-ext-diff", "--no-color", "--numstat", "-z"] + (["--cached"] if cached else [])
+    tokens = _run_git(args, cwd=repo_path).stdout.split("\0")
     counts: dict[str, tuple[int, int, bool]] = {}
-    for line in _run_git(args, cwd=repo_path).stdout.splitlines():
-        parts = line.split("\t")
-        if len(parts) < 3:
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if not tok:
+            i += 1
             continue
-        a, r, raw = parts[0], parts[1], "\t".join(parts[2:])
+        fields = tok.split("\t")
+        if len(fields) < 3:
+            i += 1
+            continue
+        a, r, path = fields[0], fields[1], fields[2]
+        if path == "":
+            # rename: empty inline path → next two tokens are src, dst
+            path = tokens[i + 2] if i + 2 < len(tokens) else ""
+            i += 3
+        else:
+            i += 1
         binary = a == "-"
-        counts[_numstat_new_path(raw)] = (
-            0 if binary else int(a),
-            0 if binary else int(r),
-            binary,
-        )
+        counts[path] = (0 if binary else int(a), 0 if binary else int(r), binary)
     return counts
 
 
@@ -319,14 +324,18 @@ def _add_change(changes: ChangedFiles, xy: str, path: str, old_path: str,
                 staged_counts: dict, unstaged_counts: dict) -> None:
     if xy[0] != ".":
         a, r, binary = staged_counts.get(path, (0, 0, False))
+        # old_path only belongs to the column that is actually a rename/copy;
+        # a `2 RM` line renames in the index but plain-edits in the worktree.
         changes.staged.append(FileChange(
             path=path, kind=_KIND.get(xy[0], "modified"),
-            added=a, removed=r, binary=binary, old_path=old_path))
+            added=a, removed=r, binary=binary,
+            old_path=old_path if xy[0] in "RC" else ""))
     if xy[1] != ".":
         a, r, binary = unstaged_counts.get(path, (0, 0, False))
         changes.unstaged.append(FileChange(
             path=path, kind=_KIND.get(xy[1], "modified"),
-            added=a, removed=r, binary=binary, old_path=old_path))
+            added=a, removed=r, binary=binary,
+            old_path=old_path if xy[1] in "RC" else ""))
 
 
 def get_changed_files(repo_path: Path) -> ChangedFiles:
@@ -380,6 +389,7 @@ def get_file_diff(
     *,
     staged: bool = False,
     untracked: bool = False,
+    old_path: str = "",
     max_bytes: int = 512_000,
     timeout_s: float = 10.0,
 ) -> str:
@@ -393,24 +403,31 @@ def get_file_diff(
     named `*.txt` (or containing `?`, `:(...)`) is treated as a plain path,
     not a glob that merges unrelated diffs into one panel.
 
-    Reads at most `max_bytes` of git's stdout under a `timeout_s` deadline,
-    then kills the process, so a huge file can't buffer megabytes and a slow
-    textconv/filter can't stall forever. select() on the stdout fd bounds each
-    wait; on deadline expiry we return whatever was read (degrade-soft), which
-    also keeps the web route's threadpool worker from wedging. 512KB is far
-    beyond 500 rendered lines at any sane width; the byte-capped read may drop
-    the parser's "truncated" flag — acceptable, the display cap still applies.
-    Same env conventions as `_run_git` (GIT_TERMINAL_PROMPT=0, LC_ALL=C).
-    Degrades to "" like the rest of git.py.
+    `old_path` (a rename's source) is passed alongside `file` after `--` so a
+    staged rename renders as the rename edit; passing only the new name makes
+    git show a full add of an all-new file.
+
+    Reads at most `max_bytes` of git's stdout in a daemon reader thread joined
+    with a `timeout_s` deadline, then kills the process, so a huge file can't
+    buffer megabytes and a slow textconv/filter can't stall forever. A thread
+    (not select() on the pipe fd, which is POSIX-only and breaks on Windows —
+    which pyproject targets) keeps this portable; on deadline expiry we return
+    whatever landed (degrade-soft), which also keeps the web route's threadpool
+    worker from wedging. 512KB is far beyond 500 rendered lines at any sane
+    width; the byte-capped read may drop the parser's "truncated" flag —
+    acceptable, the display cap still applies. Same env conventions as
+    `_run_git` (GIT_TERMINAL_PROMPT=0, LC_ALL=C). Degrades to "" like the rest
+    of git.py.
     """
+    paths = [old_path, file] if old_path else [file]
     if untracked:
         args = ["--literal-pathspecs", "diff", "--no-ext-diff", "--no-color",
                 "--no-index", "--", "/dev/null", file]
     elif staged:
         args = ["--literal-pathspecs", "diff", "--no-ext-diff", "--no-color",
-                "--cached", "--", file]
+                "--cached", "--", *paths]
     else:
-        args = ["--literal-pathspecs", "diff", "--no-ext-diff", "--no-color", "--", file]
+        args = ["--literal-pathspecs", "diff", "--no-ext-diff", "--no-color", "--", *paths]
 
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"}
     try:
@@ -424,27 +441,20 @@ def get_file_diff(
     except FileNotFoundError:
         return ""
 
-    chunks: list[bytes] = []
-    remaining = max_bytes
-    deadline = time.monotonic() + timeout_s
+    # One bounded read on a daemon thread: read() returns after max_bytes or
+    # EOF (blocking pipe), so it can't over-buffer; if git stalls, the join
+    # times out and we kill. Daemon so a truly hung read never blocks exit.
+    buf: list[bytes] = []
+    reader = threading.Thread(target=lambda: buf.append(proc.stdout.read(max_bytes)),
+                              daemon=True)
+    reader.start()
+    reader.join(timeout_s)
     try:
-        fd = proc.stdout.fileno()
-        while remaining > 0:
-            budget = deadline - time.monotonic()
-            if budget <= 0:
-                break  # overall deadline exceeded
-            ready, _, _ = select.select([fd], [], [], budget)
-            if not ready:
-                break  # slow/stalled git — return what we have
-            chunk = os.read(fd, min(remaining, 65536))
-            if not chunk:
-                break  # EOF
-            chunks.append(chunk)
-            remaining -= len(chunk)
-    finally:
         proc.kill()  # ponytail: partial read is fine — display truncates at 500 lines
         proc.wait()
-    return b"".join(chunks).decode("utf-8", errors="replace")
+    except OSError:
+        pass
+    return (buf[0] if buf else b"").decode("utf-8", errors="replace")
 
 
 def run_interactive_diff(repo_path: Path, staged: bool = False) -> int:

@@ -1133,6 +1133,27 @@ class TestDiffViewer:
         assert "diff-line-add" in r.text and "diff-line-del" in r.text
         assert "old" in r.text and "new" in r.text
 
+    def test_diff_endpoint_passes_rename_old_path(self, client, configured, workspace_dir, monkeypatch):
+        """A staged rename's source path reaches get_file_diff, so git renders
+        the rename edit instead of a full add of an all-new file."""
+        self._seed_repo(workspace_dir)
+        renamed = FileChange(path="new.py", kind="renamed", old_path="old.py")
+        monkeypatch.setattr(
+            "gitstow.web.routes.pages.get_changed_files",
+            lambda p: ChangedFiles(staged=[renamed], unstaged=[], untracked=[]),
+        )
+        captured = {}
+
+        def fake_diff(p, f, **kw):
+            captured.update(kw)
+            return "--- a/old.py\n+++ b/new.py\n@@ -1 +1 @@\n-x\n+y\n"
+
+        monkeypatch.setattr("gitstow.web.routes.pages.get_file_diff", fake_diff)
+        r = client.get("/repos/test-ws/owner/repo/diff?file=new.py&group=staged")
+        assert r.status_code == 200
+        assert captured.get("old_path") == "old.py"
+        assert captured.get("staged") is True
+
     def test_diff_endpoint_rejects_path_traversal(self, client, configured, workspace_dir):
         self._seed_repo(workspace_dir)
         # Traversal guard fires before the membership check → 400, not 404.

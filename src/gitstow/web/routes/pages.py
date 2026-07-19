@@ -234,10 +234,18 @@ def file_diff(
     if file not in members[group]:
         raise HTTPException(status_code=404, detail="file not in repo changes")
 
+    # A staged rename needs its source path too, or git renders a full add.
+    # `changes` is already fetched above; look up the matching FileChange.
+    old_path = ""
+    if group in ("staged", "unstaged"):
+        change = next((f for f in getattr(changes, group) if f.path == file), None)
+        old_path = change.old_path if change else ""
+
     raw = get_file_diff(
         repo_path, file,
         staged=(group == "staged"),
         untracked=(group == "untracked"),
+        old_path=old_path,
     )
     return render(
         request, "partials/diff_view.html", page="dashboard",

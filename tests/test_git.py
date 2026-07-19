@@ -1,6 +1,5 @@
 """Tests for git wrapper module (mocked subprocess)."""
 
-import os
 from unittest.mock import patch, MagicMock
 from pathlib import Path
 
@@ -297,8 +296,8 @@ class TestGetChangedFiles:
                     "? notes.txt\n"
                 )
             if "--cached" in args:
-                return _proc("5\t0\tnew.py\n")
-            return _proc("3\t2\tsrc/app.py\n")
+                return _proc("5\t0\tnew.py\0")
+            return _proc("3\t2\tsrc/app.py\0")
         mock_run.side_effect = fake
 
         c = get_changed_files(Path("/repo"))
@@ -311,7 +310,7 @@ class TestGetChangedFiles:
         def fake(args, cwd=None, **kw):
             if "status" in args:
                 return _proc("1 MM N... 100644 100644 100644 abc def both.py\n")
-            return _proc("1\t1\tboth.py\n")
+            return _proc("1\t1\tboth.py\0")
         mock_run.side_effect = fake
 
         c = get_changed_files(Path("/repo"))
@@ -327,8 +326,9 @@ class TestGetChangedFiles:
                     "1 .M N... 100644 100644 100644 abc def logo.png\n"
                 )
             if "--cached" in args:
-                return _proc("0\t0\told_name.py => new_name.py\n")
-            return _proc("-\t-\tlogo.png\n")
+                # -z rename entry: added TAB removed TAB NUL src NUL dst NUL
+                return _proc("0\t0\t\0old_name.py\0new_name.py\0")
+            return _proc("-\t-\tlogo.png\0")
         mock_run.side_effect = fake
 
         c = get_changed_files(Path("/repo"))
@@ -337,16 +337,35 @@ class TestGetChangedFiles:
 
     @patch("gitstow.core.git._run_git")
     def test_brace_rename_path_in_numstat(self, mock_run):
+        """A real filename with literal braces + ` => ` in a rename must not
+        crash the old heuristic (deleted) — -z parsing keys by the dst path."""
         def fake(args, cwd=None, **kw):
             if "status" in args:
-                return _proc("2 R. N... 100644 100644 100644 abc def R90 src/b.py\tsrc/a.py\n")
+                return _proc("2 R. N... 100644 100644 100644 abc def R90 br{new}.txt\tbr{ace}.txt\n")
             if "--cached" in args:
-                return _proc("2\t1\tsrc/{a.py => b.py}\n")
+                return _proc("2\t1\t\0br{ace}.txt\0br{new}.txt\0")
             return _proc("")
         mock_run.side_effect = fake
 
         c = get_changed_files(Path("/repo"))
+        assert c.staged[0].path == "br{new}.txt"
         assert c.staged[0].added == 2 and c.staged[0].removed == 1
+
+    @patch("gitstow.core.git._run_git")
+    def test_rename_plus_unstaged_edit_old_path_only_on_staged(self, mock_run):
+        """`2 RM`: staged rename + unstaged edit. old_path belongs to the
+        renamed (staged) column only — the unstaged edit is not `a → b`."""
+        def fake(args, cwd=None, **kw):
+            if "status" in args:
+                return _proc("2 RM N... 100644 100644 100644 abc def R100 new.py\told.py\n")
+            if "--cached" in args:
+                return _proc("0\t0\t\0old.py\0new.py\0")
+            return _proc("2\t1\tnew.py\0")
+        mock_run.side_effect = fake
+
+        c = get_changed_files(Path("/repo"))
+        assert c.staged[0].kind == "renamed" and c.staged[0].old_path == "old.py"
+        assert c.unstaged[0].path == "new.py" and c.unstaged[0].old_path == ""
 
     @patch("gitstow.core.git._run_git")
     def test_unreadable_repo_returns_empty(self, mock_run):
@@ -462,30 +481,65 @@ class TestGetFileDiff:
     def test_argv_uses_literal_pathspecs(self):
         """Caller-supplied paths go through --literal-pathspecs so a file
         literally named `*.txt` is a plain path, not a glob."""
-        r, w = os.pipe()
-        os.close(w)  # immediate EOF so the read loop exits at once
         fake = MagicMock()
-        fake.stdout.fileno.return_value = r
+        fake.stdout.read.return_value = b""  # immediate EOF so the reader exits at once
         with patch("gitstow.core.git.subprocess.Popen", return_value=fake) as mp:
             get_file_diff(Path("/repo"), "*.txt")
-        os.close(r)
         argv = mp.call_args[0][0]
         assert argv[:2] == ["git", "--literal-pathspecs"]
         assert argv[argv.index("--") + 1] == "*.txt"
 
-    def test_deadline_returns_partial_and_kills(self):
-        """A stalled git (select never ready) hits the deadline: returns what
-        was read and kills the process instead of blocking forever."""
-        r, w = os.pipe()
+    def test_argv_includes_both_paths_for_rename(self):
+        """A staged rename passes source + destination after `--` so git
+        renders the rename edit, not a full add of an all-new file."""
         fake = MagicMock()
-        fake.stdout.fileno.return_value = r
-        with patch("gitstow.core.git.subprocess.Popen", return_value=fake), \
-             patch("gitstow.core.git.select.select", return_value=([], [], [])):
+        fake.stdout.read.return_value = b""
+        with patch("gitstow.core.git.subprocess.Popen", return_value=fake) as mp:
+            get_file_diff(Path("/repo"), "new.py", staged=True, old_path="old.py")
+        argv = mp.call_args[0][0]
+        assert argv[argv.index("--") + 1:] == ["old.py", "new.py"]
+
+    def test_deadline_returns_partial_and_kills(self):
+        """A stalled git (read never returns) hits the deadline: returns what
+        was captured (nothing) and kills the process instead of blocking."""
+        import threading as _t
+
+        gate = _t.Event()
+        fake = MagicMock()
+        fake.stdout.read.side_effect = lambda n: (gate.wait(), b"")[1]
+        with patch("gitstow.core.git.subprocess.Popen", return_value=fake):
             out = get_file_diff(Path("/repo"), "f.txt", timeout_s=0.2)
-        os.close(r)
-        os.close(w)
+        gate.set()  # release the daemon reader so it can exit cleanly
         assert out == ""
         fake.kill.assert_called_once()
+
+    def test_staged_rename_real_git(self, tmp_path):
+        """Real repo: a staged `git mv` is a rename in get_changed_files, and
+        get_file_diff with old_path renders the rename edit (not a full add)."""
+        import subprocess as sp
+
+        def git(*a):
+            sp.run(["git", *a], cwd=tmp_path, check=True, capture_output=True, text=True)
+
+        git("init")
+        git("config", "user.email", "t@example.com")
+        git("config", "user.name", "Test")
+        (tmp_path / "a.txt").write_text("one\ntwo\nthree\n")
+        git("add", "-A")
+        git("commit", "-m", "init")
+        git("mv", "a.txt", "b.txt")
+
+        c = get_changed_files(tmp_path)
+        assert len(c.staged) == 1
+        assert c.staged[0].path == "b.txt"
+        assert c.staged[0].kind == "renamed"
+        assert c.staged[0].old_path == "a.txt"
+
+        diff = get_file_diff(tmp_path, "b.txt", staged=True, old_path="a.txt")
+        # git emits a pure rename (100% similarity) as a "rename from/to" header
+        # with no +/- body — assert it is NOT rendered as an all-new file add.
+        assert "rename from a.txt" in diff
+        assert "new file mode" not in diff
 
 
 class TestRunInteractiveDiff:
