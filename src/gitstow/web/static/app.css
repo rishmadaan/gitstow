@@ -1016,3 +1016,49 @@ button.htmx-request::after, .btn.htmx-request::after {
   th.col-branch, td.col-branch { display: none; }
   nav.primary .brand .tagline { display: none; }
 }
+
+/* ---- Diff viewer (repo drawer Changes section) ---- */
+.status-link { text-decoration: none; }
+.status-link:hover .status { filter: brightness(1.25); }
+
+.diff-group { margin-bottom: 1.1rem; }
+.diff-group-head {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--muted); margin-bottom: 0.4rem;
+}
+.diff-count { color: var(--muted-soft); margin-left: 0.3rem; }
+
+.diff-file { border: 1px solid var(--border); border-radius: 6px; margin-bottom: 0.35rem; }
+.diff-file summary {
+  display: flex; align-items: center; gap: 0.6rem;
+  padding: 0.45rem 0.7rem; cursor: pointer; list-style: none;
+  font-family: 'JetBrains Mono', monospace; font-size: 0.82rem;
+}
+.diff-file summary::-webkit-details-marker { display: none; }
+.diff-file[open] summary { border-bottom: 1px solid var(--border); }
+.diff-kind { font-weight: 700; width: 1.1em; text-align: center; }
+.diff-kind-modified { color: #eab308; }
+.diff-kind-added    { color: #4ade80; }
+.diff-kind-deleted  { color: var(--c-conflict); }
+.diff-kind-renamed  { color: var(--c-behind); }
+.diff-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diff-stat { font-size: 0.78rem; }
+.diff-add { color: #4ade80; }
+.diff-del { color: var(--c-conflict); }
+
+.diff-body { max-height: 30rem; overflow-y: auto; }
+.diff-scroll { overflow-x: auto; }   /* wide diffs scroll here, never the page */
+.diff-table {
+  border-collapse: collapse; width: 100%;
+  font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; line-height: 1.5;
+}
+.diff-table td { padding: 0 0.6rem; white-space: pre; }
+.diff-no {
+  color: var(--muted-soft); text-align: right; width: 1%;
+  user-select: none; border-right: 1px solid var(--border);
+}
+.diff-hunk .diff-text { color: var(--c-behind); background: rgba(59, 130, 246, 0.08); }
+.diff-line-add .diff-text { background: rgba(74, 222, 128, 0.10); color: #d8f5e0; }
+.diff-line-del .diff-text { background: rgba(248, 113, 113, 0.10); color: #f5d8d8; }
+.diff-note { padding: 0.5rem 0.7rem; color: var(--muted); font-size: 0.82rem; }

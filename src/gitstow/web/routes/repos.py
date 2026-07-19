@@ -84,6 +84,10 @@ def _row_context(repo, settings, sorted_labels, num: int | None) -> dict | None:
         "pull_tooltip": pull_tooltip,
         "behind": behind_n,
         "repo_link_tooltip": f"Open details for {repo.key}",
+        "changes_link": (
+            f"/repo/{repo.workspace}/{repo.key}#changes"
+            if state.presence == "ok" and state.has_local_changes else ""
+        ),
     }
 
 

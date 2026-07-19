@@ -1,0 +1,21 @@
+{% if diff.binary %}
+  <div class="diff-note">Binary file changed — no text diff.</div>
+{% elif not diff.hunks %}
+  <div class="diff-note">No changes to show.</div>
+{% else %}
+  <div class="diff-scroll">
+    <table class="diff-table">
+      {% for hunk in diff.hunks %}
+      <tr class="diff-hunk"><td class="diff-no"></td><td class="diff-no"></td><td class="diff-text">{{ hunk.header }}</td></tr>
+      {% for line in hunk.lines %}
+      <tr class="diff-line-{{ line.kind }}">
+        <td class="diff-no">{{ line.old_no if line.old_no is not none }}</td>
+        <td class="diff-no">{{ line.new_no if line.new_no is not none }}</td>
+        <td class="diff-text">{{ line.text }}</td>
+      </tr>
+      {% endfor %}
+      {% endfor %}
+    </table>
+  </div>
+  {% if diff.truncated %}<div class="diff-note">Truncated — showing the first 500 lines. <code>gitstow diff</code> in a terminal shows everything.</div>{% endif %}
+{% endif %}

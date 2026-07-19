@@ -1,0 +1,42 @@
+<section class="section" id="changes">
+  <h4>Changes</h4>
+  {% for group, files in [("staged", changes.staged), ("unstaged", changes.unstaged)] %}
+    {% if files %}
+    <div class="diff-group">
+      <div class="diff-group-head">{{ group }} <span class="diff-count">{{ files|length }}</span></div>
+      {% for f in files %}
+      <details class="diff-file">
+        <summary title="{{ f.kind }}: {{ f.path }} — click to view the diff">
+          <span class="diff-kind diff-kind-{{ f.kind }}">{{ f.kind[0]|upper }}</span>
+          <span class="diff-path">{% if f.old_path %}{{ f.old_path }} → {% endif %}{{ f.path }}</span>
+          {% if f.binary %}<span class="diff-stat">binary</span>
+          {% else %}<span class="diff-stat"><span class="diff-add">+{{ f.added }}</span> <span class="diff-del">−{{ f.removed }}</span></span>{% endif %}
+        </summary>
+        <div class="diff-body"
+             hx-get="/repos/{{ repo.workspace }}/{{ repo.key }}/diff?file={{ f.path|urlencode }}&group={{ group }}"
+             hx-trigger="intersect once"
+             hx-swap="innerHTML"><div class="diff-note">loading…</div></div>
+      </details>
+      {% endfor %}
+    </div>
+    {% endif %}
+  {% endfor %}
+  {% if changes.untracked %}
+  <div class="diff-group">
+    <div class="diff-group-head">untracked <span class="diff-count">{{ changes.untracked|length }}</span></div>
+    {% for path in changes.untracked %}
+    <details class="diff-file">
+      <summary title="untracked: {{ path }} — click to view the file as all-new lines">
+        <span class="diff-kind diff-kind-added">U</span>
+        <span class="diff-path">{{ path }}</span>
+        <span class="diff-stat"><span class="diff-add">new</span></span>
+      </summary>
+      <div class="diff-body"
+           hx-get="/repos/{{ repo.workspace }}/{{ repo.key }}/diff?file={{ path|urlencode }}&group=untracked"
+           hx-trigger="intersect once"
+           hx-swap="innerHTML"><div class="diff-note">loading…</div></div>
+    </details>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>

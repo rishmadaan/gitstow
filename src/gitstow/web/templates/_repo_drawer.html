@@ -59,6 +59,8 @@
     </dl>
   </section>
 
+  {% if changes %}{% include "partials/changes_section.html" %}{% endif %}
+
   <section class="section" id="tags">
     <h4>Tags</h4>
     <form method="POST" action="/repos/{{ repo.workspace }}/{{ repo.key }}/tag">

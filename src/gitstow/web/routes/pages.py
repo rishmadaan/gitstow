@@ -9,7 +9,16 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from gitstow.core.config import load_config, save_config
-from gitstow.core.git import format_size, get_disk_size, get_last_commit, get_status, is_git_repo
+from gitstow.core.diff import parse_unified_diff
+from gitstow.core.git import (
+    format_size,
+    get_changed_files,
+    get_disk_size,
+    get_file_diff,
+    get_last_commit,
+    get_status,
+    is_git_repo,
+)
 from gitstow.core.repo import RepoStore
 from gitstow.core.status_model import classify
 from gitstow.web.routes.dashboard import _present, _relative_time
@@ -126,6 +135,12 @@ def render_repo_detail(request, workspace: str, key: str, error=None, status_cod
     state = classify(exists=exists, frozen=repo.frozen, status=status)
     status_class, status_label, _pull_variant = _present(state)
 
+    # Changes section data — only when there is something to show (spec:
+    # section renders only for repos with local changes).
+    changes = None
+    if exists and state.has_local_changes:
+        changes = get_changed_files(repo_path)
+
     # Disk size (can be slow; protect with try)
     try:
         size_bytes = get_disk_size(repo_path) if exists else 0
@@ -165,4 +180,34 @@ def render_repo_detail(request, workspace: str, key: str, error=None, status_cod
         last_pull_iso=repo.last_pulled,
         last_fetched_rel=_relative_time(repo.last_fetched) if repo.last_fetched else "never",
         last_fetched_iso=repo.last_fetched,
+        changes=changes,
+    )
+
+
+@router.get("/repos/{workspace}/{key:path}/diff", response_class=HTMLResponse)
+async def file_diff(
+    workspace: str, key: str, request: Request, file: str, group: str = "unstaged"
+):
+    """Rendered line-by-line diff for one file — htmx-loaded on expand."""
+    settings = load_config()
+    store = RepoStore()
+    ws = settings.get_workspace(workspace)
+    repo = store.get(key, workspace=workspace) if ws else None
+    if ws is None or repo is None:
+        raise HTTPException(status_code=404, detail="repo not found")
+    repo_path = repo.get_path(ws.get_path())
+
+    # Trust boundary: `file` comes from the query string — refuse anything
+    # that resolves outside the repo (e.g. ../../etc/passwd via --no-index).
+    if not (repo_path / file).resolve().is_relative_to(repo_path.resolve()):
+        raise HTTPException(status_code=400, detail="file outside repo")
+
+    raw = get_file_diff(
+        repo_path, file,
+        staged=(group == "staged"),
+        untracked=(group == "untracked"),
+    )
+    return render(
+        request, "partials/diff_view.html", page="dashboard",
+        diff=parse_unified_diff(raw), file=file,
     )

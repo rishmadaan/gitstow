@@ -243,6 +243,10 @@ async def _build_repos_data(settings, store) -> tuple[list, dict]:
             "pull_tooltip": pull_tooltip,
             "behind": behind_n,
             "repo_link_tooltip": f"Open details for {repo.key}",
+            "changes_link": (
+                f"/repo/{repo.workspace}/{repo.key}#changes"
+                if state.presence == "ok" and state.has_local_changes else ""
+            ),
         })
 
     return repos_data, counts
