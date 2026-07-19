@@ -226,6 +226,26 @@ class TestGetStatus:
         assert status.behind == 1
         assert status.clean is False
 
+    def test_untracked_survives_showuntrackedfiles_no_real_git(self, tmp_path):
+        """A user's `status.showUntrackedFiles=no` config must not hide
+        untracked files from get_status — --untracked-files=normal pins it."""
+        import subprocess as sp
+
+        def git(*a):
+            sp.run(["git", *a], cwd=tmp_path, check=True, capture_output=True, text=True)
+
+        git("init")
+        git("config", "user.email", "t@example.com")
+        git("config", "user.name", "Test")
+        (tmp_path / "committed.txt").write_text("one\n")
+        git("add", "-A")
+        git("commit", "-m", "init")
+        git("config", "status.showUntrackedFiles", "no")
+        (tmp_path / "untracked.txt").write_text("new\n")
+
+        status = get_status(tmp_path)
+        assert status.untracked == 1
+
 
 class TestRepoStatus:
     def test_status_symbol_clean(self):

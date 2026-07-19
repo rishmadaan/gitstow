@@ -224,7 +224,12 @@ def get_status(repo_path: Path) -> RepoStatus:
 
     This is ONE subprocess call vs gita's 4-5 separate calls.
     """
-    result = _run_git(["status", "--porcelain=v2", "--branch"], cwd=repo_path)
+    # --untracked-files=normal pins git's default untracked-listing behavior,
+    # overriding a user's `status.showUntrackedFiles=no` config (which would
+    # otherwise silently hide untracked files from every gitstow surface).
+    result = _run_git(
+        ["status", "--porcelain=v2", "--branch", "--untracked-files=normal"], cwd=repo_path
+    )
     if result.returncode != 0:
         # Fallback: just get the branch name
         branch_result = _run_git(["branch", "--show-current"], cwd=repo_path)
