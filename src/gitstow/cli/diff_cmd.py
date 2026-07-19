@@ -15,6 +15,7 @@ from gitstow.core.git import (
     get_changed_files,
     get_status,
     is_git_repo,
+    is_repo_readable,
     run_interactive_diff,
 )
 from gitstow.core.repo import RepoStore
@@ -44,6 +45,11 @@ def diff_cmd(
     path = r.get_path(ws.get_path())
     if not path.exists() or not is_git_repo(path):
         err_console.print(f"[red]Error:[/red] [bold]{r.key}[/bold] is missing on disk at {path}")
+        raise typer.Exit(code=1)
+    if not is_repo_readable(path):
+        err_console.print(
+            f"[red]Error:[/red] [bold]{r.key}[/bold] is not a readable git repository at {path}"
+        )
         raise typer.Exit(code=1)
 
     if output_json:

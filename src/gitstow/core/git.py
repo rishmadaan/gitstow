@@ -126,6 +126,15 @@ def is_git_repo(path: Path) -> bool:
     return git_dir.exists() and (git_dir.is_dir() or git_dir.is_file())
 
 
+def is_repo_readable(repo_path: Path) -> bool:
+    """Whether git can actually resolve the repo (not just a stray .git).
+
+    A linked worktree whose `.git` FILE points at a deleted gitdir passes
+    is_git_repo but fails every real git command — this catches that.
+    """
+    return _run_git(["rev-parse", "--git-dir"], cwd=repo_path).returncode == 0
+
+
 def clone(
     url: str,
     target: Path,
@@ -294,8 +303,12 @@ def _numstat_map(repo_path: Path, cached: bool) -> dict[str, tuple[int, int, boo
     ``old => new`` / ``{brace}`` heuristic, which crashed on filenames that
     legitimately contained braces and ` => `.
     """
+    # --find-renames pins rename detection on regardless of the user's
+    # diff.renames config, so numstat rename records line up with the
+    # --find-renames status records in get_changed_files.
     args = ["--literal-pathspecs", "-c", "core.quotePath=false", "diff",
-            "--no-ext-diff", "--no-color", "--numstat", "-z"] + (["--cached"] if cached else [])
+            "--no-ext-diff", "--no-color", "--numstat", "-z", "--find-renames"] + (
+                ["--cached"] if cached else [])
     tokens = _run_git(args, cwd=repo_path).stdout.split("\0")
     counts: dict[str, tuple[int, int, bool]] = {}
     i = 0
@@ -354,8 +367,10 @@ def get_changed_files(repo_path: Path) -> ChangedFiles:
     # per-file Changes listing can't expand). Badge counts use get_status
     # (default mode), so totals may differ from this listing when new
     # directories exist — intentional: this is the GitHub-Desktop file listing.
+    # --find-renames pins rename detection on regardless of the user's
+    # status.renames config, so A/D records and numstat rename records agree.
     result = _run_git(["-c", "core.quotePath=false", "status", "--porcelain=v2",
-                       "--untracked-files=all"], cwd=repo_path)
+                       "--untracked-files=all", "--find-renames"], cwd=repo_path)
     if result.returncode != 0:
         return ChangedFiles()
 

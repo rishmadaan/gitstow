@@ -368,6 +368,21 @@ class TestGetChangedFiles:
         assert c.unstaged[0].path == "new.py" and c.unstaged[0].old_path == ""
 
     @patch("gitstow.core.git._run_git")
+    def test_rename_detection_pinned_on_status_and_numstat(self, mock_run):
+        """--find-renames is pinned on the status call and both numstat calls
+        so a user's status.renames=false can't skew status vs numstat."""
+        seen = []
+
+        def fake(args, cwd=None, **kw):
+            seen.append(args)
+            return _proc("")
+        mock_run.side_effect = fake
+
+        get_changed_files(Path("/repo"))
+        for args in seen:
+            assert "--find-renames" in args
+
+    @patch("gitstow.core.git._run_git")
     def test_unreadable_repo_returns_empty(self, mock_run):
         mock_run.return_value = _proc("fatal: not a git repository", returncode=128)
         assert get_changed_files(Path("/repo")) == ChangedFiles()

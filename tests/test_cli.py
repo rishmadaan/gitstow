@@ -1033,12 +1033,15 @@ class TestDiffCommand:
         monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
         monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
         monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        import subprocess as _sp
         ws_dir = tmp_path / "ws"
-        (ws_dir / "owner" / "repo" / ".git").mkdir(parents=True)
+        repo_dir = ws_dir / "owner" / "repo"
+        repo_dir.mkdir(parents=True)
+        _sp.run(["git", "init", "-q"], cwd=repo_dir, check=True)  # real repo → is_repo_readable passes
         save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
         store = RepoStore()
         store.add(Repo(owner="owner", name="repo", remote_url="", workspace="ws"))
-        return ws_dir / "owner" / "repo"
+        return repo_dir
 
     def test_clean_repo_prints_no_changes(self, tmp_path, monkeypatch):
         from gitstow.core.git import RepoStatus
@@ -1071,6 +1074,21 @@ class TestDiffCommand:
         shutil.rmtree(repo_path)
         result = runner.invoke(app, ["diff", "owner/repo"])
         assert result.exit_code == 1
+
+    def test_unreadable_repo_errors(self, tmp_path, monkeypatch):
+        self._seed(tmp_path, monkeypatch)
+        monkeypatch.setattr("gitstow.cli.diff_cmd.is_repo_readable", lambda p: False)
+        result = runner.invoke(app, ["diff", "owner/repo"])
+        assert result.exit_code == 1
+        assert "not a readable git repository" in result.output
+
+    def test_unreadable_repo_errors_json_mode_pure_stdout(self, tmp_path, monkeypatch):
+        self._seed(tmp_path, monkeypatch)
+        monkeypatch.setattr("gitstow.cli.diff_cmd.is_repo_readable", lambda p: False)
+        result = runner.invoke(app, ["diff", "owner/repo", "--json"])
+        assert result.exit_code == 1
+        assert result.stdout == ""  # json purity: error goes to stderr only
+        assert "not a readable git repository" in result.stderr
 
     def test_untracked_only_repo_prints_note(self, tmp_path, monkeypatch):
         from gitstow.core.git import RepoStatus

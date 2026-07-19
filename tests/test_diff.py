@@ -88,3 +88,27 @@ def test_combined_diff_marks_conflicted():
     d = parse_unified_diff(text)
     assert d.conflicted is True
     assert d.hunks == []
+
+
+def test_binary_conflict_header_beats_binary_marker():
+    # An unresolved BINARY merge conflict emits `diff --cc` + `Binary files
+    # ... differ` with no @@@ hunks. The combined-diff header must win so the
+    # UI says "resolve the conflict", not "binary file changed".
+    d = parse_unified_diff("diff --cc f\nBinary files a/f and b/f differ\n")
+    assert d.conflicted is True
+    assert d.binary is False
+    assert d.hunks == []
+
+
+def test_conflict_header_triggers_before_hunks():
+    # The `diff --cc` header — not the later @@@ line — is what flips conflicted.
+    text = (
+        "diff --cc conflict.py\n"
+        "--- a/conflict.py\n"
+        "+++ b/conflict.py\n"
+        "@@@ -1,3 -1,3 +1,3 @@@\n"
+        "++merged\n"
+    )
+    d = parse_unified_diff(text)
+    assert d.conflicted is True
+    assert d.hunks == []

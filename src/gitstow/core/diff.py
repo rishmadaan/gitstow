@@ -43,11 +43,16 @@ def parse_unified_diff(text: str, max_lines: int = MAX_LINES) -> ParsedDiff:
     old_no = new_no = 0
     shown = 0
     for line in text.splitlines():
+        if line.startswith(("diff --cc ", "diff --combined ")):
+            # Combined-diff header for an unmerged path — beats the Binary
+            # marker that a binary merge conflict emits with no @@@ hunks.
+            parsed.conflicted = True
+            return parsed
         if line.startswith("Binary files"):
             parsed.binary = True
             return parsed
         if line.startswith("@@@"):
-            # Combined diff for an unmerged path — can't render as a 2-way diff.
+            # Combined diff without a header — belt for headerless input.
             parsed.conflicted = True
             return parsed
         if line.startswith("@@"):
