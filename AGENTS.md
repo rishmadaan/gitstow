@@ -114,6 +114,13 @@ active:
 **Shell:** `shell pick`, `shell init`, `shell completions`, `shell setup`, `ui`
 **Setup:** `onboard`, `config show/set/path/migrate-root`, `doctor`, `install-skill`, `setup-ai`, `update`
 
+## Website
+
+- `site/` — static marketing landing page (plain HTML/CSS + ~25 lines JS), live at https://gitstow.com.
+- Deployed by `.github/workflows/pages.yml`: any push to `main` touching `site/**` republishes automatically — merging IS deploying, no build step.
+- Domain: Cloudflare DNS → GitHub Pages (`rishmadaan.github.io/gitstow` redirects to gitstow.com).
+- Design tokens mirror the product brand — keep `site/style.css` visually in sync with `src/gitstow/web/static/app.css` (same colors, fonts, spacing). Design source: `design_handoff_gitstow_landing/` (untracked reference bundle).
+
 ## Development
 
 ```bash

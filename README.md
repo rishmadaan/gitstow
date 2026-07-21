@@ -2,6 +2,8 @@
 
 A git repository library manager — clone, organize, and maintain collections of repos you learn from.
 
+**[gitstow.com](https://gitstow.com)** · [PyPI](https://pypi.org/project/gitstow/) · [Changelog](CHANGELOG.md)
+
 ![gitstow demo](demo.gif)
 
 ## Why?

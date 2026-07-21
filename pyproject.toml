@@ -37,7 +37,7 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/rishmadaan/gitstow"
+Homepage = "https://gitstow.com"
 Repository = "https://github.com/rishmadaan/gitstow"
 Documentation = "https://github.com/rishmadaan/gitstow#readme"
 Issues = "https://github.com/rishmadaan/gitstow/issues"

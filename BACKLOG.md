@@ -16,6 +16,7 @@ Post-v0.1.0 improvements tracked here. See [GitHub Issues](https://github.com/ri
 ## Documentation
 
 - [x] **Record demo GIF for README** (#7) — Recorded with VHS, embedded in README
+- [x] **Marketing landing page** — [gitstow.com](https://gitstow.com); static site in `site/`, auto-deployed by GitHub Pages on push to main
 
 ## Post-0.3.0 follow-ups
 

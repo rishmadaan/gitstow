@@ -4,6 +4,12 @@ All notable changes to gitstow will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Marketing site at [gitstow.com](https://gitstow.com)** — static landing page in `site/` (plain HTML/CSS, no build step), auto-deployed via GitHub Pages (`.github/workflows/pages.yml`) on any push to `main` touching `site/**`. Custom domain served through Cloudflare DNS.
+
 ## [0.6.0] - 2026-07-19
 
 ### Added
