@@ -103,7 +103,7 @@ active:
 - `site/` — static marketing landing page (plain HTML/CSS + ~25 lines JS), live at https://gitstow.com.
 - Deployed by `.github/workflows/pages.yml`: any push to `main` touching `site/**` republishes automatically — merging IS deploying, no build step.
 - Domain: Cloudflare DNS → GitHub Pages (`rishmadaan.github.io/gitstow` redirects to gitstow.com).
-- Design tokens mirror the product brand — keep `site/style.css` visually in sync with `src/gitstow/web/static/app.css` (same colors, fonts, spacing). Design source: `design_handoff_gitstow_landing/` (untracked reference bundle).
+- Design tokens mirror the product brand — keep `site/style.css` visually in sync with `src/gitstow/web/static/app.css` (same colors, fonts, spacing). Design source: `design_handoff_gitstow_landing/` (reference bundle, tracked in the repo).
 
 ## Development
 
