@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gitstow — a git repository library manager</title>
+<meta name="description" content="Clone it. Stow it. Never lose it. gitstow turns cloned repos into an organized library you can bulk-pull, tag, freeze, and grep — with a local dashboard and built-in AI integration.">
+<meta property="og:title" content="gitstow — a git repository library manager">
+<meta property="og:description" content="Paste a URL, get an organized collection you can bulk-pull, tag, freeze, and grep. And your AI agents already know how to drive it.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230b0c0e'/%3E%3Ccircle cx='8' cy='8' r='4' fill='%23ff6b35'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <nav>
+    <div class="brand">
+      <span class="pulse-dot"></span>
+      <span class="wordmark">gitstow</span>
+      <span class="brand-tag">git library manager</span>
+    </div>
+    <div class="nav-links">
+      <a class="nl" href="#install">Install</a>
+      <a class="nl" href="#dashboard">Dashboard</a>
+      <a class="nl" href="#ai">AI</a>
+      <a class="nl" href="#features">Features</a>
+      <a class="nl" href="#compare">Compare</a>
+      <a class="gh-btn" href="https://github.com/rishmadaan/gitstow">GitHub ↗</a>
+    </div>
+  </nav>
+</header>
+
+<section class="hero">
+  <div class="eyebrow"><span class="bar"></span>a git repository library manager<span class="bar"></span></div>
+  <pre class="ascii" aria-label="gitstow">
+ ██████╗ ██╗████████╗███████╗████████╗ ██████╗ ██╗    ██╗
+██╔════╝ ██║╚══██╔══╝██╔════╝╚══██╔══╝██╔═══██╗██║    ██║
+██║  ███╗██║   ██║   ███████╗   ██║   ██║   ██║██║ █╗ ██║
+██║   ██║██║   ██║   ╚════██║   ██║   ██║   ██║██║███╗██║
+╚██████╔╝██║   ██║   ███████║   ██║   ╚██████╔╝╚███╔███╔╝
+ ╚═════╝ ╚═╝   ╚═╝   ╚══════╝   ╚═╝    ╚═════╝  ╚══╝╚══╝</pre>
+  <h1>Clone it. Stow it. <span class="accent">Never lose it.</span></h1>
+  <p class="lede">You clone repos to learn from them. Then they rot in <code class="code-chip">~/misc-stuff-2</code>. gitstow turns them into a library: paste a URL, get an organized collection you can bulk-pull, tag, freeze, and grep. And your AI agents already know how to drive it.</p>
+  <div class="cta-row">
+    <div class="cmdbar">
+      <span class="prompt">$</span>
+      <span class="cmd">pipx install "gitstow[ui]"</span>
+      <button class="copy-btn" data-copy='pipx install "gitstow[ui]"'>copy</button>
+    </div>
+    <a class="solid-btn" href="https://github.com/rishmadaan/gitstow">Star on GitHub ↗</a>
+  </div>
+  <div class="hero-meta">MIT · Python 3.10+ · GitHub / GitLab / Bitbucket / Codeberg</div>
+</section>
+
+<section id="install" class="rule">
+  <div class="wrap two-col">
+    <div class="col-l">
+      <div class="eyebrow"><span class="bar"></span>quick start</div>
+      <h2 class="section">Sixty seconds to a stowed library.</h2>
+      <p class="qs-intro">One install, one onboard, and every repo you paste lands exactly where it belongs.</p>
+      <div class="tabs">
+        <button class="tab active" data-tab="pipx">pipx <span class="dim">(recommended)</span></button>
+        <button class="tab" data-tab="pip">pip</button>
+        <button class="tab" data-tab="cli">CLI only</button>
+      </div>
+      <div class="tab-cmd">
+        <span class="prompt">$</span>
+        <span class="cmd" id="tab-cmd-text">pipx install "gitstow[ui]"</span>
+        <button class="copy-btn" id="tab-copy">copy</button>
+      </div>
+      <div class="term-lines">
+        <div><span class="prompt">$</span> <span class="cmd">gitstow onboard</span> <span class="comment"># optional first-run wizard, installs the Claude skill too</span></div>
+        <div><span class="prompt">$</span> <span class="cmd">gitstow add anthropic/claude-code</span> <span class="comment"># shorthand or full URLs</span></div>
+        <div><span class="prompt">$</span> <span class="cmd">gitstow pull</span> <span class="comment"># update everything, in parallel</span></div>
+        <div><span class="prompt">$</span> <span class="cmd">gitstow ui</span> <span class="comment"># open the dashboard ↓</span></div>
+      </div>
+    </div>
+    <div class="col-r">
+      <div class="term-frame">
+        <div class="term-head">
+          <span class="tdot r"></span><span class="tdot y"></span><span class="tdot g"></span>
+          <span class="tlabel">gitstow — demo</span>
+        </div>
+        <img src="assets/demo.gif" alt="gitstow CLI demo" width="900" height="500">
+      </div>
+      <div class="frame-caption">live capture: add, pull, status, done</div>
+    </div>
+  </div>
+</section>
+
+<section id="dashboard" class="rule alt">
+  <div class="wrap">
+    <div class="center-head">
+      <div class="eyebrow"><span class="bar"></span>gitstow ui<span class="bar"></span></div>
+      <h2 class="section">The tab you leave open.</h2>
+      <p>A local-first browser dashboard, and the primary way to live with your library. Dirty state at a glance, one-click pulls, tags, freezes, and per-file diffs. It auto-refreshes every 30 seconds and never phones home: <code class="code-chip">127.0.0.1</code> only.</p>
+    </div>
+    <div class="bw-scroll">
+      <div class="bw">
+        <div class="bw-tabbar">
+          <div class="bw-lights">
+            <span style="background:#ff5f57"></span>
+            <span style="background:#febc2e"></span>
+            <span style="background:#28c840"></span>
+          </div>
+          <div class="bw-tabs">
+            <div class="bw-tab">
+              <svg width="8" height="10" viewBox="0 0 8 10" style="left:-8px"><path d="M0 10C2 9 6 8 8 0V10H0Z" fill="#35363a"/></svg>
+              <svg width="8" height="10" viewBox="0 0 8 10" style="right:-8px;transform:scaleX(-1)"><path d="M0 10C2 9 6 8 8 0V10H0Z" fill="#35363a"/></svg>
+              <span class="favicon"></span>
+              <span class="title">gitstow — Library</span>
+            </div>
+          </div>
+        </div>
+        <div class="bw-toolbar">
+          <div class="bw-icon"><span></span></div>
+          <div class="bw-url">
+            <span class="lock"></span>
+            <span class="addr">127.0.0.1:7853</span>
+          </div>
+          <div class="bw-icon"><span></span></div>
+        </div>
+        <div class="bw-content">
+          <div class="dash">
+            <div class="dash-nav">
+              <div class="dash-brand">
+                <span class="dot"></span>
+                <span class="name">gitstow</span>
+                <span class="ver">library.mgr · v0.2.6</span>
+              </div>
+              <div class="dash-tabs">
+                <span class="on">Library</span><span>Workspaces</span><span>Settings</span>
+              </div>
+            </div>
+            <div class="dash-hero">
+              <div>
+                <div class="dash-eyebrow"><span class="bar"></span>Jul 21 — Dashboard</div>
+                <div class="dash-h1">Your <span class="accent">library</span>.</div>
+                <div class="dash-sub">44 repos across 2 workspaces, 41 in sync.</div>
+              </div>
+              <div class="dash-metrics">
+                <span class="m"><span class="pip" style="background:#4ade80;box-shadow:0 0 8px rgba(74,222,128,0.4)"></span><span class="n">38</span> <span class="l">clean</span></span>
+                <span class="m"><span class="pip" style="background:#fbbf24;box-shadow:0 0 8px rgba(251,191,36,0.4)"></span><span class="n">03</span> <span class="l">local changes</span></span>
+                <span class="m"><span class="pip" style="background:#3b82f6;box-shadow:0 0 8px rgba(96,165,250,0.4)"></span><span class="n">02</span> <span class="l">behind</span></span>
+                <span class="m"><span class="pip" style="background:#6b7280"></span><span class="n">01</span> <span class="l">frozen</span></span>
+              </div>
+            </div>
+            <div class="dash-actions">
+              <span class="sel">All workspaces ▾</span>
+              <span class="search">Search repos, tags…</span>
+              <span class="chk"><i></i>Hide frozen</span>
+              <span class="sp"></span>
+              <span class="ghost">↻ Refresh</span>
+              <span class="outline">⟳ Fetch all</span>
+              <span class="outline">+ Add repo</span>
+              <span class="primary">↓ Pull all</span>
+            </div>
+            <div class="dash-table">
+              <div class="dash-thead">
+                <span>№</span><span>Status</span><span>Repository</span><span>Workspace</span><span>Branch</span><span>Remote Δ</span><span>Tags</span><span>Last pull</span><span class="ra">Actions</span>
+              </div>
+              <div class="dash-row">
+                <span class="num">01</span>
+                <span class="status" style="color:#4ade80"><i style="box-shadow:0 0 8px rgba(74,222,128,0.5)"></i>clean</span>
+                <span class="rname">anthropic/claude-code</span>
+                <span class="ws" style="color:#f59e0b">oss</span>
+                <span class="branch">main</span>
+                <span class="delta">—</span>
+                <span class="tags"><span>ai</span><span>tools</span></span>
+                <span class="lastpull">2h ago</span>
+                <span class="acts"><span class="pull-ghost">Pull</span><span class="more">⋯</span></span>
+              </div>
+              <div class="dash-row">
+                <span class="num">02</span>
+                <span class="status" style="color:#3b82f6"><i style="box-shadow:0 0 8px rgba(96,165,250,0.5)"></i>behind</span>
+                <span class="rname">facebook/react</span>
+                <span class="ws" style="color:#f59e0b">oss</span>
+                <span class="branch">main</span>
+                <span class="delta" style="color:#3b82f6">↓ 12</span>
+                <span class="tags"><span>ui</span></span>
+                <span class="lastpull">3d ago</span>
+                <span class="acts"><span class="pull-primary">↓ Pull 12</span><span class="more">⋯</span></span>
+              </div>
+              <div class="dash-row">
+                <span class="num">03</span>
+                <span class="status" style="color:#fbbf24"><i style="box-shadow:0 0 8px rgba(251,191,36,0.5)"></i>2 mod · 1 unt</span>
+                <span class="rname">karpathy/nanoGPT</span>
+                <span class="ws" style="color:#f59e0b">oss</span>
+                <span class="branch">master</span>
+                <span class="delta">—</span>
+                <span class="tags"><span>ai</span></span>
+                <span class="lastpull">1d ago</span>
+                <span class="acts"><span class="pull-ghost">Pull</span><span class="more">⋯</span></span>
+              </div>
+              <div class="dash-row">
+                <span class="num">04</span>
+                <span class="status" style="color:#c084fc"><i style="box-shadow:0 0 8px rgba(192,132,252,0.5)"></i>ahead</span>
+                <span class="rname">gitstow</span>
+                <span class="ws" style="color:#3b82f6">active</span>
+                <span class="branch">main</span>
+                <span class="delta" style="color:#c084fc">↑ 2</span>
+                <span class="tags"><span>active</span></span>
+                <span class="lastpull">5h ago</span>
+                <span class="acts"><span class="pull-ghost">Pull</span><span class="more">⋯</span></span>
+              </div>
+              <div class="dash-row">
+                <span class="num">05</span>
+                <span class="status" style="color:#6b7280"><i></i>frozen</span>
+                <span class="rname">torvalds/linux</span>
+                <span class="ws" style="color:#f59e0b">oss</span>
+                <span class="branch">master</span>
+                <span class="delta">—</span>
+                <span class="tags"><span>reference</span></span>
+                <span class="lastpull">3w ago</span>
+                <span class="acts"><span class="pull-disabled">Pull</span><span class="more">⋯</span></span>
+              </div>
+              <div class="dash-row">
+                <span class="num">06</span>
+                <span class="status" style="color:#4ade80"><i style="box-shadow:0 0 8px rgba(74,222,128,0.5)"></i>clean</span>
+                <span class="rname">ziglang/zig</span>
+                <span class="ws" style="color:#f59e0b">oss</span>
+                <span class="branch">master</span>
+                <span class="delta">—</span>
+                <span class="tags"><span>lang</span></span>
+                <span class="lastpull">2h ago</span>
+                <span class="acts"><span class="pull-ghost">Pull</span><span class="more">⋯</span></span>
+              </div>
+              <div class="dash-foot">auto-refresh 30s · click repo name → details · pull runs in place</div>
+            </div>
+            <div class="dash-status">
+              <span class="live"><i></i><b>live</b><code class="code-chip">127.0.0.1:7853</code></span>
+              <span class="shutdown">Shutdown</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="blurbs">
+      <div class="blurb"><div class="label">local-first</div><div class="body">Binds 127.0.0.1 only. Your repos, your machine, nobody else's business.</div></div>
+      <div class="blurb"><div class="label">pull all, in parallel</div><div class="body">One click updates the whole library with a per-repo summary. Frozen repos politely skipped.</div></div>
+      <div class="blurb"><div class="label">per-file diffs</div><div class="body">Click into any dirty repo: staged, unstaged, untracked, with colored line diffs.</div></div>
+    </div>
+  </div>
+</section>
+
+<section id="ai" class="rule">
+  <div class="wrap two-col center">
+    <div class="col-l">
+      <div class="eyebrow"><span class="bar"></span>ai integration</div>
+      <h2 class="section">Your agents just… know.</h2>
+      <p class="qs-intro" style="text-wrap:pretty">Onboarding installs a Claude Code skill automatically. From then on, "add this repo" or "update my library" just works. No configuration, no prompt engineering, no ceremony.</p>
+      <div class="ai-items">
+        <div class="ai-item"><span class="n">1</span><div><div class="t">Skill installs itself</div><div class="b">Part of <code class="code-chip">gitstow onboard</code>, auto-updates on version bumps.</div></div></div>
+        <div class="ai-item"><span class="n">2</span><div><div class="t">Zero token overhead</div><div class="b">Skills cost nothing when inactive, unlike MCP tools that squat in context.</div></div></div>
+        <div class="ai-item"><span class="n">3</span><div><div class="t">MCP for everything else</div><div class="b">Cursor, Claude Desktop, and friends get a server via <code class="code-chip">pip install gitstow[mcp]</code>. Every command speaks <code class="code-chip">--json</code>.</div></div></div>
+      </div>
+    </div>
+    <div class="col-r ai">
+      <div class="term-frame">
+        <div class="term-head">
+          <span class="tdot r"></span><span class="tdot y"></span><span class="tdot g"></span>
+          <span class="tlabel">claude code</span>
+        </div>
+        <div class="transcript">
+          <div class="user"><span class="caret">›</span> grab karpathy/nanoGPT and tag it ai</div>
+          <div class="skill">⏺ Using skill: <span>gitstow</span></div>
+          <div class="tool">⏺ Bash(<span class="arg">gitstow add karpathy/nanoGPT</span>)</div>
+          <div class="ok">&nbsp;&nbsp;✓ cloned → ~/oss/karpathy/nanoGPT</div>
+          <div class="tool">⏺ Bash(<span class="arg">gitstow repo tag karpathy/nanoGPT ai</span>)</div>
+          <div class="ok">&nbsp;&nbsp;✓ tagged: ai</div>
+          <div class="reply">Stowed. It's in your <span class="ws-oss">oss</span> workspace under karpathy/nanoGPT, tagged <span class="tag">ai</span>.</div>
+          <div class="prompt-line">› <span class="cursor"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="features" class="rule alt">
+  <div class="wrap">
+    <div class="grid-head">
+      <div class="eyebrow"><span class="bar"></span>features<span class="bar"></span></div>
+      <h2 class="section">Everything a library needs.</h2>
+    </div>
+    <div class="features">
+      <div class="fcard"><div class="glyph">⌂</div><div class="title">Workspaces</div><div class="body">Open-source library here, active projects there. Structured owner/repo layout or flat, per directory.</div><code>gitstow workspace add ~/oss --layout structured</code></div>
+      <div class="fcard"><div class="glyph">⇣</div><div class="title">Auto-organization</div><div class="body">Paste URLs, get owner/repo folders. Concurrent clones, deduped, and a mismatched remote errors loudly.</div><code>gitstow add anthropic/claude-code facebook/react</code></div>
+      <div class="fcard"><div class="glyph">⇊</div><div class="title">Bulk operations</div><div class="body">Pull, fetch, and status across everything in parallel. One bad repo never stops the rest.</div><code>gitstow pull --tag ai --exclude-tag stale</code></div>
+      <div class="fcard"><div class="glyph">❄</div><div class="title">Freeze &amp; tags</div><div class="body">Tag repos, filter every operation by tag, freeze the ones you want left alone.</div><code>gitstow repo freeze torvalds/linux</code></div>
+      <div class="fcard"><div class="glyph">⎇</div><div class="title">Any git host</div><div class="body">GitHub shorthand, GitLab nested groups, Bitbucket, Codeberg. SSH or HTTPS, your call.</div><code>gitstow add https://gitlab.com/group/project</code></div>
+      <div class="fcard"><div class="glyph">⌕</div><div class="title">Search &amp; exec</div><div class="body">ripgrep across the whole library, or run any command in every repo. Filter by tag, glob, workspace.</div><code>gitstow search "def main" --glob "*.py"</code></div>
+      <div class="fcard"><div class="glyph">⇄</div><div class="title">Portable collections</div><div class="body">Export your library as YAML, import it on a new machine. Your curation, reproducible.</div><code>gitstow collection export -o my-repos.yaml</code></div>
+      <div class="fcard"><div class="glyph">❯</div><div class="title">Shell sugar</div><div class="body">fzf pickers, tab completion, and gs to cd into any repo. Muscle memory in three keystrokes.</div><code>eval "$(gitstow shell init)"</code></div>
+    </div>
+  </div>
+</section>
+
+<section id="compare" class="rule">
+  <div class="compare-wrap">
+    <div class="compare-head">
+      <div class="eyebrow"><span class="bar"></span>vs the field<span class="bar"></span></div>
+      <h2 class="section">The best of both. Then some.</h2>
+      <p>ghq organizes but can't operate. gita operates but can't organize. gitstow does both, and brings a dashboard and your agents along.</p>
+    </div>
+    <div class="ctable">
+      <div class="chead"><span>capability</span><span class="us">gitstow</span><span class="them">ghq</span><span class="them">gita</span></div>
+      <div class="crow"><span class="cap">Auto-organize by owner/repo</span><span class="us">●</span><span class="them">●</span><span class="them">—</span></div>
+      <div class="crow"><span class="cap">Bulk pull, fetch &amp; status</span><span class="us">●</span><span class="them">—</span><span class="them">●</span></div>
+      <div class="crow"><span class="cap">Workspaces (structured + flat)</span><span class="us">●</span><span class="them">—</span><span class="them">—</span></div>
+      <div class="crow"><span class="cap">Tags, freeze &amp; filtered ops</span><span class="us">●</span><span class="them">—</span><span class="them">◐</span></div>
+      <div class="crow"><span class="cap">Local browser dashboard</span><span class="us">●</span><span class="them">—</span><span class="them">—</span></div>
+      <div class="crow"><span class="cap">Claude Code skill + MCP server</span><span class="us">●</span><span class="them">—</span><span class="them">—</span></div>
+      <div class="crow"><span class="cap">JSON output on every command</span><span class="us">●</span><span class="them">—</span><span class="them">◐</span></div>
+    </div>
+    <div class="legend">● yes · ◐ partial · — no &nbsp;&nbsp;(ghq 3.5k★, gita 1.8k★, both great at what they do)</div>
+  </div>
+</section>
+
+<section class="cta">
+  <div class="wrap">
+    <h2>Stop losing repos.<br>Start <span class="accent">stowing</span> them.</h2>
+    <p>Your future self — and your agents — will thank you.</p>
+    <div class="cmdbar">
+      <span class="prompt">$</span>
+      <span class="cmd">pipx install "gitstow[ui]"</span>
+      <button class="copy-btn" data-copy='pipx install "gitstow[ui]"'>copy</button>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="foot-top">
+    <div class="foot-brand">
+      <div class="row">
+        <span class="dot"></span>
+        <span class="name">gitstow</span>
+      </div>
+      <div class="desc">A git repository library manager, built for the age of AI-assisted development.</div>
+    </div>
+    <div class="foot-cols">
+      <div class="foot-col">
+        <div class="label">Docs</div>
+        <div class="links">
+          <a href="https://github.com/rishmadaan/gitstow/blob/main/docs/user/getting-started.md">Getting started</a>
+          <a href="https://github.com/rishmadaan/gitstow/blob/main/docs/user/commands.md">Commands</a>
+          <a href="https://github.com/rishmadaan/gitstow/blob/main/docs/user/concepts.md">Concepts</a>
+          <a href="https://github.com/rishmadaan/gitstow/blob/main/docs/user/configuration.md">Configuration</a>
+        </div>
+      </div>
+      <div class="foot-col">
+        <div class="label">Project</div>
+        <div class="links">
+          <a href="https://github.com/rishmadaan/gitstow">GitHub ↗</a>
+          <a href="https://pypi.org/project/gitstow/">PyPI ↗</a>
+          <a href="https://github.com/rishmadaan/gitstow/blob/main/CHANGELOG.md">Changelog</a>
+          <a href="https://github.com/rishmadaan/gitstow/blob/main/CONTRIBUTING.md">Contributing</a>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="foot-bottom">
+    <div>
+      <span>© 2026 · MIT license</span>
+      <span>clone responsibly.</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+const CMDS = { pipx: 'pipx install "gitstow[ui]"', pip: 'pip install "gitstow[ui]"', cli: 'pip install gitstow' };
+let tab = 'pipx';
+
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    tab = btn.dataset.tab;
+    document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b === btn));
+    document.getElementById('tab-cmd-text').textContent = CMDS[tab];
+  });
+});
+
+function wireCopy(btn, getCmd) {
+  let t;
+  btn.addEventListener('click', () => {
+    navigator.clipboard.writeText(getCmd()).catch(() => {});
+    btn.textContent = 'copied ✓';
+    clearTimeout(t);
+    t = setTimeout(() => { btn.textContent = 'copy'; }, 1600);
+  });
+}
+document.querySelectorAll('[data-copy]').forEach(b => wireCopy(b, () => b.dataset.copy));
+wireCopy(document.getElementById('tab-copy'), () => CMDS[tab]);
+</script>
+
+</body>
+</html>
