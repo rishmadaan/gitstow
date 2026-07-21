@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+@font-face { font-family: 'Bricolage Grotesque'; font-style: normal; font-weight: 300 700; font-stretch: 75% 100%; font-display: swap; src: url('assets/fonts/bricolage-grotesque-latin-var.woff2') format('woff2'); }
+@font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 400 700; font-display: swap; src: url('assets/fonts/jetbrains-mono-latin-var.woff2') format('woff2'); }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: #0b0c0e; color: #bbc0c6; font-family: 'Bricolage Grotesque', -apple-system, system-ui, sans-serif; font-size: 15px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+a { color: #ff6b35; text-decoration: none; }
+a:hover { color: #ff8457; text-decoration: underline; text-underline-offset: 3px; }
+::selection { background: #ff6b35; color: #120500; }
+@keyframes pulseDot { 0%, 100% { box-shadow: 0 0 0 0 rgba(255,107,53,0.3); } 50% { box-shadow: 0 0 0 6px rgba(255,107,53,0); } }
+</style>
+</helmet>
+<div data-screen-label="Gitstow landing" style="background: radial-gradient(ellipse 1200px 600px at 50% -300px, rgba(255,107,53,0.07), transparent 60%), #0b0c0e; min-height: 100vh;">
+
+  <header style="position: sticky; top: 0; z-index: 20; border-bottom: 1px solid #24272d; backdrop-filter: blur(12px) saturate(160%); background: rgba(11,12,14,0.82);">
+    <nav style="max-width: 1260px; margin: 0 auto; padding: 17px 32px; display: flex; justify-content: space-between; align-items: center;">
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <span style="width: 7px; height: 7px; border-radius: 50%; background: #ff6b35; animation: pulseDot 2.2s ease-in-out infinite;"></span>
+        <span style="font-family: 'Bricolage Grotesque', sans-serif; font-variation-settings: 'opsz' 36, 'wdth' 85, 'wght' 700; font-size: 22px; letter-spacing: -0.02em; color: #eceef1; line-height: 1;">gitstow</span>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #787d85; padding-left: 12px; border-left: 1px solid #24272d;">git library manager</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 0;">
+        <a href="#install" style="display: block; padding: 10px 16px; color: #787d85; font-size: 12px; text-transform: uppercase; letter-spacing: 0.15em; font-weight: 500; text-decoration: none;" style-hover="color: #eceef1; text-decoration: none;">Install</a>
+        <a href="#dashboard" style="display: block; padding: 10px 16px; color: #787d85; font-size: 12px; text-transform: uppercase; letter-spacing: 0.15em; font-weight: 500; text-decoration: none;" style-hover="color: #eceef1; text-decoration: none;">Dashboard</a>
+        <a href="#ai" style="display: block; padding: 10px 16px; color: #787d85; font-size: 12px; text-transform: uppercase; letter-spacing: 0.15em; font-weight: 500; text-decoration: none;" style-hover="color: #eceef1; text-decoration: none;">AI</a>
+        <a href="#features" style="display: block; padding: 10px 16px; color: #787d85; font-size: 12px; text-transform: uppercase; letter-spacing: 0.15em; font-weight: 500; text-decoration: none;" style-hover="color: #eceef1; text-decoration: none;">Features</a>
+        <a href="#compare" style="display: block; padding: 10px 16px; color: #787d85; font-size: 12px; text-transform: uppercase; letter-spacing: 0.15em; font-weight: 500; text-decoration: none;" style-hover="color: #eceef1; text-decoration: none;">Compare</a>
+        <a href="https://github.com/rishmadaan/gitstow" style="display: inline-flex; align-items: center; gap: 7px; margin-left: 16px; padding: 8px 17px; border-radius: 3px; border: 1px solid #32363d; color: #eceef1; font-size: 13px; font-weight: 500; text-decoration: none;" style-hover="border-color: #ff6b35; color: #ff6b35; background: rgba(255,107,53,0.16); text-decoration: none;">GitHub ↗</a>
+      </div>
+    </nav>
+  </header>
+
+  <section data-screen-label="Hero" style="max-width: 1260px; margin: 0 auto; padding: 96px 32px 88px; display: flex; flex-direction: column; align-items: center; text-align: center;">
+    <div style="display: inline-flex; align-items: center; gap: 8px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #787d85; text-transform: uppercase; letter-spacing: 0.14em; margin-bottom: 36px;">
+      <span style="width: 18px; height: 1px; background: #ff6b35; display: inline-block;"></span>
+      a git repository library manager
+      <span style="width: 18px; height: 1px; background: #ff6b35; display: inline-block;"></span>
+    </div>
+    <pre aria-label="gitstow" style="margin: 0 0 32px; font-family: 'JetBrains Mono', monospace; font-size: clamp(8px, 1.5vw, 16px); line-height: 1.18; color: #ff6b35; text-shadow: 0 0 32px rgba(255,107,53,0.35); user-select: none;">
+ ██████╗ ██╗████████╗███████╗████████╗ ██████╗ ██╗    ██╗
+██╔════╝ ██║╚══██╔══╝██╔════╝╚══██╔══╝██╔═══██╗██║    ██║
+██║  ███╗██║   ██║   ███████╗   ██║   ██║   ██║██║ █╗ ██║
+██║   ██║██║   ██║   ╚════██║   ██║   ██║   ██║██║███╗██║
+╚██████╔╝██║   ██║   ███████║   ██║   ╚██████╔╝╚███╔███╔╝
+ ╚═════╝ ╚═╝   ╚═╝   ╚══════╝   ╚═╝    ╚═════╝  ╚══╝╚══╝</pre>
+    <h1 style="font-family: 'Bricolage Grotesque', sans-serif; font-variation-settings: 'opsz' 96, 'wdth' 82, 'wght' 600; font-size: 40px; letter-spacing: -0.03em; line-height: 1.05; margin: 0 0 18px; color: #eceef1;">Clone it. Stow it. <span style="color: #ff6b35;">Never lose it.</span></h1>
+    <p style="max-width: 620px; margin: 0 0 40px; font-size: 17px; line-height: 1.6; color: #bbc0c6; text-wrap: pretty;">You clone repos to learn from them. Then they rot in <code style="font-family: 'JetBrains Mono', monospace; font-size: 0.86em; background: #121418; border: 1px solid #24272d; border-radius: 3px; padding: 1px 6px; color: #bbc0c6;">~/misc-stuff-2</code>. gitstow turns them into a library: paste a URL, get an organized collection you can bulk-pull, tag, freeze, and grep. And your AI agents already know how to drive it.</p>
+    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: center;">
+      <div style="display: flex; align-items: center; gap: 14px; background: #121418; border: 1px solid #32363d; border-radius: 3px; padding: 13px 18px; font-family: 'JetBrains Mono', monospace; font-size: 15px;">
+        <span style="color: #545962; user-select: none;">$</span>
+        <span style="color: #eceef1;">pipx install "gitstow[ui]"</span>
+        <button onClick="{{ copyHero }}" style="margin-left: 8px; padding: 5px 12px; border-radius: 3px; border: 1px solid #32363d; background: transparent; color: #787d85; font-family: 'JetBrains Mono', monospace; font-size: 11px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.08em;" style-hover="border-color: #ff6b35; color: #ff6b35;">{{ heroCopyLabel }}</button>
+      </div>
+      <a href="https://github.com/rishmadaan/gitstow" style="display: inline-flex; align-items: center; gap: 8px; padding: 13px 22px; border-radius: 3px; background: #ff6b35; color: #120500; font-weight: 600; font-size: 15px; text-decoration: none;" style-hover="background: #ff8457; box-shadow: 0 0 24px rgba(255,107,53,0.3); text-decoration: none; color: #120500;">Star on GitHub ↗</a>
+    </div>
+    <div style="margin-top: 28px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #545962;">MIT · Python 3.10+ · GitHub / GitLab / Bitbucket / Codeberg</div>
+  </section>
+
+  <section id="install" data-screen-label="Quick start" style="border-top: 1px solid #1c1f24;">
+    <div style="max-width: 1260px; margin: 0 auto; padding: 88px 32px; display: flex; gap: 56px; flex-wrap: wrap; align-items: flex-start;">
+      <div style="flex: 1; min-width: 380px;">
+        <div style="display: inline-flex; align-items: center; gap: 8px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #787d85; text-transform: uppercase; letter-spacing: 0.14em; margin-bottom: 14px;"><span style="width: 18px; height: 1px; background: #ff6b35;"></span>quick start</div>
+        <h2 style="font-family: 'Bricolage Grotesque', sans-serif; font-variation-settings: 'opsz' 48, 'wdth' 88, 'wght' 600; font-size: 32px; letter-spacing: -0.02em; line-height: 1.15; margin: 0 0 12px; color: #eceef1;">Sixty seconds to a stowed library.</h2>
+        <p style="margin: 0 0 28px; color: #bbc0c6; max-width: 480px;">One install, one onboard, and every repo you paste lands exactly where it belongs.</p>
+        <div style="display: flex; gap: 4px; margin-bottom: 0;">
+          <button onClick="{{ tabPipx }}" style="{{ tabStylePipx }}">pipx <span style="color: #545962;">(recommended)</span></button>
+          <button onClick="{{ tabPip }}" style="{{ tabStylePip }}">pip</button>
+          <button onClick="{{ tabCli }}" style="{{ tabStyleCli }}">CLI only</button>
+        </div>
+        <div style="background: #121418; border: 1px solid #24272d; border-radius: 0 3px 3px 3px; padding: 16px 18px; display: flex; align-items: center; gap: 14px; font-family: 'JetBrains Mono', monospace; font-size: 14px;">
+          <span style="color: #545962; user-select: none;">$</span>
+          <span style="color: #eceef1; flex: 1;">{{ tabCmd }}</span>
+          <button onClick="{{ copyTab }}" style="padding: 4px 11px; border-radius: 3px; border: 1px solid #32363d; background: transparent; color: #787d85; font-family: 'JetBrains Mono', monospace; font-size: 11px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.08em;" style-hover="border-color: #ff6b35; color: #ff6b35;">{{ tabCopyLabel }}</button>
+        </div>
+        <div style="margin-top: 16px; background: #121418; border: 1px solid #24272d; border-radius: 3px; padding: 18px 20px; font-family: 'JetBrains Mono', monospace; font-size: 13.5px; line-height: 2;">
+          <div><span style="color: #545962;">$</span> <span style="color: #eceef1;">gitstow onboard</span> <span style="color: #545962;"># optional first-run wizard, installs the Claude skill too</span></div>
+          <div><span style="color: #545962;">$</span> <span style="color: #eceef1;">gitstow add anthropic/claude-code</span> <span style="color: #545962;"># shorthand or full URLs</span></div>
+          <div><span style="color: #545962;">$</span> <span style="color: #eceef1;">gitstow pull</span> <span style="color: #545962;"># update everything, in parallel</span></div>
+          <div><span style="color: #545962;">$</span> <span style="color: #eceef1;">gitstow ui</span> <span style="color: #545962;"># open the dashboard ↓</span></div>
+        </div>
+      </div>
+      <sc-if value="{{ showDemoGif }}" hint-placeholder-val="{{ true }}">
+      <div style="flex: 1.1; min-width: 420px;">
+        <div style="border: 1px solid #24272d; border-radius: 6px; overflow: hidden; background: #121418; box-shadow: 0 20px 60px rgba(0,0,0,0.65), 0 4px 12px rgba(0,0,0,0.3);">
+          <div style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid #24272d; background: #17191d;">
+            <span style="width: 11px; height: 11px; border-radius: 50%; background: #f87171; opacity: 0.8;"></span>
+            <span style="width: 11px; height: 11px; border-radius: 50%; background: #fbbf24; opacity: 0.8;"></span>
+            <span style="width: 11px; height: 11px; border-radius: 50%; background: #4ade80; opacity: 0.8;"></span>
+            <span style="margin-left: 10px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #787d85;">gitstow — demo</span>
+          </div>
+          <img src="assets/demo.gif" alt="gitstow CLI demo" style="display: block; width: 100%; height: auto;">
+        </div>
+        <div style="margin-top: 12px; text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #545962;">live capture: add, pull, status, done</div>
+      </div>
+      </sc-if>
+    </div>
+  </section>
+
+  <section id="dashboard" data-screen-label="Dashboard showcase" style="border-top: 1px solid #1c1f24; background: #0d0e11;">
+    <div style="max-width: 1260px; margin: 0 auto; padding: 88px 32px;">
+      <div style="text-align: center; margin-bottom: 20px;">
+        <div style="display: inline-flex; align-items: center; gap: 8px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #787d85; text-transform: uppercase; letter-spacing: 0.14em; margin-bottom: 14px;"><span style="width: 18px; height: 1px; background: #ff6b35;"></span>gitstow ui<span style="width: 18px; height: 1px; background: #ff6b35;"></span></div>
+        <h2 style="font-family: 'Bricolage Grotesque', sans-serif; font-variation-settings: 'opsz' 48, 'wdth' 88, 'wght' 600; font-size: 36px; letter-spacing: -0.02em; line-height: 1.12; margin: 0 0 14px; color: #eceef1;">The tab you leave open.</h2>
+        <p style="max-width: 640px; margin: 0 auto; color: #bbc0c6; text-wrap: pretty;">A local-first browser dashboard, and the primary way to live with your library. Dirty state at a glance, one-click pulls, tags, freezes, and per-file diffs. It auto-refreshes every 30 seconds and never phones home: <code style="font-family: 'JetBrains Mono', monospace; font-size: 0.86em; background: #121418; border: 1px solid #24272d; border-radius: 3px; padding: 1px 6px; color: #bbc0c6;">127.0.0.1</code> only.</p>
+      </div>
+      <div style="display: flex; justify-content: center; margin-top: 40px;">
+        <x-import component="ChromeWindow" from="./browser-window.jsx" width="{{ 1120 }}" height="{{ 780 }}" url="127.0.0.1:7853" title="gitstow — Library" hint-size="1120px,780px">
+          <div style="background: radial-gradient(ellipse 900px 400px at 50% -200px, rgba(255,107,53,0.05), transparent 60%), #0b0c0e; font-family: 'Bricolage Grotesque', sans-serif; font-size: 13px; color: #bbc0c6; text-align: left;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 13px 26px; border-bottom: 1px solid #24272d;">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <span style="width: 6px; height: 6px; border-radius: 50%; background: #ff6b35; box-shadow: 0 0 8px rgba(255,107,53,0.4);"></span>
+                <span style="font-variation-settings: 'opsz' 36, 'wdth' 85, 'wght' 700; font-size: 17px; letter-spacing: -0.02em; color: #eceef1;">gitstow</span>
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #787d85; padding-left: 10px; border-left: 1px solid #24272d;">library.mgr · v0.2.6</span>
+              </div>
+              <div style="display: flex; gap: 0; font-size: 10px; text-transform: uppercase; letter-spacing: 0.15em; font-weight: 500;">
+                <span style="padding: 6px 12px; color: #ff6b35; border-bottom: 2px solid #ff6b35;">Library</span>
+                <span style="padding: 6px 12px; color: #787d85;">Workspaces</span>
+                <span style="padding: 6px 12px; color: #787d85;">Settings</span>
+              </div>
+            </div>
+            <div style="padding: 22px 26px 0; display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; border-bottom: 1px solid #24272d; padding-bottom: 18px;">
+              <div>
+                <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #787d85; text-transform: uppercase; letter-spacing: 0.14em; margin-bottom: 8px;"><span style="display: inline-block; width: 14px; height: 1px; background: #ff6b35; vertical-align: middle; margin-right: 6px;"></span>Jul 21 — Dashboard</div>
+                <div style="font-variation-settings: 'opsz' 96, 'wdth' 82, 'wght' 600; font-size: 34px; letter-spacing: -0.035em; line-height: 0.98; color: #eceef1;">Your <span style="color: #ff6b35;">library</span>.</div>
+                <div style="margin-top: 8px; font-size: 12.5px; color: #bbc0c6;">44 repos across 2 workspaces, 41 in sync.</div>
+              </div>
+              <div style="display: flex; gap: 18px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; align-items: center; flex-wrap: wrap; justify-content: flex-end;">
+                <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 7px; height: 7px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 8px rgba(74,222,128,0.4);"></span><span style="color: #eceef1; font-weight: 500;">38</span> <span style="color: #787d85;">clean</span></span>
+                <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 7px; height: 7px; border-radius: 50%; background: #fbbf24; box-shadow: 0 0 8px rgba(251,191,36,0.4);"></span><span style="color: #eceef1; font-weight: 500;">03</span> <span style="color: #787d85;">local changes</span></span>
+                <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 7px; height: 7px; border-radius: 50%; background: #3b82f6; box-shadow: 0 0 8px rgba(96,165,250,0.4);"></span><span style="color: #eceef1; font-weight: 500;">02</span> <span style="color: #787d85;">behind</span></span>
+                <span style="display: inline-flex; align-items: center; gap: 6px;"><span style="width: 7px; height: 7px; border-radius: 50%; background: #6b7280;"></span><span style="color: #eceef1; font-weight: 500;">01</span> <span style="color: #787d85;">frozen</span></span>
+              </div>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center; padding: 14px 26px 12px;">
+              <span style="padding: 6px 26px 6px 11px; border: 1px solid #32363d; border-radius: 3px; background: #121418; color: #eceef1; font-size: 12px;">All workspaces ▾</span>
+              <span style="padding: 6px 11px; border: 1px solid #32363d; border-radius: 3px; background: #121418; color: #545962; font-size: 12px; min-width: 170px;">Search repos, tags…</span>
+              <span style="display: inline-flex; align-items: center; gap: 6px; color: #787d85; font-size: 12px;"><span style="width: 12px; height: 12px; border: 1px solid #32363d; border-radius: 2px; background: #121418; display: inline-block;"></span>Hide frozen</span>
+              <span style="flex: 1;"></span>
+              <span style="padding: 6px 12px; border-radius: 3px; color: #787d85; font-size: 12px;">↻ Refresh</span>
+              <span style="padding: 6px 12px; border: 1px solid #32363d; border-radius: 3px; color: #eceef1; font-size: 12px;">⟳ Fetch all</span>
+              <span style="padding: 6px 12px; border: 1px solid #32363d; border-radius: 3px; color: #eceef1; font-size: 12px;">+ Add repo</span>
+              <span style="padding: 6px 13px; border-radius: 3px; background: #ff6b35; color: #120500; font-weight: 600; font-size: 12px;">↓ Pull all</span>
+            </div>
+            <div style="padding: 0 16px 6px; overflow-x: hidden;">
+              <div style="display: grid; grid-template-columns: 28px 100px minmax(170px, 1fr) 58px 58px 58px 88px 58px 84px; gap: 0 10px; padding: 8px 14px; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: #787d85; text-transform: uppercase; letter-spacing: 0.12em; border-bottom: 1px solid #24272d;">
+                <span>№</span><span>Status</span><span>Repository</span><span>Workspace</span><span>Branch</span><span>Remote Δ</span><span>Tags</span><span>Last pull</span><span style="text-align: right;">Actions</span>
+              </div>
+              <sc-for list="{{ dashRows }}" as="r" hint-placeholder-count="6">
+                <div style="display: grid; grid-template-columns: 28px 100px minmax(170px, 1fr) 58px 58px 58px 88px 58px 84px; gap: 0 10px; align-items: center; padding: 9px 14px; border-bottom: 1px solid #1c1f24; font-size: 12.5px;">
+                  <span style="font-family: 'JetBrains Mono', monospace; color: #545962; font-size: 11px;">{{ r.num }}</span>
+                  <span style="display: inline-flex; align-items: center; gap: 6px; font-family: 'JetBrains Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: {{ r.statusColor }}; white-space: nowrap; overflow: hidden;"><span style="flex: none; width: 6px; height: 6px; border-radius: 50%; background: {{ r.statusColor }}; box-shadow: {{ r.dotGlow }};"></span>{{ r.statusLabel }}</span>
+                  <span style="color: #eceef1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ r.name }}</span>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: {{ r.wsColor }};">{{ r.ws }}</span>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #787d85;">{{ r.branch }}</span>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: {{ r.deltaColor }};">{{ r.delta }}</span>
+                  <span style="display: flex; gap: 4px; overflow: hidden;"><sc-for list="{{ r.tags }}" as="t" hint-placeholder-count="1"><span style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: #787d85; border: 1px solid #24272d; border-radius: 3px; padding: 1px 6px; white-space: nowrap;">{{ t }}</span></sc-for></span>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #545962;">{{ r.lastPull }}</span>
+                  <span style="display: flex; gap: 6px; justify-content: flex-end; align-items: center;"><span style="{{ r.pullStyle }}">{{ r.pullLabel }}</span><span style="color: #545962;">⋯</span></span>
+                </div>
+              </sc-for>
+              <div style="padding: 10px 14px 14px; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #545962;">auto-refresh 30s · click repo name → details · pull runs in place</div>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 26px; border-top: 1px solid #24272d; font-size: 11.5px; color: #787d85;">
+              <span style="display: inline-flex; align-items: center; gap: 8px;"><span style="width: 6px; height: 6px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 8px rgba(74,222,128,0.5);"></span><span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;">live</span><code style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; background: #121418; border: 1px solid #24272d; border-radius: 3px; padding: 1px 6px;">127.0.0.1:7853</code></span>
+              <span style="font-size: 11px;">Shutdown</span>
+            </div>
+          </div>
+        </x-import>
+      </div>
+      <div style="display: flex; justify-content: center; gap: 40px; margin-top: 36px; flex-wrap: wrap;">
+        <div style="max-width: 240px;"><div style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #ff6b35; text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 6px;">local-first</div><div style="font-size: 13.5px; color: #bbc0c6;">Binds 127.0.0.1 only. Your repos, your machine, nobody else's business.</div></div>
+        <div style="max-width: 240px;"><div style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #ff6b35; text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 6px;">pull all, in parallel</div><div style="font-size: 13.5px; color: #bbc0c6;">One click updates the whole library with a per-repo summary. Frozen repos politely skipped.</div></div>
+        <div style="max-width: 240px;"><div style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #ff6b35; text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 6px;">per-file diffs</div><div style="font-size: 13.5px; color: #bbc0c6;">Click into any dirty repo: staged, unstaged, untracked, with colored line diffs.</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="ai" data-screen-label="AI integration" style="border-top: 1px solid #1c1f24;">
+    <div style="max-width: 1260px; margin: 0 auto; padding: 88px 32px; display: flex; gap: 56px; flex-wrap: wrap; align-items: center;">
+      <div style="flex: 1; min-width: 380px;">
+        <div style="display: inline-flex; align-items: center; gap: 8px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #787d85; text-transform: uppercase; letter-spacing: 0.14em; margin-bottom: 14px;"><span style="width: 18px; height: 1px; background: #ff6b35;"></span>ai integration</div>
+        <h2 style="font-family: 'Bricolage Grotesque', sans-serif; font-variation-settings: 'opsz' 48, 'wdth' 88, 'wght' 600; font-size: 32px; letter-spacing: -0.02em; line-height: 1.15; margin: 0 0 12px; color: #eceef1;">Your agents just… know.</h2>
+        <p style="margin: 0 0 28px; color: #bbc0c6; max-width: 480px; text-wrap: pretty;">Onboarding installs a Claude Code skill automatically. From then on, "add this repo" or "update my library" just works. No configuration, no prompt engineering, no ceremony.</p>
+        <div style="display: flex; flex-direction: column; gap: 18px;">
+          <div style="display: flex; gap: 14px;"><span style="flex: none; width: 26px; height: 26px; border: 1px solid #32363d; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #ff6b35;">1</span><div><div style="color: #eceef1; font-weight: 600; margin-bottom: 2px;">Skill installs itself</div><div style="font-size: 13.5px; color: #787d85;">Part of <code style="font-family: 'JetBrains Mono', monospace; font-size: 0.9em; background: #121418; border: 1px solid #24272d; border-radius: 3px; padding: 1px 5px;">gitstow onboard</code>, auto-updates on version bumps.</div></div></div>
+          <div style="display: flex; gap: 14px;"><span style="flex: none; width: 26px; height: 26px; border: 1px solid #32363d; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #ff6b35;">2</span><div><div style="color: #eceef1; font-weight: 600; margin-bottom: 2px;">Zero token overhead</div><div style="font-size: 13.5px; color: #787d85;">Skills cost nothing when inactive, unlike MCP tools that squat in context.</div></div></div>
+          <div style="display: flex; gap: 14px;"><span style="flex: none; width: 26px; height: 26px; border: 1px solid #32363d; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #ff6b35;">3</span><div><div style="color: #eceef1; font-weight: 600; margin-bottom: 2px;">MCP for everything else</div><div style="font-size: 13.5px; color: #787d85;">Cursor, Claude Desktop, and friends get a server via <code style="font-family: 'JetBrains Mono', monospace; font-size: 0.9em; background: #121418; border: 1px solid #24272d; border-radius: 3px; padding: 1px 5px;">pip install gitstow[mcp]</code>. Every command speaks <code style="font-family: 'JetBrains Mono', monospace; font-size: 0.9em; background: #121418; border: 1px solid #24272d; border-radius: 3px; padding: 1px 5px;">--json</code>.</div></div></div>
+        </div>
+      </div>
+      <div style="flex: 1; min-width: 400px;">
+        <div style="border: 1px solid #24272d; border-radius: 6px; background: #121418; box-shadow: 0 20px 60px rgba(0,0,0,0.65), 0 4px 12px rgba(0,0,0,0.3); overflow: hidden;">
+          <div style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid #24272d; background: #17191d;">
+            <span style="width: 11px; height: 11px; border-radius: 50%; background: #f87171; opacity: 0.8;"></span>
+            <span style="width: 11px; height: 11px; border-radius: 50%; background: #fbbf24; opacity: 0.8;"></span>
+            <span style="width: 11px; height: 11px; border-radius: 50%; background: #4ade80; opacity: 0.8;"></span>
+            <span style="margin-left: 10px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #787d85;">claude code</span>
+          </div>
+          <div style="padding: 22px 24px; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.9;">
+            <div style="color: #eceef1;"><span style="color: #ff6b35;">›</span> grab karpathy/nanoGPT and tag it ai</div>
+            <div style="color: #545962; margin-top: 10px;">⏺ Using skill: <span style="color: #787d85;">gitstow</span></div>
+            <div style="color: #787d85;">⏺ Bash(<span style="color: #bbc0c6;">gitstow add karpathy/nanoGPT</span>)</div>
+            <div style="color: #4ade80;">  ✓ cloned → ~/oss/karpathy/nanoGPT</div>
+            <div style="color: #787d85;">⏺ Bash(<span style="color: #bbc0c6;">gitstow repo tag karpathy/nanoGPT ai</span>)</div>
+            <div style="color: #4ade80;">  ✓ tagged: ai</div>
+            <div style="color: #bbc0c6; margin-top: 10px;">Stowed. It's in your <span style="color: #f59e0b;">oss</span> workspace under karpathy/nanoGPT, tagged <span style="border: 1px solid #24272d; border-radius: 3px; padding: 0 5px; font-size: 11px;">ai</span>.</div>
+            <div style="color: #545962; margin-top: 14px;">› <span style="display: inline-block; width: 8px; height: 15px; background: #ff6b35; vertical-align: text-bottom; animation: pulseDot 1.4s ease-in-out infinite;"></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="features" data-screen-label="Feature grid" style="border-top: 1px solid #1c1f24; background: #0d0e11;">
+    <div style="max-width: 1260px; margin: 0 auto; padding: 88px 32px;">
+      <div style="text-align: center; margin-bottom: 48px;">
+        <div style="display: inline-flex; align-items: center; gap: 8px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #787d85; text-transform: uppercase; letter-spacing: 0.14em; margin-bottom: 14px;"><span style="width: 18px; height: 1px; background: #ff6b35;"></span>features<span style="width: 18px; height: 1px; background: #ff6b35;"></span></div>
+        <h2 style="font-family: 'Bricolage Grotesque', sans-serif; font-variation-settings: 'opsz' 48, 'wdth' 88, 'wght' 600; font-size: 36px; letter-spacing: -0.02em; margin: 0; color: #eceef1;">Everything a library needs.</h2>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(272px, 1fr)); gap: 16px;">
+        <sc-for list="{{ features }}" as="f" hint-placeholder-count="8">
+          <div style="background: #121418; border: 1px solid #24272d; border-radius: 4px; padding: 24px 22px; display: flex; flex-direction: column; gap: 10px;" style-hover="border-color: #32363d; background: #17191d;">
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 15px; color: #ff6b35;">{{ f.glyph }}</div>
+            <div style="font-family: 'Bricolage Grotesque', sans-serif; font-variation-settings: 'opsz' 24, 'wdth' 90, 'wght' 600; font-size: 17px; color: #eceef1;">{{ f.title }}</div>
+            <div style="font-size: 13.5px; color: #787d85; line-height: 1.55; flex: 1;">{{ f.body }}</div>
+            <code style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #bbc0c6; background: #0b0c0e; border: 1px solid #24272d; border-radius: 3px; padding: 6px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ f.cmd }}</code>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </section>
+
+  <sc-if value="{{ showComparison }}" hint-placeholder-val="{{ true }}">
+  <section id="compare" data-screen-label="Comparison" style="border-top: 1px solid #1c1f24;">
+    <div style="max-width: 900px; margin: 0 auto; padding: 88px 32px;">
+      <div style="text-align: center; margin-bottom: 40px;">
+        <div style="display: inline-flex; align-items: center; gap: 8px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #787d85; text-transform: uppercase; letter-spacing: 0.14em; margin-bottom: 14px;"><span style="width: 18px; height: 1px; background: #ff6b35;"></span>vs the field<span style="width: 18px; height: 1px; background: #ff6b35;"></span></div>
+        <h2 style="font-family: 'Bricolage Grotesque', sans-serif; font-variation-settings: 'opsz' 48, 'wdth' 88, 'wght' 600; font-size: 36px; letter-spacing: -0.02em; margin: 0 0 12px; color: #eceef1;">The best of both. Then some.</h2>
+        <p style="max-width: 560px; margin: 0 auto; color: #bbc0c6; text-wrap: pretty;">ghq organizes but can't operate. gita operates but can't organize. gitstow does both, and brings a dashboard and your agents along.</p>
+      </div>
+      <div style="border: 1px solid #24272d; border-radius: 4px; overflow: hidden;">
+        <div style="display: grid; grid-template-columns: 1fr 110px 110px 110px; padding: 14px 22px; background: #121418; border-bottom: 1px solid #24272d; font-family: 'JetBrains Mono', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; align-items: center;">
+          <span style="color: #787d85;">capability</span>
+          <span style="color: #ff6b35; text-align: center; font-weight: 600;">gitstow</span>
+          <span style="color: #787d85; text-align: center;">ghq</span>
+          <span style="color: #787d85; text-align: center;">gita</span>
+        </div>
+        <sc-for list="{{ compareRows }}" as="c" hint-placeholder-count="6">
+          <div style="display: grid; grid-template-columns: 1fr 110px 110px 110px; padding: 13px 22px; border-bottom: 1px solid #1c1f24; align-items: center; font-size: 14px;">
+            <span style="color: #bbc0c6;">{{ c.label }}</span>
+            <span style="text-align: center; color: #ff6b35; font-family: 'JetBrains Mono', monospace;">{{ c.gitstow }}</span>
+            <span style="text-align: center; color: #545962; font-family: 'JetBrains Mono', monospace;">{{ c.ghq }}</span>
+            <span style="text-align: center; color: #545962; font-family: 'JetBrains Mono', monospace;">{{ c.gita }}</span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="margin-top: 14px; text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #545962;">● yes · ◐ partial · — no &nbsp;&nbsp;(ghq 3.5k★, gita 1.8k★, both great at what they do)</div>
+    </div>
+  </section>
+  </sc-if>
+
+  <section data-screen-label="Final CTA" style="border-top: 1px solid #1c1f24; background: radial-gradient(ellipse 800px 400px at 50% 100%, rgba(255,107,53,0.08), transparent 60%), #0b0c0e;">
+    <div style="max-width: 1260px; margin: 0 auto; padding: 96px 32px; text-align: center;">
+      <h2 style="font-family: 'Bricolage Grotesque', sans-serif; font-variation-settings: 'opsz' 96, 'wdth' 82, 'wght' 600; font-size: 44px; letter-spacing: -0.03em; margin: 0 0 14px; color: #eceef1;">Stop losing repos.<br>Start <span style="color: #ff6b35;">stowing</span> them.</h2>
+      <p style="max-width: 480px; margin: 0 auto 36px; color: #bbc0c6;">Your future self — and your agents — will thank you.</p>
+      <div style="display: inline-flex; align-items: center; gap: 14px; background: #121418; border: 1px solid #32363d; border-radius: 3px; padding: 14px 20px; font-family: 'JetBrains Mono', monospace; font-size: 16px;">
+        <span style="color: #545962; user-select: none;">$</span>
+        <span style="color: #eceef1;">pipx install "gitstow[ui]"</span>
+        <button onClick="{{ copyFooter }}" style="margin-left: 8px; padding: 6px 13px; border-radius: 3px; border: 1px solid #32363d; background: transparent; color: #787d85; font-family: 'JetBrains Mono', monospace; font-size: 11px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.08em;" style-hover="border-color: #ff6b35; color: #ff6b35;">{{ footerCopyLabel }}</button>
+      </div>
+    </div>
+  </section>
+
+  <footer style="border-top: 1px solid #24272d;">
+    <div style="max-width: 1260px; margin: 0 auto; padding: 48px 32px 40px; display: flex; gap: 48px; flex-wrap: wrap; justify-content: space-between;">
+      <div style="max-width: 300px;">
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+          <span style="width: 6px; height: 6px; border-radius: 50%; background: #ff6b35;"></span>
+          <span style="font-family: 'Bricolage Grotesque', sans-serif; font-variation-settings: 'opsz' 36, 'wdth' 85, 'wght' 700; font-size: 18px; color: #eceef1;">gitstow</span>
+        </div>
+        <div style="font-size: 13px; color: #787d85; line-height: 1.6;">A git repository library manager, built for the age of AI-assisted development.</div>
+      </div>
+      <div style="display: flex; gap: 64px; flex-wrap: wrap;">
+        <div>
+          <div style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #545962; text-transform: uppercase; letter-spacing: 0.15em; margin-bottom: 14px;">Docs</div>
+          <div style="display: flex; flex-direction: column; gap: 9px; font-size: 13.5px;">
+            <a href="https://github.com/rishmadaan/gitstow/blob/main/docs/user/getting-started.md" style="color: #787d85;" style-hover="color: #ff6b35;">Getting started</a>
+            <a href="https://github.com/rishmadaan/gitstow/blob/main/docs/user/commands.md" style="color: #787d85;" style-hover="color: #ff6b35;">Commands</a>
+            <a href="https://github.com/rishmadaan/gitstow/blob/main/docs/user/concepts.md" style="color: #787d85;" style-hover="color: #ff6b35;">Concepts</a>
+            <a href="https://github.com/rishmadaan/gitstow/blob/main/docs/user/configuration.md" style="color: #787d85;" style-hover="color: #ff6b35;">Configuration</a>
+          </div>
+        </div>
+        <div>
+          <div style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #545962; text-transform: uppercase; letter-spacing: 0.15em; margin-bottom: 14px;">Project</div>
+          <div style="display: flex; flex-direction: column; gap: 9px; font-size: 13.5px;">
+            <a href="https://github.com/rishmadaan/gitstow" style="color: #787d85;" style-hover="color: #ff6b35;">GitHub ↗</a>
+            <a href="https://pypi.org/project/gitstow/" style="color: #787d85;" style-hover="color: #ff6b35;">PyPI ↗</a>
+            <a href="https://github.com/rishmadaan/gitstow/blob/main/CHANGELOG.md" style="color: #787d85;" style-hover="color: #ff6b35;">Changelog</a>
+            <a href="https://github.com/rishmadaan/gitstow/blob/main/CONTRIBUTING.md" style="color: #787d85;" style-hover="color: #ff6b35;">Contributing</a>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="border-top: 1px solid #1c1f24;">
+      <div style="max-width: 1260px; margin: 0 auto; padding: 16px 32px; display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #545962;">
+        <span>© 2026 · MIT license</span>
+        <span>clone responsibly.</span>
+      </div>
+    </div>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;showDemoGif&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Sections&quot;},&quot;showComparison&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Sections&quot;}}">
+class Component extends DCLogic {
+  state = { tab: 'pipx', copiedHero: false, copiedTab: false, copiedFooter: false };
+  copy(text, key) {
+    navigator.clipboard.writeText(text).catch(() => {});
+    this.setState({ [key]: true });
+    clearTimeout(this['_t_' + key]);
+    this['_t_' + key] = setTimeout(() => this.setState({ [key]: false }), 1600);
+  }
+  renderVals() {
+    const cmds = { pipx: 'pipx install "gitstow[ui]"', pip: 'pip install "gitstow[ui]"', cli: 'pip install gitstow' };
+    const tabBase = 'white-space: nowrap; padding: 8px 16px; border: 1px solid #24272d; border-bottom: none; border-radius: 3px 3px 0 0; background: transparent; color: #787d85; font-family: JetBrains Mono, monospace; font-size: 12px; cursor: pointer;';
+    const tabActive = 'white-space: nowrap; padding: 8px 16px; border: 1px solid #24272d; border-bottom: 1px solid #121418; margin-bottom: -1px; border-radius: 3px 3px 0 0; background: #121418; color: #ff6b35; font-family: JetBrains Mono, monospace; font-size: 12px; cursor: pointer;';
+    const toObj = (s) => Object.fromEntries(s.split(';').filter(Boolean).map(d => { const i = d.indexOf(':'); const k = d.slice(0, i).trim().replace(/-([a-z])/g, (m, c) => c.toUpperCase()); return [k, d.slice(i + 1).trim()]; }));
+    const t = this.state.tab;
+    const pullPrimary = toObj('padding: 4px 10px; border-radius: 3px; background: #ff6b35; color: #120500; font-weight: 600; font-size: 11px; white-space: nowrap;');
+    const pullGhost = toObj('padding: 4px 10px; border-radius: 3px; color: #787d85; font-size: 11px;');
+    const pullDisabled = toObj('padding: 4px 10px; border-radius: 3px; color: #787d85; font-size: 11px; opacity: 0.3;');
+    const glow = (c) => `0 0 8px ${c}`;
+    return {
+      showDemoGif: this.props.showDemoGif ?? true,
+      showComparison: this.props.showComparison ?? true,
+      tabCmd: cmds[t],
+      tabPipx: () => this.setState({ tab: 'pipx' }),
+      tabPip: () => this.setState({ tab: 'pip' }),
+      tabCli: () => this.setState({ tab: 'cli' }),
+      tabStylePipx: toObj(t === 'pipx' ? tabActive : tabBase),
+      tabStylePip: toObj(t === 'pip' ? tabActive : tabBase),
+      tabStyleCli: toObj(t === 'cli' ? tabActive : tabBase),
+      copyHero: () => this.copy(cmds.pipx, 'copiedHero'),
+      copyTab: () => this.copy(cmds[t], 'copiedTab'),
+      copyFooter: () => this.copy(cmds.pipx, 'copiedFooter'),
+      heroCopyLabel: this.state.copiedHero ? 'copied ✓' : 'copy',
+      tabCopyLabel: this.state.copiedTab ? 'copied ✓' : 'copy',
+      footerCopyLabel: this.state.copiedFooter ? 'copied ✓' : 'copy',
+      dashRows: [
+        { num: '01', statusLabel: 'clean', statusColor: '#4ade80', dotGlow: glow('rgba(74,222,128,0.5)'), name: 'anthropic/claude-code', ws: 'oss', wsColor: '#f59e0b', branch: 'main', delta: '—', deltaColor: '#3a3e46', tags: ['ai', 'tools'], lastPull: '2h ago', pullLabel: 'Pull', pullStyle: pullGhost },
+        { num: '02', statusLabel: 'behind', statusColor: '#3b82f6', dotGlow: glow('rgba(96,165,250,0.5)'), name: 'facebook/react', ws: 'oss', wsColor: '#f59e0b', branch: 'main', delta: '↓ 12', deltaColor: '#3b82f6', tags: ['ui'], lastPull: '3d ago', pullLabel: '↓ Pull 12', pullStyle: pullPrimary },
+        { num: '03', statusLabel: '2 mod · 1 unt', statusColor: '#fbbf24', dotGlow: glow('rgba(251,191,36,0.5)'), name: 'karpathy/nanoGPT', ws: 'oss', wsColor: '#f59e0b', branch: 'master', delta: '—', deltaColor: '#3a3e46', tags: ['ai'], lastPull: '1d ago', pullLabel: 'Pull', pullStyle: pullGhost },
+        { num: '04', statusLabel: 'ahead', statusColor: '#c084fc', dotGlow: glow('rgba(192,132,252,0.5)'), name: 'gitstow', ws: 'active', wsColor: '#3b82f6', branch: 'main', delta: '↑ 2', deltaColor: '#c084fc', tags: ['active'], lastPull: '5h ago', pullLabel: 'Pull', pullStyle: pullGhost },
+        { num: '05', statusLabel: 'frozen', statusColor: '#6b7280', dotGlow: 'none', name: 'torvalds/linux', ws: 'oss', wsColor: '#f59e0b', branch: 'master', delta: '—', deltaColor: '#3a3e46', tags: ['reference'], lastPull: '3w ago', pullLabel: 'Pull', pullStyle: pullDisabled },
+        { num: '06', statusLabel: 'clean', statusColor: '#4ade80', dotGlow: glow('rgba(74,222,128,0.5)'), name: 'ziglang/zig', ws: 'oss', wsColor: '#f59e0b', branch: 'master', delta: '—', deltaColor: '#3a3e46', tags: ['lang'], lastPull: '2h ago', pullLabel: 'Pull', pullStyle: pullGhost }
+      ],
+      features: [
+        { glyph: '⌂', title: 'Workspaces', body: 'Open-source library here, active projects there. Structured owner/repo layout or flat, per directory.', cmd: 'gitstow workspace add ~/oss --layout structured' },
+        { glyph: '⇣', title: 'Auto-organization', body: 'Paste URLs, get owner/repo folders. Concurrent clones, deduped, and a mismatched remote errors loudly.', cmd: 'gitstow add anthropic/claude-code facebook/react' },
+        { glyph: '⇊', title: 'Bulk operations', body: 'Pull, fetch, and status across everything in parallel. One bad repo never stops the rest.', cmd: 'gitstow pull --tag ai --exclude-tag stale' },
+        { glyph: '❄', title: 'Freeze & tags', body: 'Tag repos, filter every operation by tag, freeze the ones you want left alone.', cmd: 'gitstow repo freeze torvalds/linux' },
+        { glyph: '⎇', title: 'Any git host', body: 'GitHub shorthand, GitLab nested groups, Bitbucket, Codeberg. SSH or HTTPS, your call.', cmd: 'gitstow add https://gitlab.com/group/project' },
+        { glyph: '⌕', title: 'Search & exec', body: 'ripgrep across the whole library, or run any command in every repo. Filter by tag, glob, workspace.', cmd: 'gitstow search "def main" --glob "*.py"' },
+        { glyph: '⇄', title: 'Portable collections', body: 'Export your library as YAML, import it on a new machine. Your curation, reproducible.', cmd: 'gitstow collection export -o my-repos.yaml' },
+        { glyph: '❯', title: 'Shell sugar', body: 'fzf pickers, tab completion, and gs to cd into any repo. Muscle memory in three keystrokes.', cmd: 'eval "$(gitstow shell init)"' }
+      ],
+      compareRows: [
+        { label: 'Auto-organize by owner/repo', gitstow: '●', ghq: '●', gita: '—' },
+        { label: 'Bulk pull, fetch & status', gitstow: '●', ghq: '—', gita: '●' },
+        { label: 'Workspaces (structured + flat)', gitstow: '●', ghq: '—', gita: '—' },
+        { label: 'Tags, freeze & filtered ops', gitstow: '●', ghq: '—', gita: '◐' },
+        { label: 'Local browser dashboard', gitstow: '●', ghq: '—', gita: '—' },
+        { label: 'Claude Code skill + MCP server', gitstow: '●', ghq: '—', gita: '—' },
+        { label: 'JSON output on every command', gitstow: '●', ghq: '—', gita: '◐' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>
