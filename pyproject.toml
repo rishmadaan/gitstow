@@ -55,10 +55,10 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.4,<0.16",  # 0.16 turned on stricter default rules; unpin after cleaning up its findings
     "httpx>=0.27",
-    "mcp>=1.0",
+    "mcp>=1.0,<2",  # mcp 2.0 moved mcp.server.fastmcp; unpin after migrating the server
 ]
 mcp = [
-    "mcp>=1.0",
+    "mcp>=1.0,<2",  # mcp 2.0 moved mcp.server.fastmcp; unpin after migrating the server
 ]
 
 [project.scripts]
