@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 import typer
 from rich.console import Console
 
@@ -62,7 +60,7 @@ def _auto_update_skill() -> None:
 @app.callback()
 def main(
     ctx: typer.Context,
-    version: Optional[bool] = typer.Option(
+    version: bool | None = typer.Option(
         None,
         "--version",
         "-v",
@@ -70,7 +68,7 @@ def main(
         callback=version_callback,
         is_eager=True,
     ),
-    workspace: Optional[str] = typer.Option(
+    workspace: str | None = typer.Option(
         None,
         "--workspace",
         "-w",
@@ -84,31 +82,31 @@ def main(
 
 
 # --- Register Stage 1 commands ---
-from gitstow.cli.add import add  # noqa: E402
-from gitstow.cli.pull import pull  # noqa: E402
-from gitstow.cli.fetch import fetch  # noqa: E402
-from gitstow.cli.list_cmd import list_repos  # noqa: E402
-from gitstow.cli.status import status  # noqa: E402
-from gitstow.cli.remove import remove  # noqa: E402
-from gitstow.cli.manage import manage_app  # noqa: E402
-from gitstow.cli.migrate import migrate  # noqa: E402
-from gitstow.cli.config_cmd import config_app  # noqa: E402
-from gitstow.cli.onboard import onboard  # noqa: E402
-from gitstow.cli.skill_cmd import install_skill  # noqa: E402
-from gitstow.cli.doctor import doctor  # noqa: E402
+from gitstow.cli.add import add
+from gitstow.cli.config_cmd import config_app
+from gitstow.cli.diff_cmd import diff_cmd
+from gitstow.cli.doctor import doctor
 
 # --- Register Stage 2 commands ---
-from gitstow.cli.exec_cmd import exec_cmd  # noqa: E402
-from gitstow.cli.search import search  # noqa: E402
-from gitstow.cli.open_cmd import open_repo  # noqa: E402
-from gitstow.cli.stats import stats  # noqa: E402
-from gitstow.cli.export_cmd import export_app  # noqa: E402
-from gitstow.cli.shell import shell_app  # noqa: E402
-from gitstow.cli.setup_ai import setup_ai  # noqa: E402
-from gitstow.cli.workspace_cmd import workspace_app  # noqa: E402
-from gitstow.cli.serve import ui  # noqa: E402
-from gitstow.cli.update import update  # noqa: E402
-from gitstow.cli.diff_cmd import diff_cmd  # noqa: E402
+from gitstow.cli.exec_cmd import exec_cmd
+from gitstow.cli.export_cmd import export_app
+from gitstow.cli.fetch import fetch
+from gitstow.cli.list_cmd import list_repos
+from gitstow.cli.manage import manage_app
+from gitstow.cli.migrate import migrate
+from gitstow.cli.onboard import onboard
+from gitstow.cli.open_cmd import open_repo
+from gitstow.cli.pull import pull
+from gitstow.cli.remove import remove
+from gitstow.cli.search import search
+from gitstow.cli.serve import ui
+from gitstow.cli.setup_ai import setup_ai
+from gitstow.cli.shell import shell_app
+from gitstow.cli.skill_cmd import install_skill
+from gitstow.cli.stats import stats
+from gitstow.cli.status import status
+from gitstow.cli.update import update
+from gitstow.cli.workspace_cmd import workspace_app
 
 app.command()(add)
 app.command()(pull)

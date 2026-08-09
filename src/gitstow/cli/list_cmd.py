@@ -5,28 +5,27 @@ from __future__ import annotations
 import json
 import sys
 from collections import defaultdict
-from typing import Optional
 
 import typer
 from rich.console import Console
 
+from gitstow.cli.helpers import iter_repos_with_workspace, print_untracked_hint
 from gitstow.core.config import load_config
 from gitstow.core.repo import RepoStore
-from gitstow.cli.helpers import iter_repos_with_workspace, print_untracked_hint
 
 console = Console()
 
 
 def list_repos(
     ctx: typer.Context,
-    query: Optional[str] = typer.Argument(
+    query: str | None = typer.Argument(
         default=None,
         help="Filter repos by substring match.",
     ),
-    tag: Optional[list[str]] = typer.Option(
+    tag: list[str] | None = typer.Option(
         None, "--tag", "-t", help="Filter by tag.",
     ),
-    owner: Optional[str] = typer.Option(
+    owner: str | None = typer.Option(
         None, "--owner", help="Filter by owner.",
     ),
     frozen_only: bool = typer.Option(

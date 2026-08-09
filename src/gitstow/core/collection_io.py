@@ -6,7 +6,6 @@ import yaml
 
 from gitstow.core.config import Settings, Workspace
 
-
 EXPORT_FORMAT_VERSION = 1
 
 

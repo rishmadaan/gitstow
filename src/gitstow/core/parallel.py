@@ -7,8 +7,9 @@ Uses asyncio with a semaphore to prevent SSH connection storms
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
 
 T = TypeVar("T")
 

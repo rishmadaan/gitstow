@@ -195,10 +195,9 @@ def config_migrate_root(
 
     console.print(f"  {len(movable)} repos to {action.lower()}")
 
-    if not yes:
-        if not typer.confirm(f"\n  Proceed with {action.lower()}?"):
-            console.print("  [dim]Cancelled.[/dim]")
-            raise typer.Exit()
+    if not yes and not typer.confirm(f"\n  Proceed with {action.lower()}?"):
+        console.print("  [dim]Cancelled.[/dim]")
+        raise typer.Exit()
 
     new_root_path.mkdir(parents=True, exist_ok=True)
 

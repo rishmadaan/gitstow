@@ -9,9 +9,9 @@ import sys
 import typer
 from rich.console import Console
 
+from gitstow.cli.helpers import resolve_repo
 from gitstow.core.config import load_config
 from gitstow.core.repo import RepoStore
-from gitstow.cli.helpers import resolve_repo
 
 console = Console()
 err_console = Console(stderr=True)

@@ -10,10 +10,10 @@ from rich.console import Console
 
 from gitstow import __version__
 from gitstow.core.config import load_config
-from gitstow.core.paths import APP_HOME, CONFIG_FILE, get_repos_file
-from gitstow.core.git import is_git_installed
-from gitstow.core.repo import RepoStore
 from gitstow.core.discovery import discover_repos, reconcile
+from gitstow.core.git import is_git_installed
+from gitstow.core.paths import APP_HOME, CONFIG_FILE, get_repos_file
+from gitstow.core.repo import RepoStore
 
 console = Console()
 
@@ -165,7 +165,7 @@ def _check_ssh_connectivity() -> bool:
     try:
         result = subprocess.run(
             ["ssh", "-T", "-o", "ConnectTimeout=5", "git@github.com"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=10, check=False,
         )
         # GitHub returns exit code 1 with "successfully authenticated" on success
         return result.returncode == 1 and "successfully authenticated" in result.stderr

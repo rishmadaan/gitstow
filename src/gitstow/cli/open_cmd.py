@@ -11,10 +11,10 @@ import webbrowser
 import typer
 from rich.console import Console
 
+from gitstow.cli.helpers import resolve_repo
 from gitstow.core.config import load_config
 from gitstow.core.git import get_remote_url
 from gitstow.core.repo import RepoStore
-from gitstow.cli.helpers import resolve_repo
 
 console = Console()
 err_console = Console(stderr=True)
@@ -106,8 +106,7 @@ def _remote_to_web_url(remote: str) -> str:
             url = "/".join(parts)
 
     # Strip .git suffix
-    if url.endswith(".git"):
-        url = url[:-4]
+    url = url.removesuffix(".git")
 
     # Ensure https://
     if not url.startswith("http"):
@@ -131,7 +130,7 @@ def _open_in_editor(path) -> None:
     if editor:
         base = os.path.basename(editor.split()[0])
         if base in _TERMINAL_EDITORS:
-            subprocess.run([*editor.split(), str(path)])
+            subprocess.run([*editor.split(), str(path)], check=False)
         else:
             subprocess.Popen([*editor.split(), str(path)],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

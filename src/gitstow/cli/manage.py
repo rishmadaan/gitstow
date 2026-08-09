@@ -4,23 +4,22 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Optional
 
 import typer
 from rich.console import Console
 
+from gitstow.cli.helpers import resolve_repo
 from gitstow.core.config import load_config
 from gitstow.core.git import (
-    get_status,
-    get_last_commit,
-    get_disk_size,
     format_size,
+    get_disk_size,
+    get_last_commit,
+    get_status,
     is_git_repo,
 )
 from gitstow.core.operations import move_repo
 from gitstow.core.repo import RepoStore
 from gitstow.core.status_model import classify
-from gitstow.cli.helpers import resolve_repo
 
 manage_app = typer.Typer(
     help="Manage individual repos — freeze, tag, info.",
@@ -34,8 +33,8 @@ err_console = Console(stderr=True)
 @manage_app.command()
 def freeze(
     ctx: typer.Context,
-    repo_key: Optional[str] = typer.Argument(default=None, help="Repo to freeze (owner/repo). Optional if --tag is used."),
-    tag_filter: Optional[str] = typer.Option(
+    repo_key: str | None = typer.Argument(default=None, help="Repo to freeze (owner/repo). Optional if --tag is used."),
+    tag_filter: str | None = typer.Option(
         None, "--tag", "-t", help="Freeze all repos with this tag instead.",
     ),
 ) -> None:
@@ -78,8 +77,8 @@ def freeze(
 @manage_app.command()
 def unfreeze(
     ctx: typer.Context,
-    repo_key: Optional[str] = typer.Argument(default=None, help="Repo to unfreeze (owner/repo). Optional if --tag is used."),
-    tag_filter: Optional[str] = typer.Option(
+    repo_key: str | None = typer.Argument(default=None, help="Repo to unfreeze (owner/repo). Optional if --tag is used."),
+    tag_filter: str | None = typer.Option(
         None, "--tag", "-t", help="Unfreeze all repos with this tag.",
     ),
 ) -> None:

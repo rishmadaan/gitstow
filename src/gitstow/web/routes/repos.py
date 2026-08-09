@@ -16,7 +16,10 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from gitstow.core.config import load_config
-from gitstow.core.git import clone as git_clone, fetch as git_fetch, get_status, is_git_repo, pull as git_pull
+from gitstow.core.git import clone as git_clone
+from gitstow.core.git import fetch as git_fetch
+from gitstow.core.git import get_status, is_git_repo
+from gitstow.core.git import pull as git_pull
 from gitstow.core.operations import move_repo
 from gitstow.core.parallel import run_parallel
 from gitstow.core.repo import Repo, RepoStore
@@ -461,7 +464,7 @@ def _platform_open(path: str) -> tuple[bool, str]:
             return False, f"unsupported platform: {sys.platform}"
     except FileNotFoundError as exc:
         return False, f"file manager command not found: {exc}"
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return False, str(exc)
     return True, ""
 

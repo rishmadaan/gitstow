@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Optional
 
 import typer
 import yaml
@@ -28,10 +27,10 @@ err_console = Console(stderr=True)
 @export_app.command("export")
 def export_collection(
     ctx: typer.Context,
-    output: Optional[str] = typer.Option(
+    output: str | None = typer.Option(
         None, "--output", "-o", help="Output file path. Defaults to stdout.",
     ),
-    tag: Optional[list[str]] = typer.Option(
+    tag: list[str] | None = typer.Option(
         None, "--tag", "-t", help="Only export repos with this tag.",
     ),
     format_type: str = typer.Option(
@@ -112,7 +111,7 @@ def export_collection(
 def import_collection(
     ctx: typer.Context,
     file_path: str = typer.Argument(help="File to import (YAML, JSON, or plain URLs)."),
-    tag: Optional[list[str]] = typer.Option(
+    tag: list[str] | None = typer.Option(
         None, "--tag", "-t", help="Apply tag(s) to all imported repos.",
     ),
     shallow: bool = typer.Option(
@@ -195,8 +194,9 @@ def import_collection(
         return
 
     # Build add commands
-    from gitstow.core.url_parser import parse_git_url
     from datetime import datetime
+
+    from gitstow.core.url_parser import parse_git_url
 
     succeeded = 0
     failed = 0

@@ -16,13 +16,12 @@ class LockTimeout(Exception):
 def file_lock(lock_path: Path, timeout: float = 10.0):
     """Hold an exclusive cross-process lock on lock_path for the block's duration."""
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    handle = open(lock_path, "a+")
-    try:
-        _acquire(handle, timeout, lock_path)
-        yield
-    finally:
-        _release(handle)
-        handle.close()
+    with open(lock_path, "a+") as handle:
+        try:
+            _acquire(handle, timeout, lock_path)
+            yield
+        finally:
+            _release(handle)
 
 
 if sys.platform == "win32":

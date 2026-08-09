@@ -8,7 +8,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-from gitstow.core.paths import SKILL_TARGET, CLAUDE_SKILLS_DIR, get_skill_source_dir
+from gitstow.core.paths import CLAUDE_SKILLS_DIR, SKILL_TARGET, get_skill_source_dir
 
 console = Console()
 

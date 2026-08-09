@@ -87,6 +87,7 @@ def pick(
         result = subprocess.run(
             ["fzf", "--reverse", "--height=40%", "--prompt=repo> "],
             input=fzf_input,
+            check=False,
             capture_output=True,
             text=True,
         )

@@ -11,9 +11,9 @@ import typer
 from rich.console import Console
 
 from gitstow.core.config import load_config
-from gitstow.core.git import is_git_repo, get_remote_url
-from gitstow.core.url_parser import parse_git_url
+from gitstow.core.git import get_remote_url, is_git_repo
 from gitstow.core.repo import Repo, RepoStore
+from gitstow.core.url_parser import parse_git_url
 
 console = Console()
 err_console = Console(stderr=True)

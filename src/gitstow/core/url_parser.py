@@ -109,8 +109,7 @@ def parse_git_url(
     path = parsed.path.strip("/")
 
     # Strip .git suffix
-    if path.endswith(".git"):
-        path = path[:-4]
+    path = path.removesuffix(".git")
 
     # Azure DevOps: dev.azure.com/org/project/_git/repo
     if "dev.azure.com" in host or "visualstudio.com" in host:

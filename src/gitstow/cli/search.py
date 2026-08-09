@@ -5,15 +5,14 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-from typing import Optional
 
 import typer
 from rich.console import Console
 
+from gitstow.cli.helpers import iter_repos_with_workspace
 from gitstow.core.config import load_config
 from gitstow.core.parallel import run_parallel_sync
 from gitstow.core.repo import RepoStore
-from gitstow.cli.helpers import iter_repos_with_workspace
 
 console = Console()
 err_console = Console(stderr=True)
@@ -22,13 +21,13 @@ err_console = Console(stderr=True)
 def search(
     ctx: typer.Context,
     pattern: str = typer.Argument(help="Search pattern (regex supported if using ripgrep)."),
-    tag: Optional[list[str]] = typer.Option(
+    tag: list[str] | None = typer.Option(
         None, "--tag", "-t", help="Only search in repos with this tag.",
     ),
-    owner: Optional[str] = typer.Option(
+    owner: str | None = typer.Option(
         None, "--owner", help="Only search in repos from this owner.",
     ),
-    glob_filter: Optional[str] = typer.Option(
+    glob_filter: str | None = typer.Option(
         None, "--glob", "-g", help="File glob pattern (e.g., '*.py', '*.md').",
     ),
     case_insensitive: bool = typer.Option(
@@ -177,6 +176,7 @@ def _search_repo(
         result = subprocess.run(
             cmd,
             cwd=path,
+            check=False,
             capture_output=True,
             text=True,
             timeout=30,

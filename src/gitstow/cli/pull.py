@@ -5,18 +5,18 @@ from __future__ import annotations
 import json
 import sys
 from datetime import datetime
-from typing import Optional
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
-from gitstow.core.config import load_config, Workspace
-from gitstow.core.git import pull as git_pull, get_status, is_git_repo
-from gitstow.core.repo import Repo, RepoStore
-from gitstow.core.operations import filter_repo_pairs, run_bulk
-from gitstow.core.status_model import classify
 from gitstow.cli.helpers import iter_repos_with_workspace
+from gitstow.core.config import Workspace, load_config
+from gitstow.core.git import get_status, is_git_repo
+from gitstow.core.git import pull as git_pull
+from gitstow.core.operations import filter_repo_pairs, run_bulk
+from gitstow.core.repo import Repo, RepoStore
+from gitstow.core.status_model import classify
 
 console = Console()
 err_console = Console(stderr=True)
@@ -65,17 +65,17 @@ def _pull_one_repo(repo: Repo, ws: Workspace) -> dict:
 
 def pull(
     ctx: typer.Context,
-    repos: Optional[list[str]] = typer.Argument(
+    repos: list[str] | None = typer.Argument(
         default=None,
         help="Specific repos to pull (owner/repo). Omit for all.",
     ),
-    tag: Optional[list[str]] = typer.Option(
+    tag: list[str] | None = typer.Option(
         None, "--tag", "-t", help="Only pull repos with this tag.",
     ),
-    exclude_tag: Optional[list[str]] = typer.Option(
+    exclude_tag: list[str] | None = typer.Option(
         None, "--exclude-tag", help="Skip repos with this tag.",
     ),
-    owner: Optional[str] = typer.Option(
+    owner: str | None = typer.Option(
         None, "--owner", help="Only pull repos from this owner.",
     ),
     include_frozen: bool = typer.Option(

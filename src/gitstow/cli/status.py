@@ -4,18 +4,17 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Optional
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
-from gitstow.core.config import load_config, Workspace
-from gitstow.core.git import get_status, is_git_repo, get_last_commit
-from gitstow.core.repo import Repo, RepoStore
-from gitstow.core.parallel import run_parallel_sync
-from gitstow.core.status_model import classify
 from gitstow.cli.helpers import iter_repos_with_workspace, print_untracked_hint
+from gitstow.core.config import Workspace, load_config
+from gitstow.core.git import get_last_commit, get_status, is_git_repo
+from gitstow.core.parallel import run_parallel_sync
+from gitstow.core.repo import Repo, RepoStore
+from gitstow.core.status_model import classify
 
 console = Console()
 err_console = Console(stderr=True)
@@ -60,10 +59,10 @@ def _get_repo_status(repo: Repo, ws: Workspace) -> dict:
 
 def status(
     ctx: typer.Context,
-    tag: Optional[list[str]] = typer.Option(
+    tag: list[str] | None = typer.Option(
         None, "--tag", "-t", help="Filter by tag.",
     ),
-    owner: Optional[str] = typer.Option(
+    owner: str | None = typer.Option(
         None, "--owner", help="Filter by owner.",
     ),
     dirty_only: bool = typer.Option(

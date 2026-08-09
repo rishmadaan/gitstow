@@ -5,14 +5,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import typer
-from beaupy import confirm as bconfirm, select as bselect
+from beaupy import confirm as bconfirm
+from beaupy import select as bselect
 from rich.console import Console
 from rich.panel import Panel
 
 from gitstow.core.config import Settings, Workspace, save_config
-from gitstow.core.paths import CONFIG_FILE, ensure_app_dirs, DEFAULT_ROOT
-from gitstow.core.git import is_git_installed
 from gitstow.core.discovery import discover_repos
+from gitstow.core.git import is_git_installed
+from gitstow.core.paths import CONFIG_FILE, DEFAULT_ROOT, ensure_app_dirs
 from gitstow.core.repo import Repo, RepoStore
 
 console = Console()

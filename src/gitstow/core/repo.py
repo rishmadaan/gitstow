@@ -89,7 +89,7 @@ def _is_legacy_format(data: dict) -> bool:
     """
     if not data:
         return False
-    for key, value in data.items():
+    for value in data.values():
         if isinstance(value, dict) and "remote_url" in value:
             return True
         break  # Only need to check the first entry

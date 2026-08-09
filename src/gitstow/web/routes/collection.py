@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 import yaml
-from fastapi import APIRouter, HTTPException, Request, UploadFile, File
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 
 from gitstow.core.collection_io import parse_collection_file, resolve_entry_workspace

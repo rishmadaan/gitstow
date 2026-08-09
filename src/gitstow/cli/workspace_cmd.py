@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
@@ -73,7 +72,7 @@ def workspace_add(
         "--layout",
         help="Directory layout: 'structured' (owner/repo) or 'flat'.",
     ),
-    auto_tags: Optional[list[str]] = typer.Option(
+    auto_tags: list[str] | None = typer.Option(
         None, "--auto-tag", "-t", help="Tags to auto-apply to repos discovered in this workspace.",
     ),
     scan: bool = typer.Option(

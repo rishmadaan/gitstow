@@ -5,15 +5,14 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-from typing import Optional
 
 import typer
 from rich.console import Console
 
-from gitstow.core.config import load_config
-from gitstow.core.repo import RepoStore
-from gitstow.core.parallel import run_parallel_sync
 from gitstow.cli.helpers import iter_repos_with_workspace
+from gitstow.core.config import load_config
+from gitstow.core.parallel import run_parallel_sync
+from gitstow.core.repo import RepoStore
 
 console = Console()
 err_console = Console(stderr=True)
@@ -25,6 +24,7 @@ def _exec_in_repo(repo_path, command: list[str]) -> dict:
         result = subprocess.run(
             command,
             cwd=repo_path,
+            check=False,
             capture_output=True,
             text=True,
             timeout=120,
@@ -47,10 +47,10 @@ def exec_cmd(
     command: list[str] = typer.Argument(
         help="Command to run in each repo (e.g., 'git log -1 --oneline').",
     ),
-    tag: Optional[list[str]] = typer.Option(
+    tag: list[str] | None = typer.Option(
         None, "--tag", "-t", help="Only run in repos with this tag.",
     ),
-    owner: Optional[str] = typer.Option(
+    owner: str | None = typer.Option(
         None, "--owner", help="Only run in repos from this owner.",
     ),
     frozen_only: bool = typer.Option(

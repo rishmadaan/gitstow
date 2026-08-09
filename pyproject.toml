@@ -53,12 +53,12 @@ Changelog = "https://github.com/rishmadaan/gitstow/blob/main/CHANGELOG.md"
 ui = []
 dev = [
     "pytest>=8.0",
-    "ruff>=0.4,<0.16",  # 0.16 turned on stricter default rules; unpin after cleaning up its findings
+    "ruff>=0.16",
     "httpx>=0.27",
-    "mcp>=1.0,<2",  # mcp 2.0 moved mcp.server.fastmcp; unpin after migrating the server
+    "mcp>=1.0",  # server imports both the 1.x and 2.x API
 ]
 mcp = [
-    "mcp>=1.0,<2",  # mcp 2.0 moved mcp.server.fastmcp; unpin after migrating the server
+    "mcp>=1.0",  # server imports both the 1.x and 2.x API
 ]
 
 [project.scripts]
@@ -71,6 +71,18 @@ packages = ["src/gitstow"]
 [tool.ruff]
 target-version = "py310"
 line-length = 100
+
+[tool.ruff.lint]
+ignore = [
+    "B008",   # function call in default argument — idiomatic Typer (typer.Option in defaults)
+    "DTZ005", # naive datetime.now() — timestamps are deliberately local time for display
+    "BLE001", # broad except — bulk runners must survive any single-repo failure
+    "S110",   # try-except-pass — deliberate skip-and-continue in discovery sweeps
+    "S112",   # try-except-continue — same
+]
+
+[tool.ruff.lint.per-file-ignores]
+"src/gitstow/cli/main.py" = ["E402"]  # commands deliberately import after the Typer app exists
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

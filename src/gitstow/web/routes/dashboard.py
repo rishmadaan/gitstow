@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 from datetime import datetime
+
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 

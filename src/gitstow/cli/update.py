@@ -137,7 +137,7 @@ def update(
     try:
         verify = subprocess.run(
             ["gitstow", "--version"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True, text=True, timeout=5, check=False,
         )
         new_line = verify.stdout.strip() or f"v{_installed_version()}"
     except (FileNotFoundError, subprocess.TimeoutExpired):

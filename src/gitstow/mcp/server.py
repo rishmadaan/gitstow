@@ -11,17 +11,21 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Optional
 
-from mcp.server.fastmcp import FastMCP
+try:  # mcp >= 2.0 renamed FastMCP; same decorator surface
+    from mcp.server.mcpserver import MCPServer as FastMCP
+except ImportError:  # mcp 1.x
+    from mcp.server.fastmcp import FastMCP
 
-from gitstow.core.config import load_config, Workspace
+from gitstow.core.config import Workspace, load_config
 from gitstow.core.git import (
     clone as git_clone,
-    get_status,
-    get_last_commit,
-    get_disk_size,
+)
+from gitstow.core.git import (
     format_size,
+    get_disk_size,
+    get_last_commit,
+    get_status,
     is_git_repo,
 )
 from gitstow.core.repo import Repo, RepoStore
@@ -58,10 +62,10 @@ def _repo_path(repo: Repo, settings) -> str:
 
 @mcp.tool()
 def list_repos(
-    tag: Optional[str] = None,
-    owner: Optional[str] = None,
-    query: Optional[str] = None,
-    workspace: Optional[str] = None,
+    tag: str | None = None,
+    owner: str | None = None,
+    query: str | None = None,
+    workspace: str | None = None,
     frozen_only: bool = False,
 ) -> str:
     """List all tracked git repositories, optionally filtered.
@@ -110,9 +114,9 @@ def list_repos(
 @mcp.tool()
 def add_repo(
     url: str,
-    workspace: Optional[str] = None,
+    workspace: str | None = None,
     shallow: bool = False,
-    tags: Optional[list[str]] = None,
+    tags: list[str] | None = None,
 ) -> str:
     """Clone a git repository into a workspace.
 
@@ -210,9 +214,9 @@ def add_repo(
 
 @mcp.tool()
 def pull_repos(
-    tag: Optional[str] = None,
-    exclude_tag: Optional[str] = None,
-    workspace: Optional[str] = None,
+    tag: str | None = None,
+    exclude_tag: str | None = None,
+    workspace: str | None = None,
     include_frozen: bool = False,
 ) -> str:
     """Pull latest changes for all (or filtered) repos.
@@ -285,9 +289,9 @@ def pull_repos(
 
 @mcp.tool()
 def fetch_repos(
-    tag: Optional[str] = None,
-    owner: Optional[str] = None,
-    workspace: Optional[str] = None,
+    tag: str | None = None,
+    owner: str | None = None,
+    workspace: str | None = None,
 ) -> str:
     """Fetch all remotes (git fetch --all --prune) without merging — updates
     ahead/behind counts. Includes frozen repos (fetch is non-destructive).
@@ -329,9 +333,9 @@ def fetch_repos(
 
 @mcp.tool()
 def repo_status(
-    tag: Optional[str] = None,
-    owner: Optional[str] = None,
-    workspace: Optional[str] = None,
+    tag: str | None = None,
+    owner: str | None = None,
+    workspace: str | None = None,
     dirty_only: bool = False,
 ) -> str:
     """Get git status dashboard across all repos.
@@ -459,7 +463,7 @@ def freeze_repo(repo_key: str) -> str:
     Returns:
         JSON with success status.
     """
-    settings, store = _get_settings_and_store()
+    _, store = _get_settings_and_store()
     repo = store.get(repo_key)
     if not repo:
         return json.dumps({"success": False, "error": f"'{repo_key}' not tracked"})
@@ -478,7 +482,7 @@ def unfreeze_repo(repo_key: str) -> str:
     Returns:
         JSON with success status.
     """
-    settings, store = _get_settings_and_store()
+    _, store = _get_settings_and_store()
     repo = store.get(repo_key)
     if not repo:
         return json.dumps({"success": False, "error": f"'{repo_key}' not tracked"})
@@ -498,7 +502,7 @@ def tag_repo(repo_key: str, tags: list[str]) -> str:
     Returns:
         JSON with updated tag list.
     """
-    settings, store = _get_settings_and_store()
+    _, store = _get_settings_and_store()
     repo = store.get(repo_key)
     if not repo:
         return json.dumps({"success": False, "error": f"'{repo_key}' not tracked"})
@@ -519,7 +523,7 @@ def untag_repo(repo_key: str, tags: list[str]) -> str:
     Returns:
         JSON with updated tag list.
     """
-    settings, store = _get_settings_and_store()
+    _, store = _get_settings_and_store()
     repo = store.get(repo_key)
     if not repo:
         return json.dumps({"success": False, "error": f"'{repo_key}' not tracked"})
@@ -572,8 +576,8 @@ def remove_repo(repo_key: str, delete_from_disk: bool = False) -> str:
 @mcp.tool()
 def search_repos(
     pattern: str,
-    tag: Optional[str] = None,
-    glob_filter: Optional[str] = None,
+    tag: str | None = None,
+    glob_filter: str | None = None,
     max_results: int = 30,
 ) -> str:
     """Search (grep) across all repos for a pattern.
@@ -589,8 +593,8 @@ def search_repos(
     Returns:
         JSON with matches grouped by repo.
     """
-    import subprocess
     import shutil
+    import subprocess
     from pathlib import Path
 
     settings, store = _get_settings_and_store()
@@ -619,7 +623,7 @@ def search_repos(
             cmd = ["git", "grep", "-n", pattern]
 
         try:
-            result = subprocess.run(cmd, cwd=path, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, cwd=path, capture_output=True, text=True, timeout=30, check=False)
             if result.returncode == 0 and result.stdout.strip():
                 matches = []
                 for line in result.stdout.strip().splitlines()[:max_results]:

@@ -10,8 +10,8 @@ import errno
 import os
 import shutil
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Optional
 
 from gitstow.core.config import Settings, Workspace
 from gitstow.core.git import is_git_repo, repair_worktrees
@@ -28,11 +28,11 @@ RETRYABLE = {"error", "missing"}
 def filter_repo_pairs(
     pairs: list[Pair],
     *,
-    tags: Optional[list[str]] = None,
-    exclude_tags: Optional[list[str]] = None,
-    owner: Optional[str] = None,
-    frozen: Optional[bool] = None,
-    query: Optional[str] = None,
+    tags: list[str] | None = None,
+    exclude_tags: list[str] | None = None,
+    owner: str | None = None,
+    frozen: bool | None = None,
+    query: str | None = None,
 ) -> list[Pair]:
     """Apply the standard repo filters. frozen=None keeps all; True/False select."""
     out = pairs
@@ -58,8 +58,8 @@ def run_bulk(
     *,
     parallel_limit: int = 6,
     retry: int = 0,
-    on_attempt: Optional[Callable[[int, int], None]] = None,
-    on_progress: Optional[Callable[[str, bool, str], None]] = None,
+    on_attempt: Callable[[int, int], None] | None = None,
+    on_progress: Callable[[str, bool, str], None] | None = None,
 ) -> list[dict]:
     """Run worker over every target with bounded concurrency and retries.
 
@@ -291,13 +291,11 @@ def move_repo(
                 dest_path.parent.mkdir(parents=True, exist_ok=True)
                 _move_dir(src_path, dest_path)
                 moved_src = src_path
-                if (dest_path / ".git" / "worktrees").is_dir():
-                    # This repo owns linked worktrees whose absolute
-                    # back-pointers just went stale — git ships the fix.
-                    if not repair_worktrees(dest_path):
-                        # Reporting success with broken worktrees would be a
-                        # lie; raising triggers the rollback below.
-                        raise ValueError(
+                # Linked worktrees' absolute back-pointers go stale on
+                # move — git ships the fix. Reporting success with broken
+                # worktrees would be a lie; raising triggers the rollback.
+                if (dest_path / ".git" / "worktrees").is_dir() and not repair_worktrees(dest_path):
+                    raise ValueError(
                             f"'{key}' owns linked git worktrees and 'git worktree "
                             f"repair' failed after the move — rolled back."
                         )

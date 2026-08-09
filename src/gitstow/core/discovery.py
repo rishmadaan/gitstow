@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from gitstow.core.git import is_git_repo, get_remote_url
+from gitstow.core.git import get_remote_url, is_git_repo
 from gitstow.core.repo import Repo
 
 

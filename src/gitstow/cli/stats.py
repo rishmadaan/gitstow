@@ -10,10 +10,10 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from gitstow.core.config import load_config
-from gitstow.core.git import get_disk_size, format_size, is_git_repo
-from gitstow.core.repo import RepoStore
 from gitstow.cli.helpers import iter_repos_with_workspace
+from gitstow.core.config import load_config
+from gitstow.core.git import format_size, get_disk_size, is_git_repo
+from gitstow.core.repo import RepoStore
 
 console = Console()
 

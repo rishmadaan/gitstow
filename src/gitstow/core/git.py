@@ -107,6 +107,7 @@ def _run_git(
     return subprocess.run(
         cmd,
         cwd=cwd,
+        check=False,
         capture_output=True,
         timeout=timeout,
         env=env,
@@ -253,7 +254,7 @@ def get_status(repo_path: Path) -> RepoStatus:
                 status.behind = abs(int(parts[3]))
         elif line.startswith("# branch.upstream "):
             status.has_upstream = True
-        elif line.startswith("1 ") or line.startswith("2 "):
+        elif line.startswith(("1 ", "2 ")):
             # Changed entry: 1 XY ... or 2 XY ...
             # X = staged, Y = unstaged
             xy = line.split(" ")[1]
@@ -526,7 +527,7 @@ def run_interactive_diff(repo_path: Path, staged: bool = False) -> int:
     git's terminal diff would be worse than letting git do it.
     """
     args = ["git", "diff"] + (["--cached"] if staged else [])
-    return subprocess.run(args, cwd=repo_path).returncode
+    return subprocess.run(args, cwd=repo_path, check=False).returncode
 
 
 def get_remote_url(repo_path: Path) -> str | None:
@@ -585,6 +586,7 @@ def get_disk_size(path: Path) -> int:
     if shutil.which("du"):
         result = subprocess.run(
             ["du", "-sk", str(path)],
+            check=False,
             capture_output=True,
             text=True,
             timeout=60,

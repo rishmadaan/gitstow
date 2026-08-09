@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Optional
 
 import typer
 from rich.console import Console
 
+from gitstow.cli.helpers import resolve_workspaces
 from gitstow.core.config import load_config
-from gitstow.core.url_parser import parse_git_url
-from gitstow.core.git import clone as git_clone, is_git_repo, get_remote_url
+from gitstow.core.git import clone as git_clone
+from gitstow.core.git import get_remote_url, is_git_repo
 from gitstow.core.parallel import run_parallel_sync
 from gitstow.core.repo import Repo, RepoStore
-from gitstow.cli.helpers import resolve_workspaces
+from gitstow.core.url_parser import parse_git_url
 
 console = Console()
 err_console = Console(stderr=True)
@@ -39,13 +39,13 @@ def add(
     shallow: bool = typer.Option(
         False, "--shallow", "-s", help="Shallow clone (--depth 1)."
     ),
-    branch: Optional[str] = typer.Option(
+    branch: str | None = typer.Option(
         None, "--branch", "-b", help="Clone specific branch."
     ),
     update: bool = typer.Option(
         False, "--update", "-u", help="Pull if repo already exists."
     ),
-    tag: Optional[list[str]] = typer.Option(
+    tag: list[str] | None = typer.Option(
         None, "--tag", "-t", help="Tag(s) to apply to added repos."
     ),
     recursive: bool = typer.Option(
