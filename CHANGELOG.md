@@ -4,6 +4,12 @@ All notable changes to gitstow will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **MCP server works with both mcp 1.x and 2.x** — the server imports FastMCP from whichever the environment has (2.0 renamed it to `MCPServer`); the temporary `mcp<2` pin is gone. Internal: adopted ruff 0.16's stricter default lint rules (141 fixes; deliberate patterns get configured ignores with reasons) and unpinned ruff.
+
 ## [0.6.1] - 2026-08-09
 
 ### Changed
