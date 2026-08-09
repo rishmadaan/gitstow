@@ -62,15 +62,16 @@
       <h2 class="section">Sixty seconds to a stowed library.</h2>
       <p class="qs-intro">One install, one onboard, and every repo you paste lands exactly where it belongs.</p>
       <div class="tabs">
-        <button class="tab active" data-tab="pipx">pipx <span class="dim">(recommended)</span></button>
-        <button class="tab" data-tab="pip">pip</button>
+        <button class="tab active" data-tab="mac">macOS</button>
+        <button class="tab" data-tab="linux">Linux</button>
+        <button class="tab" data-tab="win">Windows</button>
       </div>
       <div class="tab-cmd">
         <span class="prompt">$</span>
-        <span class="cmd" id="tab-cmd-text">pipx install gitstow</span>
+        <span class="cmd" id="tab-cmd-text">brew install pipx &amp;&amp; pipx install gitstow</span>
         <button class="copy-btn" id="tab-copy">copy</button>
       </div>
-      <p class="pipx-note">No pipx yet? Most Linux distros don't ship it: <code class="code-chip">sudo apt install pipx</code> (Debian/Ubuntu) or <code class="code-chip">brew install pipx</code> (macOS), then you're set.</p>
+      <p class="pipx-note" id="tab-note">Already have pipx? <code class="code-chip">pipx install gitstow</code> alone does it.</p>
       <div class="term-lines">
         <div><span class="prompt">$</span> <span class="cmd">gitstow onboard</span> <span class="comment"># optional first-run wizard, installs the Claude skill too</span></div>
         <div><span class="prompt">$</span> <span class="cmd">gitstow add anthropic/claude-code</span> <span class="comment"># shorthand or full URLs</span></div>
@@ -370,16 +371,33 @@
 </footer>
 
 <script>
-const CMDS = { pipx: 'pipx install gitstow', pip: 'pip install gitstow' };
-let tab = 'pipx';
+const CMDS = {
+  mac:   'brew install pipx && pipx install gitstow',
+  linux: 'sudo apt install pipx && pipx install gitstow',
+  win:   'pip install gitstow',
+};
+const NOTES = {
+  mac:   'Already have pipx? <code class="code-chip">pipx install gitstow</code> alone does it.',
+  linux: 'Not on apt? Fedora: <code class="code-chip">sudo dnf install pipx</code> · Arch: <code class="code-chip">sudo pacman -S pipx</code>. Modern distros block plain pip installs — pipx is the way.',
+  win:   'Needs Python 3.10+ (<a href="https://www.python.org/downloads/">python.org</a> or the Microsoft Store) — pip comes with it.',
+};
+let tab = 'mac';
 
+function selectTab(name) {
+  tab = name;
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.getElementById('tab-cmd-text').textContent = CMDS[name];
+  document.getElementById('tab-note').innerHTML = NOTES[name];
+}
 document.querySelectorAll('.tab').forEach(btn => {
-  btn.addEventListener('click', () => {
-    tab = btn.dataset.tab;
-    document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b === btn));
-    document.getElementById('tab-cmd-text').textContent = CMDS[tab];
-  });
+  btn.addEventListener('click', () => selectTab(btn.dataset.tab));
 });
+
+// Default the tab to the visitor's OS.
+const ua = navigator.userAgent;
+if (/Windows/i.test(ua)) selectTab('win');
+else if (/Linux|X11|CrOS/i.test(ua) && !/Android/i.test(ua)) selectTab('linux');
+else selectTab('mac');
 
 function wireCopy(btn, getCmd) {
   let t;

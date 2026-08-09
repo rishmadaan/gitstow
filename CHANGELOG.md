@@ -4,11 +4,12 @@ All notable changes to gitstow will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.6.1] - 2026-08-09
 
 ### Changed
 
 - **The browser dashboard is now part of the default install** — `pip install gitstow` / `pipx install gitstow` includes `gitstow ui`; the `[ui]` extra is gone (kept as an empty alias so old install commands still work). Site, README, docs, and the Claude skill updated to the bracket-free command, plus a "no pipx? here's how to install it" note for Linux users on the landing page and README.
+- **OS-aware install tabs on gitstow.com** — the quick-start section now shows macOS / Linux / Windows tabs with the right command for each (brew/apt + pipx, plain pip on Windows), defaulting to the visitor's own OS.
 
 ### Added
 
