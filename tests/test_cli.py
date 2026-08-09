@@ -937,7 +937,7 @@ class TestUiExtra:
         monkeypatch.setattr(builtins, "__import__", blocked)
         result = CliRunner().invoke(app, ["ui", "--no-browser"])
         assert result.exit_code == 1
-        assert "gitstow[ui]" in result.output.replace("\\", "")
+        assert "pip install --upgrade gitstow" in result.output
 
 
 class TestFetchCommand:

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Changed
+
+- **The browser dashboard is now part of the default install** — `pip install gitstow` / `pipx install gitstow` includes `gitstow ui`; the `[ui]` extra is gone (kept as an empty alias so old install commands still work). Site, README, docs, and the Claude skill updated to the bracket-free command, plus a "no pipx? here's how to install it" note for Linux users on the landing page and README.
+
 ### Added
 
 - **Marketing site at [gitstow.com](https://gitstow.com)** — static landing page in `site/` (plain HTML/CSS, no build step), auto-deployed via GitHub Pages (`.github/workflows/pages.yml`) on any push to `main` touching `site/**`. Custom domain served through Cloudflare DNS.

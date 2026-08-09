@@ -27,8 +27,9 @@ def ui(
     except ImportError as exc:
         err_console.print(
             f"[red]Error:[/red] Web dependencies not installed: {exc}\n"
-            "The browser dashboard is an optional extra. Install it with:\n"
-            "  [bold]pip install \"gitstow\\[ui]\"[/bold]   (or: pipx install \"gitstow\\[ui]\")"
+            "The dashboard ships with gitstow by default, so this usually means a\n"
+            "partial or outdated install. Reinstall with:\n"
+            "  [bold]pip install --upgrade gitstow[/bold]   (or: pipx upgrade gitstow)"
         )
         raise typer.Exit(code=1)
 

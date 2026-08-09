@@ -285,6 +285,7 @@ h1 {
 .tab-cmd .prompt { color: #545962; user-select: none; }
 .tab-cmd .cmd { color: #eceef1; flex: 1; }
 .tab-cmd .copy-btn { margin-left: 0; padding: 4px 11px; }
+.pipx-note { margin: 10px 0 0; color: #545962; font-size: 13px; max-width: 480px; }
 
 .term-lines {
   margin-top: 16px;

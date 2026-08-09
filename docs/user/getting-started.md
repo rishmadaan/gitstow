@@ -19,16 +19,17 @@ Get gitstow installed and managing repos in about 5 minutes.
 ## 1. Install
 
 ```bash
-pip install gitstow
+pipx install gitstow   # recommended — keeps it isolated
+# or: pip install gitstow
 ```
 
-Want the browser dashboard (`gitstow ui`) too? Add the `[ui]` extra: `pip install "gitstow[ui]"`.
+Every install includes the full product: all CLI commands plus the browser dashboard (`gitstow ui`).
 
-Or with [pipx](https://pipx.pypa.io/) (recommended — keeps it isolated):
+No pipx? Most Linux distros don't ship it by default (and recent Debian/Ubuntu block plain `pip install` into the system Python):
 
 ```bash
-pipx install "gitstow[ui]"   # CLI + browser dashboard
-# or: pipx install gitstow   # CLI only
+sudo apt install pipx   # Debian/Ubuntu
+brew install pipx       # macOS
 ```
 
 Verify it worked:
@@ -166,7 +167,6 @@ This is also done automatically during `gitstow onboard` and auto-updates when y
 ## Prefer a Browser?
 
 ```bash
-pip install "gitstow[ui]"   # only needed if you installed CLI-only above
 gitstow ui
 ```
 

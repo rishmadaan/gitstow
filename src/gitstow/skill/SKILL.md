@@ -43,7 +43,7 @@ gitstow -w active add owner/repo    # clone into a specific workspace
 gitstow --version
 ```
 
-If not installed: suggest `pip install gitstow` or `pipx install gitstow` (add the `[ui]` extra — e.g. `pipx install "gitstow[ui]"` — if they also want the browser dashboard via `gitstow ui`).
+If not installed: suggest `pipx install gitstow` (or `pip install gitstow`). Every install includes the full CLI and the browser dashboard (`gitstow ui`).
 If installed but not configured (no `~/.gitstow/config.yaml`): guide with `gitstow onboard`.
 
 ## Core Principle: Use --json for Machine Output
@@ -223,4 +223,4 @@ An optional MCP server exists (`pip install gitstow[mcp]`, run `gitstow-mcp`) fo
 - Config: `~/.gitstow/config.yaml`
 - Repo metadata: `~/.gitstow/repos.yaml` (central, nested by workspace)
 - Repos: across configured workspaces (default first workspace: `~/oss/`)
-- `gitstow ui` (the browser dashboard) requires the `[ui]` extra — `pip install "gitstow[ui]"` or `pipx install "gitstow[ui]"`. A core-only install (`pip install gitstow`) doesn't include it.
+- `gitstow ui` (the browser dashboard) ships with every install. If it errors about missing web dependencies, the install is partial/outdated — `pip install --upgrade gitstow` fixes it.

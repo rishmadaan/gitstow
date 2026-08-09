@@ -19,8 +19,12 @@ Existing tools solve parts of this:
 ## Quick Start
 
 ```bash
-pipx install "gitstow[ui]"   # recommended — CLI + browser dashboard
-# or: pip install gitstow    # CLI only; add [ui] for the dashboard
+pipx install gitstow   # recommended — full install: CLI + browser dashboard
+# or: pip install gitstow
+
+# No pipx? Most Linux distros don't ship it by default:
+#   sudo apt install pipx      (Debian/Ubuntu)
+#   brew install pipx          (macOS)
 
 # First-run setup (optional — works without it)
 gitstow onboard
@@ -145,7 +149,6 @@ gsp                              # gitstow pull shorthand
 
 ### Browser Dashboard
 ```bash
-pip install "gitstow[ui]"   # if you installed CLI-only
 gitstow ui                  # opens http://127.0.0.1:7853 in your browser
 gitstow ui --port 8080
 gitstow ui --no-browser

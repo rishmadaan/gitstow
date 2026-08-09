@@ -47,8 +47,8 @@
   <div class="cta-row">
     <div class="cmdbar">
       <span class="prompt">$</span>
-      <span class="cmd">pipx install "gitstow[ui]"</span>
-      <button class="copy-btn" data-copy='pipx install "gitstow[ui]"'>copy</button>
+      <span class="cmd">pipx install gitstow</span>
+      <button class="copy-btn" data-copy='pipx install gitstow'>copy</button>
     </div>
     <a class="solid-btn" href="https://github.com/rishmadaan/gitstow">Star on GitHub ↗</a>
   </div>
@@ -64,13 +64,13 @@
       <div class="tabs">
         <button class="tab active" data-tab="pipx">pipx <span class="dim">(recommended)</span></button>
         <button class="tab" data-tab="pip">pip</button>
-        <button class="tab" data-tab="cli">CLI only</button>
       </div>
       <div class="tab-cmd">
         <span class="prompt">$</span>
-        <span class="cmd" id="tab-cmd-text">pipx install "gitstow[ui]"</span>
+        <span class="cmd" id="tab-cmd-text">pipx install gitstow</span>
         <button class="copy-btn" id="tab-copy">copy</button>
       </div>
+      <p class="pipx-note">No pipx yet? Most Linux distros don't ship it: <code class="code-chip">sudo apt install pipx</code> (Debian/Ubuntu) or <code class="code-chip">brew install pipx</code> (macOS), then you're set.</p>
       <div class="term-lines">
         <div><span class="prompt">$</span> <span class="cmd">gitstow onboard</span> <span class="comment"># optional first-run wizard, installs the Claude skill too</span></div>
         <div><span class="prompt">$</span> <span class="cmd">gitstow add anthropic/claude-code</span> <span class="comment"># shorthand or full URLs</span></div>
@@ -325,8 +325,8 @@
     <p>Your future self — and your agents — will thank you.</p>
     <div class="cmdbar">
       <span class="prompt">$</span>
-      <span class="cmd">pipx install "gitstow[ui]"</span>
-      <button class="copy-btn" data-copy='pipx install "gitstow[ui]"'>copy</button>
+      <span class="cmd">pipx install gitstow</span>
+      <button class="copy-btn" data-copy='pipx install gitstow'>copy</button>
     </div>
   </div>
 </section>
@@ -370,7 +370,7 @@
 </footer>
 
 <script>
-const CMDS = { pipx: 'pipx install "gitstow[ui]"', pip: 'pip install "gitstow[ui]"', cli: 'pip install gitstow' };
+const CMDS = { pipx: 'pipx install gitstow', pip: 'pip install gitstow' };
 let tab = 'pipx';
 
 document.querySelectorAll('.tab').forEach(btn => {
