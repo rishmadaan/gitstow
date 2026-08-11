@@ -135,7 +135,7 @@ def onboard(
     save_config(settings)
     console.print(f"  [green]✓[/green] Config saved to {CONFIG_FILE}\n")
 
-    # 5. Create directories and scan
+    # Create directories and scan
     for ws in settings.workspaces:
         ws_path = ws.get_path()
         if not ws_path.exists():
@@ -146,7 +146,7 @@ def onboard(
         if ws_path.exists():
             _scan_workspace_repos(ws)
 
-    # 6. AI integration setup
+    # 5. AI integration setup
     from gitstow.cli.setup_ai import _setup_ai_integrations
     _setup_ai_integrations()
 

@@ -6,7 +6,7 @@ import typer
 from rich.console import Console
 
 from gitstow.core.config import load_config
-from gitstow.core.tailscale import detect_tailscale
+from gitstow.core.tailscale import detect_tailscale, tailscale_available
 
 console = Console()
 err_console = Console(stderr=True)
@@ -50,10 +50,15 @@ def ui(
     extra_allowed: set[str] | None = None
     ts_url: str | None = None
     if want_tailscale:
-        info = detect_tailscale()
+        installed = tailscale_available()
+        info = detect_tailscale() if installed else None
         # A loopback "tailnet" IP would bind the same addr:port twice (EADDRINUSE),
         # so treat it exactly like detection failure.
-        if info is None:
+        if not installed:
+            err_console.print(
+                "[yellow]⚠ Tailscale CLI not found[/yellow] — serving localhost only."
+            )
+        elif info is None:
             err_console.print(
                 "[yellow]⚠ Tailscale not reachable[/yellow] — is tailscaled running? "
                 "Serving localhost only."
@@ -67,7 +72,9 @@ def ui(
             # The Host guard compares against urlparse().hostname, which lowercases.
             dns = info.dns_name.lower()
             extra_host = info.ip
-            extra_allowed = {info.ip} | ({dns} if dns else set())
+            # MagicDNS pushes the tailnet search domain, so peers browse the bare
+            # machine name ("http://vps:7853") — allow it alongside the FQDN.
+            extra_allowed = {info.ip} | ({dns, dns.split(".")[0]} if dns else set())
             ts_url = f"http://{dns or info.ip}:{port}"
 
     console.print(

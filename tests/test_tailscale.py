@@ -77,3 +77,19 @@ def test_detect_survives_bad_status_json(monkeypatch):
     assert info is not None
     assert info.ip == "100.101.102.103"
     assert info.dns_name == ""
+
+
+def test_slow_status_does_not_discard_ip(monkeypatch):
+    # `status --json` times out on a large tailnet — the IP we already have stands
+    monkeypatch.setattr(tailscale.shutil, "which", lambda _: "/usr/bin/tailscale")
+
+    def fake_run(cmd, **kwargs):
+        if cmd[:3] == ["tailscale", "ip", "-4"]:
+            return _completed(stdout="100.101.102.103\n")
+        raise subprocess.TimeoutExpired(cmd, 3)
+
+    monkeypatch.setattr(tailscale.subprocess, "run", fake_run)
+    info = tailscale.detect_tailscale()
+    assert info is not None
+    assert info.ip == "100.101.102.103"
+    assert info.dns_name == ""

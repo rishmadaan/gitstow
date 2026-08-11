@@ -9,7 +9,7 @@ route can flip should_exit.
 from __future__ import annotations
 
 import socket
-import sys
+import threading
 import webbrowser
 from pathlib import Path
 from urllib.parse import urlparse
@@ -19,8 +19,11 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from rich.console import Console
 
 from gitstow import __version__
+
+_err_console = Console(stderr=True)
 
 # Package paths
 _PACKAGE_DIR = Path(__file__).parent
@@ -66,8 +69,13 @@ _ALLOWED_HOSTNAMES = {"127.0.0.1", "localhost", "::1"}
 def _header_hostname(value: str | None) -> str | None:
     if not value:
         return None
-    parsed = urlparse(value if "://" in value else f"//{value}")
-    return parsed.hostname
+    try:
+        parsed = urlparse(value if "://" in value else f"//{value}")
+        return parsed.hostname
+    except ValueError:
+        # Malformed header (e.g. "[::1" — unterminated IPv6). "" is never in the
+        # allowed set, so the request 403s; None would mean "header absent → pass".
+        return ""
 
 
 def create_app(extra_allowed_hostnames: set[str] | None = None) -> FastAPI:
@@ -151,7 +159,11 @@ def run(
     if open_browser:
         @app.on_event("startup")
         async def _open_browser_on_start() -> None:
-            webbrowser.open(f"http://{host}:{port}")
+            # In a thread: with a console browser registered (lynx/w3m on
+            # headless boxes) webbrowser.open() blocks the event loop.
+            threading.Thread(
+                target=webbrowser.open, args=(f"http://{host}:{port}",), daemon=True
+            ).start()
 
     config = uvicorn.Config(
         app,
@@ -171,10 +183,9 @@ def run(
         except OSError as exc:
             # userspace-networking tailscaled reports an IP it cannot bind
             # (EADDRNOTAVAIL). Degrade to localhost-only on the socket we hold.
-            print(
-                f"⚠ Could not bind Tailscale address {extra_host}: {exc} — "
-                "serving localhost only.",
-                file=sys.stderr,
+            _err_console.print(
+                f"[yellow]⚠ Could not bind Tailscale address {extra_host}[/yellow]: "
+                f"{exc} — serving localhost only."
             )
             server.run(sockets=[lo_sock])
         else:

@@ -214,6 +214,8 @@ cat /tmp/repos.txt | gitstow add --quiet --json
 
 `gitstow ui` launches a local dark-themed web dashboard at `http://127.0.0.1:7853` — the user's preferred daily interface. If the user says "open the dashboard" or "show me my library visually," tell them to run `gitstow ui`. You still use the CLI via Bash; the browser UI is for human use.
 
+On a VPS or headless machine, tell them to run `gitstow ui --tailscale` (or `gitstow config set ui_tailscale true` once, to make it the default): the dashboard is then also served on that machine's Tailscale address, so they can open it from another device on their tailnet. It never binds `0.0.0.0` — if Tailscale isn't available it warns and stays localhost-only.
+
 ## Note on MCP Server
 
 An optional MCP server exists (`pip install gitstow[mcp]`, run `gitstow-mcp`) for AI tools that can't run CLI commands (Claude Desktop, Cursor). **You don't need it** — this skill gives you full access to all gitstow commands via Bash. The MCP server provides the same operations but costs tokens in every conversation even when idle.
