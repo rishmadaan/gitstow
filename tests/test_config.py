@@ -199,3 +199,47 @@ class TestMigrateRoot:
     def test_config_set_rejects_root_path_without_advertising_it(self):
         from gitstow.cli.config_cmd import config_set
         assert "root_path" not in (config_set.__doc__ or "")
+
+
+class TestUiTailscaleSetting:
+    def test_default_false(self):
+        from gitstow.core.config import Settings
+        assert Settings().ui_tailscale is False
+
+    def test_round_trips_through_dict(self):
+        from gitstow.core.config import Settings
+        s = Settings(ui_tailscale=True)
+        assert s.to_dict()["ui_tailscale"] is True
+        assert Settings.from_dict(s.to_dict()).ui_tailscale is True
+
+    def test_from_dict_missing_key_defaults_false(self):
+        from gitstow.core.config import Settings
+        assert Settings.from_dict({}).ui_tailscale is False
+
+
+class TestConfigSetUiTailscale:
+    def test_set_true(self, monkeypatch):
+        from typer.testing import CliRunner
+
+        from gitstow.cli import config_cmd
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings
+
+        saved = []
+        monkeypatch.setattr(config_cmd, "load_config", lambda: Settings())
+        monkeypatch.setattr(config_cmd, "save_config", saved.append)
+
+        result = CliRunner().invoke(app, ["config", "set", "ui_tailscale", "true"])
+        assert result.exit_code == 0
+        assert saved[0].ui_tailscale is True
+
+    def test_set_garbage_rejected(self, monkeypatch):
+        from typer.testing import CliRunner
+
+        from gitstow.cli import config_cmd
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings
+
+        monkeypatch.setattr(config_cmd, "load_config", lambda: Settings())
+        result = CliRunner().invoke(app, ["config", "set", "ui_tailscale", "maybe"])
+        assert result.exit_code == 1

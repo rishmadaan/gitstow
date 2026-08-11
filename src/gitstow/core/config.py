@@ -57,6 +57,7 @@ class Settings:
     prefer_ssh: bool = False
     parallel_limit: int = 6
     clone_timeout: int = 300  # seconds; large repos may need more
+    ui_tailscale: bool = False  # serve `gitstow ui` on the tailnet address too
 
     # Legacy field — only used for migration from pre-workspace configs
     root_path: str = ""
@@ -91,6 +92,7 @@ class Settings:
             "prefer_ssh": self.prefer_ssh,
             "parallel_limit": self.parallel_limit,
             "clone_timeout": self.clone_timeout,
+            "ui_tailscale": self.ui_tailscale,
         }
         # Don't serialize root_path if workspaces are configured
         if not self.workspaces and self.root_path:
@@ -107,6 +109,7 @@ class Settings:
             prefer_ssh=data.get("prefer_ssh", False),
             parallel_limit=data.get("parallel_limit", 6),
             clone_timeout=data.get("clone_timeout", 300),
+            ui_tailscale=data.get("ui_tailscale", False),
             root_path=data.get("root_path", ""),
         )
 

@@ -45,6 +45,7 @@ def config_show(
         ("prefer_ssh", str(settings.prefer_ssh).lower()),
         ("parallel_limit", str(settings.parallel_limit)),
         ("clone_timeout", str(settings.clone_timeout)),
+        ("ui_tailscale", str(settings.ui_tailscale).lower()),
     ]
 
     max_label = max(len(r[0]) for r in rows)
@@ -71,7 +72,9 @@ def config_show(
 
 @config_app.command("set")
 def config_set(
-    key: str = typer.Argument(help="Setting key (default_host, prefer_ssh, parallel_limit, clone_timeout)."),
+    key: str = typer.Argument(
+        help="Setting key (default_host, prefer_ssh, parallel_limit, clone_timeout, ui_tailscale)."
+    ),
     value: str = typer.Argument(help="New value."),
 ) -> None:
     """Set a configuration value.
@@ -82,13 +85,14 @@ def config_set(
       gitstow config set prefer_ssh true
       gitstow config set parallel_limit 8
       gitstow config set clone_timeout 900
+      gitstow config set ui_tailscale true
 
     Workspace paths are managed with 'gitstow workspace add/remove'
     and 'gitstow config migrate-root'.
     """
     settings = load_config()
 
-    valid_keys = {"default_host", "prefer_ssh", "parallel_limit", "clone_timeout"}
+    valid_keys = {"default_host", "prefer_ssh", "parallel_limit", "clone_timeout", "ui_tailscale"}
     if key not in valid_keys:
         err_console.print(
             f"[red]Error:[/red] Unknown key '{key}'. Valid keys: {', '.join(sorted(valid_keys))}\n"
@@ -96,13 +100,13 @@ def config_set(
         )
         raise typer.Exit(code=1)
 
-    if key == "prefer_ssh":
+    if key in ("prefer_ssh", "ui_tailscale"):
         if value.lower() in ("true", "yes", "1"):
             setattr(settings, key, True)
         elif value.lower() in ("false", "no", "0"):
             setattr(settings, key, False)
         else:
-            err_console.print("[red]Error:[/red] prefer_ssh must be true or false.")
+            err_console.print(f"[red]Error:[/red] {key} must be true or false.")
             raise typer.Exit(code=1)
     elif key in ("parallel_limit", "clone_timeout"):
         try:
