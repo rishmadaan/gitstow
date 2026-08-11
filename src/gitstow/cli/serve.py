@@ -53,10 +53,15 @@ def ui(
         info = detect_tailscale()
         # A loopback "tailnet" IP would bind the same addr:port twice (EADDRINUSE),
         # so treat it exactly like detection failure.
-        if info is None or info.ip == "127.0.0.1":
+        if info is None:
             err_console.print(
                 "[yellow]⚠ Tailscale not reachable[/yellow] — is tailscaled running? "
                 "Serving localhost only."
+            )
+        elif info.ip == "127.0.0.1":
+            err_console.print(
+                "[yellow]⚠ Tailscale reported a loopback address[/yellow] — "
+                "serving localhost only."
             )
         else:
             # The Host guard compares against urlparse().hostname, which lowercases.

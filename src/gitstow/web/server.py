@@ -9,6 +9,7 @@ route can flip should_exit.
 from __future__ import annotations
 
 import socket
+import sys
 import webbrowser
 from pathlib import Path
 from urllib.parse import urlparse
@@ -74,8 +75,9 @@ def create_app(extra_allowed_hostnames: set[str] | None = None) -> FastAPI:
 
     extra_allowed_hostnames widens the Host/Origin guard — used for the
     machine's own Tailscale IP and MagicDNS name. Everything else still 403s.
-    Entries must be lowercase with no trailing dot: they are compared against
-    urlparse().hostname, which lowercases and strips the dot.
+    Entries must be lowercase AND carry no trailing dot: they are compared
+    against urlparse().hostname, which only lowercases — it does not strip a
+    trailing dot. (detect_tailscale() strips it at the producer.)
     """
     allowed_hostnames = _ALLOWED_HOSTNAMES | (extra_allowed_hostnames or set())
 
@@ -159,7 +161,19 @@ def run(
     server = uvicorn.Server(config)
     app.state.server = server
     if extra_host:
-        sockets = [_bind_socket(host, port), _bind_socket(extra_host, port)]
-        server.run(sockets=sockets)
+        lo_sock = _bind_socket(host, port)
+        try:
+            extra_sock = _bind_socket(extra_host, port)
+        except OSError as exc:
+            # userspace-networking tailscaled reports an IP it cannot bind
+            # (EADDRNOTAVAIL). Degrade to localhost-only on the socket we hold.
+            print(
+                f"⚠ Could not bind Tailscale address {extra_host}: {exc} — "
+                "serving localhost only.",
+                file=sys.stderr,
+            )
+            server.run(sockets=[lo_sock])
+        else:
+            server.run(sockets=[lo_sock, extra_sock])
     else:
         server.run()

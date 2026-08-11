@@ -1365,6 +1365,29 @@ class TestDualSocketRun:
         for s in captured["sockets"]:
             s.close()
 
+    def test_extra_host_bind_failure_degrades_to_localhost(self, monkeypatch):
+        """userspace tailscaled reports an unbindable IP — must not crash."""
+        import uvicorn
+
+        from gitstow.web import server as server_mod
+
+        captured = {}
+        real_bind = server_mod._bind_socket
+
+        def flaky_bind(host, port):
+            if host != "127.0.0.1":
+                raise OSError(99, "Cannot assign requested address")
+            return real_bind(host, port)
+
+        monkeypatch.setattr(server_mod, "_bind_socket", flaky_bind)
+        monkeypatch.setattr(
+            uvicorn.Server, "run", lambda self, sockets=None: captured.update(sockets=sockets)
+        )
+        server_mod.run(port=0, open_browser=False, extra_host="100.99.99.99")
+        assert len(captured["sockets"]) == 1
+        assert captured["sockets"][0].getsockname()[0] == "127.0.0.1"
+        captured["sockets"][0].close()
+
     def test_run_without_extra_host_passes_no_sockets(self, monkeypatch):
         import uvicorn
 
@@ -1492,6 +1515,9 @@ class TestUiTailscaleFlag:
         assert result.exit_code == 0
         assert captured["extra_host"] is None
         assert captured["extra_allowed_hostnames"] is None
+        # distinct from detection failure — don't send users to restart a healthy daemon
+        assert "loopback" in result.output
+        assert "tailscaled running" not in result.output
 
     def test_mixed_case_magicdns_is_lowercased(self, monkeypatch):
         """The Host guard compares against urlparse().hostname (lowercased), so
