@@ -1332,3 +1332,51 @@ class TestTailscaleHostGuard:
             headers={"host": f"{self.TS_IP}:7853", "origin": "http://evil.example.com"},
         )
         assert r.status_code == 403
+
+
+class TestDualSocketRun:
+    def test_bind_socket_binds_requested_host(self):
+        from gitstow.web import server as server_mod
+
+        sock = server_mod._bind_socket("127.0.0.1", 0)
+        try:
+            addr, port = sock.getsockname()
+            assert addr == "127.0.0.1"
+            assert port > 0
+        finally:
+            sock.close()
+
+    def test_run_with_extra_host_passes_two_sockets(self, monkeypatch):
+        import uvicorn
+
+        from gitstow.web import server as server_mod
+
+        captured = {}
+
+        def fake_run(self, sockets=None):
+            captured["sockets"] = sockets
+
+        monkeypatch.setattr(uvicorn.Server, "run", fake_run)
+        # extra_host=127.0.0.1 with port 0: two distinct ephemeral binds — fine
+        # for asserting socket plumbing without a live tailnet.
+        server_mod.run(port=0, open_browser=False, extra_host="127.0.0.1")
+        assert captured["sockets"] is not None
+        assert len(captured["sockets"]) == 2
+        for s in captured["sockets"]:
+            s.close()
+
+    def test_run_without_extra_host_passes_no_sockets(self, monkeypatch):
+        import uvicorn
+
+        from gitstow.web import server as server_mod
+
+        captured = {"called": False}
+
+        def fake_run(self, sockets=None):
+            captured["called"] = True
+            captured["sockets"] = sockets
+
+        monkeypatch.setattr(uvicorn.Server, "run", fake_run)
+        server_mod.run(port=0, open_browser=False)
+        assert captured["called"] is True
+        assert captured["sockets"] is None

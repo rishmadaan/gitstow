@@ -1,12 +1,14 @@
 """FastAPI server entrypoint for `gitstow ui`.
 
-Binds to 127.0.0.1 only (arbitrary git execution must not be LAN-reachable).
+Binds 127.0.0.1, plus optionally the machine's own Tailscale address
+(never 0.0.0.0).
 Stashes the uvicorn.Server instance on app.state.server so the /shutdown
 route can flip should_exit.
 """
 
 from __future__ import annotations
 
+import socket
 import webbrowser
 from pathlib import Path
 from urllib.parse import urlparse
@@ -72,6 +74,8 @@ def create_app(extra_allowed_hostnames: set[str] | None = None) -> FastAPI:
 
     extra_allowed_hostnames widens the Host/Origin guard — used for the
     machine's own Tailscale IP and MagicDNS name. Everything else still 403s.
+    Entries must be lowercase with no trailing dot: they are compared against
+    urlparse().hostname, which lowercases and strips the dot.
     """
     allowed_hostnames = _ALLOWED_HOSTNAMES | (extra_allowed_hostnames or set())
 
@@ -109,17 +113,34 @@ def create_app(extra_allowed_hostnames: set[str] | None = None) -> FastAPI:
     return app
 
 
+def _bind_socket(host: str, port: int) -> socket.socket:
+    """Create a bound TCP socket the way uvicorn's own Config.bind_socket does.
+
+    uvicorn accepts pre-bound sockets via Server.run(sockets=...); asyncio
+    calls listen() itself when the server starts.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind((host, port))
+    sock.set_inheritable(True)
+    return sock
+
+
 def run(
     host: str = "127.0.0.1",
     port: int = 7853,
     open_browser: bool = True,
+    extra_host: str | None = None,
+    extra_allowed_hostnames: set[str] | None = None,
 ) -> None:
     """Run the gitstow server. Blocks until Ctrl+C or /shutdown.
 
     Constructs uvicorn.Config + Server explicitly (not uvicorn.run) so the
     Server instance can be stashed on app.state for the /shutdown route.
+    With extra_host set (Tailscale), listens on host AND extra_host on the
+    same port via two pre-bound sockets.
     """
-    app = create_app()
+    app = create_app(extra_allowed_hostnames=extra_allowed_hostnames)
 
     if open_browser:
         @app.on_event("startup")
@@ -137,4 +158,8 @@ def run(
     )
     server = uvicorn.Server(config)
     app.state.server = server
-    server.run()
+    if extra_host:
+        sockets = [_bind_socket(host, port), _bind_socket(extra_host, port)]
+        server.run(sockets=sockets)
+    else:
+        server.run()
