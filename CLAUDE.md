@@ -116,6 +116,8 @@ ruff check src/
 
 - **Worktree gotcha:** tests run from a git worktree silently exercise the main checkout (the editable install points at the primary clone). From a worktree, run `PYTHONPATH=<worktree>/src .venv/bin/python -m pytest -q`.
 - **Releasing publishes to PyPI.** `scripts/release.sh X.Y.Z` tags and pushes; the tag triggers a public PyPI publish. Require the user's explicit in-session instruction to release — plan approval or a "let's go" on implementation does not cover it.
+- **Lint with CI's ruff, not the venv's.** CI installs fresh (`ruff>=0.16` floor); the local venv keeps whatever was installed last. Before trusting "ruff clean" ahead of a push or release, compare `ruff --version` to the pyproject floor and `pip install -U ruff` if older (this blocked the v0.7.0 publish).
+- **Pressure-test before merging a feature branch.** Run `/code-review <PR#> high` and fix confirmed findings before merge — plan-scoped task reviews and even a clean whole-branch review do not count as the pressure test (on v0.7.0 it found 10 real issues after both were green).
 
 ## Patterns
 
@@ -135,6 +137,7 @@ ruff check src/
 - Prefer proper long-term solutions over shortcut patches. If a feature is incomplete in one surface, build the feature into that surface instead of papering over it with wording, partial conditionals, or one-off display logic.
 - Do not recommend quick fixes, temporary patches, or narrow workarounds unless the user explicitly asks for a shortcut.
 - Keep CLI, web dashboard, JSON output, docs, and tests semantically aligned when changing user-facing status behavior.
+- **Feature scope includes every surface that states the behavior.** A user-facing feature plan must carry, as explicit in-scope tasks: README, CHANGELOG, `docs/user/commands.md`, `src/gitstow/skill/SKILL.md`, and the landing page (`site/`) with core-feature billing. Enumerate the surfaces by grepping the repo for the old behavior's claim (e.g. `grep -rn "127.0.0.1" --include="*.md" --include="*.html"`) during planning — every hit becomes a plan task. Reviews inherit the plan's surface list, so a surface missed at planning stays stale through every review.
 - For repo state presentation, avoid using "dirty" as a broad user-facing bucket for every local change. Present it as local/uncommitted changes with the composition visible: modified, staged, and untracked counts.
 - Keep local working-tree state separate from remote relationship state. For example: local changes, clean, ahead, behind, diverged, frozen, missing.
 - When improving the web dashboard, implement the actual missing dashboard feature and shared classification/model behavior instead of copying a CLI-only assumption into the template.
