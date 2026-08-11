@@ -1380,3 +1380,115 @@ class TestDualSocketRun:
         server_mod.run(port=0, open_browser=False)
         assert captured["called"] is True
         assert captured["sockets"] is None
+
+
+# ---------- gitstow ui --tailscale wiring ----------
+
+
+class TestUiTailscaleFlag:
+    """CLI wiring: flag > config > off; graceful fallback when detection fails."""
+
+    def _invoke(self, monkeypatch, args, ui_tailscale_cfg=False, detect_result="ok"):
+        from typer.testing import CliRunner
+
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings
+        from gitstow.core.tailscale import TailscaleInfo
+
+        captured = {}
+
+        def fake_run(**kwargs):
+            captured.update(kwargs)
+
+        monkeypatch.setattr("gitstow.web.server.run", fake_run)
+        monkeypatch.setattr(
+            "gitstow.cli.serve.load_config",
+            lambda: Settings(ui_tailscale=ui_tailscale_cfg),
+        )
+        info = (
+            TailscaleInfo(ip="100.101.102.103", dns_name="vps.tail1234.ts.net")
+            if detect_result == "ok"
+            else None
+        )
+        monkeypatch.setattr("gitstow.cli.serve.detect_tailscale", lambda: info)
+        result = CliRunner().invoke(app, ["ui", "--no-browser", *args])
+        return result, captured
+
+    def test_flag_enables_tailscale(self, monkeypatch):
+        result, captured = self._invoke(monkeypatch, ["--tailscale"])
+        assert result.exit_code == 0
+        assert captured["extra_host"] == "100.101.102.103"
+        assert captured["extra_allowed_hostnames"] == {
+            "100.101.102.103", "vps.tail1234.ts.net",
+        }
+
+    def test_config_enables_tailscale_without_flag(self, monkeypatch):
+        result, captured = self._invoke(monkeypatch, [], ui_tailscale_cfg=True)
+        assert result.exit_code == 0
+        assert captured["extra_host"] == "100.101.102.103"
+
+    def test_no_tailscale_flag_overrides_config(self, monkeypatch):
+        result, captured = self._invoke(
+            monkeypatch, ["--no-tailscale"], ui_tailscale_cfg=True
+        )
+        assert result.exit_code == 0
+        assert captured["extra_host"] is None
+
+    def test_default_is_localhost_only(self, monkeypatch):
+        result, captured = self._invoke(monkeypatch, [])
+        assert result.exit_code == 0
+        assert captured["extra_host"] is None
+
+    def test_detection_failure_falls_back_to_localhost(self, monkeypatch):
+        result, captured = self._invoke(
+            monkeypatch, ["--tailscale"], detect_result="fail"
+        )
+        assert result.exit_code == 0  # must NOT crash
+        assert captured["extra_host"] is None
+
+    def test_tailscale_url_printed(self, monkeypatch):
+        result, _ = self._invoke(monkeypatch, ["--tailscale"])
+        assert "vps.tail1234.ts.net" in result.output
+
+    def test_dns_nameless_tailnet_uses_ip(self, monkeypatch):
+        from gitstow.core.tailscale import TailscaleInfo
+
+        monkeypatch_info = TailscaleInfo(ip="100.101.102.103", dns_name="")
+        from typer.testing import CliRunner
+
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings
+
+        captured = {}
+        monkeypatch.setattr("gitstow.web.server.run", lambda **kw: captured.update(kw))
+        monkeypatch.setattr(
+            "gitstow.cli.serve.load_config", lambda: Settings()
+        )
+        monkeypatch.setattr(
+            "gitstow.cli.serve.detect_tailscale", lambda: monkeypatch_info
+        )
+        result = CliRunner().invoke(app, ["ui", "--no-browser", "--tailscale"])
+        assert result.exit_code == 0
+        assert captured["extra_allowed_hostnames"] == {"100.101.102.103"}
+        assert "100.101.102.103" in result.output
+
+    def test_degenerate_loopback_detection_falls_back(self, monkeypatch):
+        """A tailscale IP of 127.0.0.1 would double-bind the same addr:port
+        (EADDRINUSE) — treat it as detection failure, localhost only."""
+        from typer.testing import CliRunner
+
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings
+        from gitstow.core.tailscale import TailscaleInfo
+
+        captured = {}
+        monkeypatch.setattr("gitstow.web.server.run", lambda **kw: captured.update(kw))
+        monkeypatch.setattr("gitstow.cli.serve.load_config", lambda: Settings())
+        monkeypatch.setattr(
+            "gitstow.cli.serve.detect_tailscale",
+            lambda: TailscaleInfo(ip="127.0.0.1", dns_name="me.ts.net"),
+        )
+        result = CliRunner().invoke(app, ["ui", "--no-browser", "--tailscale"])
+        assert result.exit_code == 0
+        assert captured["extra_host"] is None
+        assert captured["extra_allowed_hostnames"] is None

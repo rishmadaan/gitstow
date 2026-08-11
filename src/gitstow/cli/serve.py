@@ -5,6 +5,9 @@ from __future__ import annotations
 import typer
 from rich.console import Console
 
+from gitstow.core.config import load_config
+from gitstow.core.tailscale import detect_tailscale
+
 console = Console()
 err_console = Console(stderr=True)
 
@@ -14,16 +17,25 @@ def ui(
     no_browser: bool = typer.Option(
         False, "--no-browser", help="Don't auto-open a browser window."
     ),
+    tailscale: bool | None = typer.Option(
+        None,
+        "--tailscale/--no-tailscale",
+        help="Also serve on this machine's Tailscale address "
+        "(default: the ui_tailscale config setting).",
+    ),
 ) -> None:
     """[bold cyan]ui[/bold cyan] — launch the gitstow web dashboard.
 
-    Runs a localhost-only HTTP server at [bold]http://127.0.0.1:PORT[/bold].
+    Runs an HTTP server at [bold]http://127.0.0.1:PORT[/bold] — and, with
+    [bold]--tailscale[/bold] (or [bold]config set ui_tailscale true[/bold]),
+    simultaneously on this machine's Tailscale address so other devices on
+    your tailnet can reach it. Never binds 0.0.0.0.
     Press [bold]Ctrl+C[/bold] to stop, or click [bold]Shutdown[/bold] in
-    the UI footer. The browser opens automatically unless [bold]--no-browser[/bold]
-    is given.
+    the UI footer. The browser opens automatically unless
+    [bold]--no-browser[/bold] is given.
     """
     try:
-        from gitstow.web.server import run
+        from gitstow.web import server as web_server
     except ImportError as exc:
         err_console.print(
             f"[red]Error:[/red] Web dependencies not installed: {exc}\n"
@@ -33,12 +45,38 @@ def ui(
         )
         raise typer.Exit(code=1)
 
+    want_tailscale = tailscale if tailscale is not None else load_config().ui_tailscale
+    extra_host: str | None = None
+    extra_allowed: set[str] | None = None
+    ts_url: str | None = None
+    if want_tailscale:
+        info = detect_tailscale()
+        # A loopback "tailnet" IP would bind the same addr:port twice (EADDRINUSE),
+        # so treat it exactly like detection failure.
+        if info is None or info.ip == "127.0.0.1":
+            err_console.print(
+                "[yellow]⚠ Tailscale not reachable[/yellow] — is tailscaled running? "
+                "Serving localhost only."
+            )
+        else:
+            # The Host guard compares against urlparse().hostname, which lowercases.
+            dns = info.dns_name.lower()
+            extra_host = info.ip
+            extra_allowed = {info.ip} | ({dns} if dns else set())
+            ts_url = f"http://{dns or info.ip}:{port}"
+
     console.print(
         f"[dim]starting[/dim] [bold]http://127.0.0.1:{port}[/bold] "
-        "[dim]— Ctrl+C to stop[/dim]"
+        + (f"[dim]+[/dim] [bold]{ts_url}[/bold] " if ts_url else "")
+        + "[dim]— Ctrl+C to stop[/dim]"
     )
     try:
-        run(port=port, open_browser=not no_browser)
+        web_server.run(
+            port=port,
+            open_browser=not no_browser,
+            extra_host=extra_host,
+            extra_allowed_hostnames=extra_allowed,
+        )
     except OSError as exc:
         if "Address already in use" in str(exc) or "address already in use" in str(exc).lower():
             err_console.print(
