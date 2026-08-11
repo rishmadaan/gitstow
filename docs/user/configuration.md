@@ -40,6 +40,8 @@ gitstow onboard
 | `default_host` | `github.com` | Assumed host when you type shorthand like `owner/repo`. |
 | `prefer_ssh` | `false` | If `true`, clones via SSH (`git@host:owner/repo.git`) instead of HTTPS. |
 | `parallel_limit` | `6` | Maximum concurrent git operations during `pull` and `status`. |
+| `clone_timeout` | `300` | Seconds before a clone is abandoned. Raise it for very large repos. |
+| `ui_tailscale` | `false` | If `true`, `gitstow ui` also serves the dashboard on this machine's Tailscale address. See [Web Dashboard over Tailscale](#web-dashboard-over-tailscale). |
 
 ## File Locations
 
@@ -61,6 +63,8 @@ workspaces:
 default_host: github.com
 prefer_ssh: false
 parallel_limit: 6
+clone_timeout: 300
+ui_tailscale: false
 ```
 
 Each workspace entry has:
@@ -162,6 +166,32 @@ If you see SSH connection errors during bulk pulls, lower it:
 ```bash
 gitstow config set parallel_limit 3
 ```
+
+## Web Dashboard over Tailscale
+
+By default the dashboard (`gitstow ui`) binds `127.0.0.1` only. On a VPS or
+home server you can also serve it on the machine's own Tailscale address, so
+any device on your tailnet can open it:
+
+```bash
+gitstow config set ui_tailscale true   # every gitstow ui from now on
+gitstow ui --tailscale                 # or per-run (--no-tailscale to skip once)
+```
+
+The same setting can be flipped from the dashboard's own **Settings** page,
+and `gitstow onboard` offers it during setup when Tailscale is installed.
+
+Things worth knowing:
+
+- The setting applies when the server starts (that's when the socket binds).
+  Toggling it in the dashboard saves the config and tells you to restart
+  `gitstow ui` — it never pretends to change the running server.
+- It never binds `0.0.0.0`. The trust boundary is your tailnet: traffic is
+  WireGuard-encrypted, and anyone on your tailnet can reach the dashboard.
+- The startup message prints the tailnet URL as `http://<tailscale-ip>:7853`.
+  The MagicDNS name works too if you type it.
+- If Tailscale isn't installed or the daemon isn't running, `gitstow ui`
+  warns and serves localhost only — it never fails to start over this.
 
 ## MCP Server (Optional)
 

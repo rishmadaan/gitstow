@@ -39,6 +39,7 @@ src/gitstow/
 │   ├── status_model.py  # Shared repo-state classifier — local composition vs remote relationship
 │   ├── operations.py    # Shared filter + bulk-runner layer (pull/fetch/MCP)
 │   ├── locking.py       # Cross-process file lock guarding repos.yaml writes
+│   ├── tailscale.py     # Tailscale CLI detection (tailnet IP + MagicDNS) for ui --tailscale
 │   └── __init__.py
 ├── web/          # FastAPI browser dashboard (gitstow ui)
 │   ├── server.py          # FastAPI app, uvicorn runner, app.state.server stash
@@ -66,13 +67,14 @@ src/gitstow/
 - `core/status_model.py` — `RepoState` — the single source of truth for local (modified/staged/untracked) vs remote (in-sync/ahead/behind/diverged) classification, consumed by CLI, web, and JSON.
 - `core/operations.py` — Shared `filter_repo_pairs()` + bulk-runner used by `pull`, `fetch`, and the MCP server so surfaces can't drift.
 - `core/locking.py` — `file_lock()` cross-process advisory lock guarding `repos.yaml` against concurrent CLI/web writes.
+- `core/tailscale.py` — `detect_tailscale()` / `tailscale_available()`. Shells out to the `tailscale` CLI (3s timeouts, None on any failure). Powers `gitstow ui --tailscale`: `web/server.py` binds the tailnet IP as a second socket and widens the Host/Origin guard by exact match to the machine's own tailnet identity only — never `0.0.0.0`. Every failure mode degrades to localhost-only with a warning.
 - `cli/helpers.py` — Shared workspace resolution used by all CLI commands.
 - `cli/workspace_cmd.py` — workspace list/add/remove/scan subcommands.
 - `cli/main.py` — Typer app, global `-w/--workspace` option, command registration.
 
 ## Data Files
 
-- `~/.gitstow/config.yaml` — Settings (workspaces list, default host, SSH pref).
+- `~/.gitstow/config.yaml` — Settings (workspaces list, default host, SSH pref, `ui_tailscale` dashboard-over-tailnet toggle).
 - `~/.gitstow/repos.yaml` — Repo metadata nested by workspace label. Central location.
 - `~/.gitstow/repos.lock` — Cross-process advisory lock file (`core/locking.py`) held during `repos.yaml` writes. Not user-facing data; safe to ignore/delete if orphaned.
 
@@ -131,6 +133,7 @@ ruff check src/
 - `git status --porcelain=v2 --branch` for single-call status (vs gita's 4-5 calls)
 - Repo.global_key (`workspace:key`) for unique identification across workspaces
 - Legacy format auto-migration (flat repos.yaml → nested, root_path → workspaces)
+- `app.state.tailscale_serving` — `run()` records what it actually bound; the settings page compares saved config against that instead of guessing, so restart notices state facts (and direction), never implied live changes
 
 ## Product & Implementation Standards
 
