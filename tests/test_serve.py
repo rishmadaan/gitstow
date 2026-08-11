@@ -1492,3 +1492,25 @@ class TestUiTailscaleFlag:
         assert result.exit_code == 0
         assert captured["extra_host"] is None
         assert captured["extra_allowed_hostnames"] is None
+
+    def test_mixed_case_magicdns_is_lowercased(self, monkeypatch):
+        """The Host guard compares against urlparse().hostname (lowercased), so
+        a mixed-case MagicDNS name must be normalized before it is allowed."""
+        from typer.testing import CliRunner
+
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings
+        from gitstow.core.tailscale import TailscaleInfo
+
+        captured = {}
+        monkeypatch.setattr("gitstow.web.server.run", lambda **kw: captured.update(kw))
+        monkeypatch.setattr("gitstow.cli.serve.load_config", lambda: Settings())
+        monkeypatch.setattr(
+            "gitstow.cli.serve.detect_tailscale",
+            lambda: TailscaleInfo(ip="100.101.102.103", dns_name="VPS.Tail1234.ts.net"),
+        )
+        result = CliRunner().invoke(app, ["ui", "--no-browser", "--tailscale"])
+        assert result.exit_code == 0
+        assert captured["extra_allowed_hostnames"] == {
+            "100.101.102.103", "vps.tail1234.ts.net",
+        }
