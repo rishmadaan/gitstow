@@ -55,6 +55,8 @@ def render(request, template_name: str, status_code: int = 200, **context) -> ob
 # rebound one does not. POSTs additionally check Origin (browsers attach it to
 # all cross-origin POSTs). Header-less requests (curl) pass: CSRF/rebinding are
 # browser vectors, and this is not authentication.
+# When Tailscale serving is enabled, the machine's own tailnet IP/MagicDNS
+# name are added per-app via create_app(extra_allowed_hostnames=...).
 _ALLOWED_HOSTNAMES = {"127.0.0.1", "localhost", "::1"}
 
 
@@ -65,8 +67,14 @@ def _header_hostname(value: str | None) -> str | None:
     return parsed.hostname
 
 
-def create_app() -> FastAPI:
-    """Construct the FastAPI app and register routes + static files."""
+def create_app(extra_allowed_hostnames: set[str] | None = None) -> FastAPI:
+    """Construct the FastAPI app and register routes + static files.
+
+    extra_allowed_hostnames widens the Host/Origin guard — used for the
+    machine's own Tailscale IP and MagicDNS name. Everything else still 403s.
+    """
+    allowed_hostnames = _ALLOWED_HOSTNAMES | (extra_allowed_hostnames or set())
+
     app = FastAPI(
         title="gitstow",
         version=__version__,
@@ -78,11 +86,11 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def _reject_rebind_and_cross_origin(request: Request, call_next):
         host = _header_hostname(request.headers.get("host"))
-        if host is not None and host not in _ALLOWED_HOSTNAMES:
+        if host is not None and host not in allowed_hostnames:
             return JSONResponse({"error": "unexpected Host header"}, status_code=403)
         if request.method == "POST":
             origin = request.headers.get("origin")
-            if origin is not None and _header_hostname(origin) not in _ALLOWED_HOSTNAMES:
+            if origin is not None and _header_hostname(origin) not in allowed_hostnames:
                 return JSONResponse({"error": "cross-origin request rejected"}, status_code=403)
         return await call_next(request)
 

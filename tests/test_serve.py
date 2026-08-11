@@ -1275,3 +1275,60 @@ class TestDiffViewer:
         )
         r = client.get("/")
         assert "/repo/test-ws/owner/repo#changes" in r.text
+
+
+# ---------- tailscale host guard ----------
+
+
+class TestTailscaleHostGuard:
+    """The anti-rebinding guard must accept exactly the configured tailnet names."""
+
+    TS_IP = "100.101.102.103"
+    TS_DNS = "vps.tail1234.ts.net"
+
+    def _client(self, extra=None):
+        app = create_app(extra_allowed_hostnames=extra)
+        return TestClient(app, base_url="http://127.0.0.1")
+
+    def test_tailscale_host_rejected_by_default(self, configured):
+        client = self._client()
+        r = client.get("/", headers={"host": f"{self.TS_IP}:7853"})
+        assert r.status_code == 403
+
+    def test_tailscale_ip_accepted_when_configured(self, configured):
+        client = self._client(extra={self.TS_IP, self.TS_DNS})
+        r = client.get("/", headers={"host": f"{self.TS_IP}:7853"})
+        assert r.status_code == 200
+
+    def test_magicdns_host_accepted_when_configured(self, configured):
+        client = self._client(extra={self.TS_IP, self.TS_DNS})
+        r = client.get("/", headers={"host": f"{self.TS_DNS}:7853"})
+        assert r.status_code == 200
+
+    def test_unknown_host_still_rejected(self, configured):
+        client = self._client(extra={self.TS_IP, self.TS_DNS})
+        r = client.get("/", headers={"host": "evil.example.com"})
+        assert r.status_code == 403
+
+    def test_localhost_still_accepted(self, configured):
+        client = self._client(extra={self.TS_IP, self.TS_DNS})
+        r = client.get("/", headers={"host": "127.0.0.1:7853"})
+        assert r.status_code == 200
+
+    def test_cross_origin_post_from_tailnet_origin_accepted(self, configured):
+        client = self._client(extra={self.TS_IP, self.TS_DNS})
+        # POST to a route that exists; guard runs before routing, but use a real
+        # one anyway — /shutdown flips should_exit on a stashed server.
+        r = client.post(
+            "/repos/fetch-all",
+            headers={"host": f"{self.TS_DNS}:7853", "origin": f"http://{self.TS_DNS}:7853"},
+        )
+        assert r.status_code != 403
+
+    def test_cross_origin_post_from_unknown_origin_rejected(self, configured):
+        client = self._client(extra={self.TS_IP, self.TS_DNS})
+        r = client.post(
+            "/repos/fetch-all",
+            headers={"host": f"{self.TS_IP}:7853", "origin": "http://evil.example.com"},
+        )
+        assert r.status_code == 403
