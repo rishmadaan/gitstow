@@ -123,7 +123,11 @@ def _bind_socket(host: str, port: int) -> socket.socket:
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind((host, port))
+    try:
+        sock.bind((host, port))
+    except OSError:
+        sock.close()
+        raise
     sock.set_inheritable(True)
     return sock
 
