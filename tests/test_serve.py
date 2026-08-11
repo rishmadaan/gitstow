@@ -180,6 +180,75 @@ class TestSettingsSave:
         assert depth == 0
 
 
+class TestSettingsTailscaleToggle:
+    """ui_tailscale on the settings page — round trip, restart notice, and the
+    not-installed guard (a disabled checkbox never submits, so a naive save
+    would silently flip a synced-in True to False)."""
+
+    @pytest.fixture
+    def has_tailscale(self, monkeypatch):
+        monkeypatch.setattr("gitstow.web.routes.pages.tailscale_available", lambda: True)
+
+    @pytest.fixture
+    def no_tailscale(self, monkeypatch):
+        monkeypatch.setattr("gitstow.web.routes.pages.tailscale_available", lambda: False)
+
+    def _post(self, client, **extra):
+        data = {"default_host": "github.com", "parallel_limit": "6", "clone_timeout": "300"}
+        data.update(extra)
+        return client.post("/settings", data=data)
+
+    def test_checked_saves_true(self, client, configured, has_tailscale):
+        from gitstow.core.config import load_config
+
+        self._post(client, ui_tailscale="on")
+        assert load_config().ui_tailscale is True
+
+    def test_unchecked_saves_false(self, client, configured, has_tailscale):
+        from gitstow.core.config import load_config, save_config
+
+        s = load_config(); s.ui_tailscale = True; save_config(s)
+        self._post(client)
+        assert load_config().ui_tailscale is False
+
+    def test_restart_notice_when_saved_value_differs_from_serving(
+        self, client, configured, has_tailscale
+    ):
+        # app bound localhost-only; saving True means "not live until restart"
+        assert client.app.state.tailscale_serving is False
+        r = self._post(client, ui_tailscale="on")
+        assert "Restart" in r.text and "gitstow ui" in r.text
+
+    def test_no_restart_notice_when_saved_value_matches_serving(
+        self, client, configured, has_tailscale
+    ):
+        r = self._post(client)
+        assert "Restart" not in r.text
+
+    def test_get_shows_restart_notice_on_mismatch(self, client, configured, has_tailscale):
+        from gitstow.core.config import load_config, save_config
+
+        s = load_config(); s.ui_tailscale = True; save_config(s)
+        html = client.get("/settings").text
+        assert "restarting" in html.lower()
+
+    def test_row_disabled_with_reason_when_not_installed(
+        self, client, configured, no_tailscale
+    ):
+        html = client.get("/settings").text
+        assert "Install Tailscale to enable" in html
+        assert "disabled" in html
+        # no restart notice — restarting can't help without the CLI
+        assert "restarting" not in html.lower()
+
+    def test_save_preserves_true_when_not_installed(self, client, configured, no_tailscale):
+        from gitstow.core.config import load_config, save_config
+
+        s = load_config(); s.ui_tailscale = True; save_config(s)
+        self._post(client)  # disabled checkbox submits nothing
+        assert load_config().ui_tailscale is True
+
+
 # ---------- add-repo ----------
 
 
@@ -1485,8 +1554,9 @@ class TestUiTailscaleFlag:
         assert captured["extra_host"] is None
 
     def test_tailscale_url_printed(self, monkeypatch):
+        # The IP always works; the MagicDNS name depends on the peer's DNS.
         result, _ = self._invoke(monkeypatch, ["--tailscale"])
-        assert "vps.tail1234.ts.net" in result.output
+        assert "100.101.102.103" in result.output
 
     def test_dns_nameless_tailnet_uses_ip(self, monkeypatch):
         from gitstow.core.tailscale import TailscaleInfo

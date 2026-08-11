@@ -108,6 +108,10 @@ def create_app(extra_allowed_hostnames: set[str] | None = None) -> FastAPI:
                 return JSONResponse({"error": "cross-origin request rejected"}, status_code=403)
         return await call_next(request)
 
+    # What the server ACTUALLY bound — run() overwrites this. The settings page
+    # compares it against the saved ui_tailscale to show a restart notice.
+    app.state.tailscale_serving = False
+
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
     # Late imports to avoid circular imports at module load
@@ -187,8 +191,11 @@ def run(
                 f"[yellow]⚠ Could not bind Tailscale address {extra_host}[/yellow]: "
                 f"{exc} — serving localhost only."
             )
+            app.state.tailscale_serving = False
             server.run(sockets=[lo_sock])
         else:
+            app.state.tailscale_serving = True
             server.run(sockets=[lo_sock, extra_sock])
     else:
+        app.state.tailscale_serving = False
         server.run()

@@ -75,7 +75,9 @@ def ui(
             # MagicDNS pushes the tailnet search domain, so peers browse the bare
             # machine name ("http://vps:7853") — allow it alongside the FQDN.
             extra_allowed = {info.ip} | ({dns, dns.split(".")[0]} if dns else set())
-            ts_url = f"http://{dns or info.ip}:{port}"
+            # Print the IP: it resolves from any peer. The MagicDNS name is
+            # still accepted (extra_allowed) but needs the peer's DNS working.
+            ts_url = f"http://{info.ip}:{port}"
 
     console.print(
         f"[dim]starting[/dim] [bold]http://127.0.0.1:{port}[/bold] "

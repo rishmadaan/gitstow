@@ -23,6 +23,7 @@ from gitstow.core.git import (
 )
 from gitstow.core.repo import RepoStore
 from gitstow.core.status_model import classify
+from gitstow.core.tailscale import tailscale_available
 from gitstow.web.routes.dashboard import _present, _relative_time
 from gitstow.web.server import render
 
@@ -56,9 +57,17 @@ async def settings_page(request: Request):
 def _render_settings(request, settings, error=None, saved=False, status_code=200):
     from gitstow.core.paths import CONFIG_FILE, REPOS_FILE, SKILL_TARGET
 
+    # ui_tailscale is applied at socket-bind time, so a saved change only lands
+    # on the next `gitstow ui`. Compare the saved value against what this
+    # process actually bound and say so instead of implying a live switch.
+    serving = getattr(request.app.state, "tailscale_serving", False)
+    installed = tailscale_available()
+
     ctx = {
         "default_host": settings.default_host,
         "prefer_ssh": settings.prefer_ssh,
+        "ui_tailscale": settings.ui_tailscale,
+        "tailscale_installed": installed,
         "parallel_limit": settings.parallel_limit,
         "clone_timeout": settings.clone_timeout,
         "config_path": str(CONFIG_FILE),
@@ -75,6 +84,8 @@ def _render_settings(request, settings, error=None, saved=False, status_code=200
         clone_timeout=settings.clone_timeout,
         saved=saved,
         error=error,
+        # Not installed → the row is disabled and a restart can't help anyway.
+        tailscale_restart_needed=installed and settings.ui_tailscale != serving,
     )
 
 
@@ -83,6 +94,7 @@ async def settings_save(
     request: Request,
     default_host: str = Form("github.com"),
     prefer_ssh: str = Form(None),
+    ui_tailscale: str = Form(None),
     parallel_limit: str = Form("6"),
     clone_timeout: str = Form("300"),
 ):
@@ -102,6 +114,11 @@ async def settings_save(
 
     settings.default_host = default_host.strip() or "github.com"
     settings.prefer_ssh = prefer_ssh is not None
+    # Without tailscale installed the checkbox renders disabled, and a disabled
+    # checkbox submits nothing — deriving False from the form would silently
+    # wipe a True synced in from another machine. Keep what's on disk.
+    if tailscale_available():
+        settings.ui_tailscale = ui_tailscale is not None
     settings.parallel_limit = pl
     settings.clone_timeout = ct
     save_config(settings)
