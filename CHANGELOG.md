@@ -4,6 +4,16 @@ All notable changes to gitstow will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Tailscale toggle on the dashboard Settings page** — `ui_tailscale` was the last config field you could only set from the CLI. Because it applies when the server binds its sockets, the page never pretends the change is live: it compares what you saved against what the running server actually bound and tells you to restart `gitstow ui`. On a machine without the Tailscale CLI the row is disabled with the reason shown, and saving there leaves an existing `ui_tailscale: true` (e.g. a config synced from another machine) untouched rather than silently clearing it.
+
+### Changed
+
+- **`gitstow ui --tailscale` now prints the tailnet IP** instead of the MagicDNS name — the IP works from any peer, while the name depends on the other device's DNS. The MagicDNS name (and short name) still work if you type them.
+
 ## [0.7.0] - 2026-08-11
 
 ### Added

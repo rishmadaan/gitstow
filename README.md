@@ -161,6 +161,7 @@ Private by default: binds `127.0.0.1` (arbitrary git execution must not be LAN-r
 gitstow config set ui_tailscale true   # every gitstow ui from now on
 gitstow ui --tailscale                 # or per-run
 ```
+You can also flip it on the dashboard's own **Settings** page — it takes effect the next time you start `gitstow ui`.
 If Tailscale isn't running, `gitstow ui` warns and serves localhost only.
 
 ### JSON Output

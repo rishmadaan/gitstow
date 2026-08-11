@@ -548,7 +548,7 @@ gitstow ui --tailscale         # also serve on this machine's Tailscale address
 - Workspace CRUD + Scan; Collection export/import under Settings
 - Click **Shutdown** in the footer (or Ctrl+C) to stop
 
-**Tailscale access:** with `--tailscale` (or `gitstow config set ui_tailscale true` to make it the default), the dashboard additionally binds this machine's own Tailscale address, so you can open it from any other device on your tailnet — useful for a VPS or headless box. `--no-tailscale` turns it off for a single run. If the Tailscale CLI isn't installed or the daemon isn't reachable, gitstow prints a warning and serves localhost-only instead of failing.
+**Tailscale access:** with `--tailscale` (or `gitstow config set ui_tailscale true` to make it the default), the dashboard additionally binds this machine's own Tailscale address, so you can open it from any other device on your tailnet — useful for a VPS or headless box. `--no-tailscale` turns it off for a single run. The same setting has a checkbox on the dashboard's Settings page — saving it there applies from the next `gitstow ui` onward, and the page says so. If the Tailscale CLI isn't installed or the daemon isn't reachable, gitstow prints a warning and serves localhost-only instead of failing.
 
 **Security:** binds `127.0.0.1` by default, and — only when Tailscale access is enabled — this machine's own Tailscale address as well. It never binds `0.0.0.0`, and there is no `--host` flag. The server runs git operations in arbitrary workspace directories, so it must not be LAN-reachable; with Tailscale access on, your trust boundary is your tailnet. Requests arriving with any other Host/Origin are rejected.
 
