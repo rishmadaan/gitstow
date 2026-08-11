@@ -15,6 +15,7 @@ from gitstow.core.discovery import discover_repos
 from gitstow.core.git import is_git_installed
 from gitstow.core.paths import CONFIG_FILE, DEFAULT_ROOT, ensure_app_dirs
 from gitstow.core.repo import Repo, RepoStore
+from gitstow.core.tailscale import tailscale_available
 
 console = Console()
 
@@ -126,12 +127,15 @@ def onboard(
     proto = "SSH" if settings.prefer_ssh else "HTTPS"
     console.print(f"     → {proto}\n")
 
+    # 4. Tailscale dashboard access (skipped silently if tailscale isn't installed)
+    _maybe_prompt_tailscale(settings)
+
     # Save config
     ensure_app_dirs()
     save_config(settings)
     console.print(f"  [green]✓[/green] Config saved to {CONFIG_FILE}\n")
 
-    # 4. Create directories and scan
+    # Create directories and scan
     for ws in settings.workspaces:
         ws_path = ws.get_path()
         if not ws_path.exists():
@@ -205,6 +209,23 @@ def _setup_workspace(default_path: str, default_label: str, step_num: int | None
         layout=layout,
         auto_tags=auto_tags,
     )
+
+
+def _maybe_prompt_tailscale(settings: Settings) -> None:
+    """Offer tailnet dashboard access — only when the tailscale CLI is installed."""
+    if not tailscale_available():
+        return
+    console.print("  [bold]4. Web dashboard over Tailscale[/bold]")
+    console.print(
+        "     Make [cyan]gitstow ui[/cyan] reachable from other devices on your "
+        "tailnet (never the public internet)."
+    )
+    console.print()
+    enable = bconfirm(
+        "     Enable Tailscale access for the web dashboard?", default_is_yes=False
+    )
+    settings.ui_tailscale = bool(enable)
+    console.print(f"     → {'enabled' if settings.ui_tailscale else 'disabled'}\n")
 
 
 def _scan_workspace_repos(ws: Workspace) -> None:

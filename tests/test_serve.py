@@ -1275,3 +1275,312 @@ class TestDiffViewer:
         )
         r = client.get("/")
         assert "/repo/test-ws/owner/repo#changes" in r.text
+
+
+# ---------- tailscale host guard ----------
+
+
+class TestTailscaleHostGuard:
+    """The anti-rebinding guard must accept exactly the configured tailnet names."""
+
+    TS_IP = "100.101.102.103"
+    TS_DNS = "vps.tail1234.ts.net"
+
+    def _client(self, extra=None):
+        app = create_app(extra_allowed_hostnames=extra)
+        return TestClient(app, base_url="http://127.0.0.1")
+
+    def test_tailscale_host_rejected_by_default(self, configured):
+        client = self._client()
+        r = client.get("/", headers={"host": f"{self.TS_IP}:7853"})
+        assert r.status_code == 403
+
+    def test_tailscale_ip_accepted_when_configured(self, configured):
+        client = self._client(extra={self.TS_IP, self.TS_DNS})
+        r = client.get("/", headers={"host": f"{self.TS_IP}:7853"})
+        assert r.status_code == 200
+
+    def test_magicdns_host_accepted_when_configured(self, configured):
+        client = self._client(extra={self.TS_IP, self.TS_DNS})
+        r = client.get("/", headers={"host": f"{self.TS_DNS}:7853"})
+        assert r.status_code == 200
+
+    def test_unknown_host_still_rejected(self, configured):
+        client = self._client(extra={self.TS_IP, self.TS_DNS})
+        r = client.get("/", headers={"host": "evil.example.com"})
+        assert r.status_code == 403
+
+    def test_localhost_still_accepted(self, configured):
+        client = self._client(extra={self.TS_IP, self.TS_DNS})
+        r = client.get("/", headers={"host": "127.0.0.1:7853"})
+        assert r.status_code == 200
+
+    def test_cross_origin_post_from_tailnet_origin_accepted(self, configured):
+        client = self._client(extra={self.TS_IP, self.TS_DNS})
+        # POST to a route that exists; guard runs before routing, but use a real
+        # one anyway — /shutdown flips should_exit on a stashed server.
+        r = client.post(
+            "/repos/fetch-all",
+            headers={"host": f"{self.TS_DNS}:7853", "origin": f"http://{self.TS_DNS}:7853"},
+        )
+        assert r.status_code != 403
+
+    def test_malformed_host_header_rejected_not_500(self, configured):
+        """urlparse("//[::1") raises ValueError — must 403, not blow up."""
+        client = self._client(extra={self.TS_IP, self.TS_DNS})
+        r = client.get("/", headers={"host": "[::1"})
+        assert r.status_code == 403
+
+    def test_malformed_origin_header_rejected_not_500(self, configured):
+        client = self._client(extra={self.TS_IP, self.TS_DNS})
+        r = client.post(
+            "/repos/fetch-all",
+            headers={"host": "127.0.0.1:7853", "origin": "http://[::1"},
+        )
+        assert r.status_code == 403
+
+    def test_cross_origin_post_from_unknown_origin_rejected(self, configured):
+        client = self._client(extra={self.TS_IP, self.TS_DNS})
+        r = client.post(
+            "/repos/fetch-all",
+            headers={"host": f"{self.TS_IP}:7853", "origin": "http://evil.example.com"},
+        )
+        assert r.status_code == 403
+
+
+class TestDualSocketRun:
+    def test_bind_socket_binds_requested_host(self):
+        from gitstow.web import server as server_mod
+
+        sock = server_mod._bind_socket("127.0.0.1", 0)
+        try:
+            addr, port = sock.getsockname()
+            assert addr == "127.0.0.1"
+            assert port > 0
+        finally:
+            sock.close()
+
+    def test_run_with_extra_host_passes_two_sockets(self, monkeypatch):
+        import uvicorn
+
+        from gitstow.web import server as server_mod
+
+        captured = {}
+
+        def fake_run(self, sockets=None):
+            captured["sockets"] = sockets
+
+        monkeypatch.setattr(uvicorn.Server, "run", fake_run)
+        # extra_host=127.0.0.1 with port 0: two distinct ephemeral binds — fine
+        # for asserting socket plumbing without a live tailnet.
+        server_mod.run(port=0, open_browser=False, extra_host="127.0.0.1")
+        assert captured["sockets"] is not None
+        assert len(captured["sockets"]) == 2
+        for s in captured["sockets"]:
+            s.close()
+
+    def test_extra_host_bind_failure_degrades_to_localhost(self, monkeypatch):
+        """userspace tailscaled reports an unbindable IP — must not crash."""
+        import uvicorn
+
+        from gitstow.web import server as server_mod
+
+        captured = {}
+        real_bind = server_mod._bind_socket
+
+        def flaky_bind(host, port):
+            if host != "127.0.0.1":
+                raise OSError(99, "Cannot assign requested address")
+            return real_bind(host, port)
+
+        monkeypatch.setattr(server_mod, "_bind_socket", flaky_bind)
+        monkeypatch.setattr(
+            uvicorn.Server, "run", lambda self, sockets=None: captured.update(sockets=sockets)
+        )
+        server_mod.run(port=0, open_browser=False, extra_host="100.99.99.99")
+        assert len(captured["sockets"]) == 1
+        assert captured["sockets"][0].getsockname()[0] == "127.0.0.1"
+        captured["sockets"][0].close()
+
+    def test_run_without_extra_host_passes_no_sockets(self, monkeypatch):
+        import uvicorn
+
+        from gitstow.web import server as server_mod
+
+        captured = {"called": False}
+
+        def fake_run(self, sockets=None):
+            captured["called"] = True
+            captured["sockets"] = sockets
+
+        monkeypatch.setattr(uvicorn.Server, "run", fake_run)
+        server_mod.run(port=0, open_browser=False)
+        assert captured["called"] is True
+        assert captured["sockets"] is None
+
+
+# ---------- gitstow ui --tailscale wiring ----------
+
+
+class TestUiTailscaleFlag:
+    """CLI wiring: flag > config > off; graceful fallback when detection fails."""
+
+    def _invoke(self, monkeypatch, args, ui_tailscale_cfg=False, detect_result="ok"):
+        from typer.testing import CliRunner
+
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings
+        from gitstow.core.tailscale import TailscaleInfo
+
+        captured = {}
+
+        def fake_run(**kwargs):
+            captured.update(kwargs)
+
+        monkeypatch.setattr("gitstow.web.server.run", fake_run)
+        monkeypatch.setattr(
+            "gitstow.cli.serve.load_config",
+            lambda: Settings(ui_tailscale=ui_tailscale_cfg),
+        )
+        info = (
+            TailscaleInfo(ip="100.101.102.103", dns_name="vps.tail1234.ts.net")
+            if detect_result == "ok"
+            else None
+        )
+        monkeypatch.setattr("gitstow.cli.serve.detect_tailscale", lambda: info)
+        monkeypatch.setattr("gitstow.cli.serve.tailscale_available", lambda: True)
+        result = CliRunner().invoke(app, ["ui", "--no-browser", *args])
+        return result, captured
+
+    def test_flag_enables_tailscale(self, monkeypatch):
+        result, captured = self._invoke(monkeypatch, ["--tailscale"])
+        assert result.exit_code == 0
+        assert captured["extra_host"] == "100.101.102.103"
+        assert captured["extra_allowed_hostnames"] == {
+            "100.101.102.103", "vps.tail1234.ts.net", "vps",
+        }
+
+    def test_config_enables_tailscale_without_flag(self, monkeypatch):
+        result, captured = self._invoke(monkeypatch, [], ui_tailscale_cfg=True)
+        assert result.exit_code == 0
+        assert captured["extra_host"] == "100.101.102.103"
+
+    def test_no_tailscale_flag_overrides_config(self, monkeypatch):
+        result, captured = self._invoke(
+            monkeypatch, ["--no-tailscale"], ui_tailscale_cfg=True
+        )
+        assert result.exit_code == 0
+        assert captured["extra_host"] is None
+
+    def test_default_is_localhost_only(self, monkeypatch):
+        result, captured = self._invoke(monkeypatch, [])
+        assert result.exit_code == 0
+        assert captured["extra_host"] is None
+
+    def test_detection_failure_falls_back_to_localhost(self, monkeypatch):
+        result, captured = self._invoke(
+            monkeypatch, ["--tailscale"], detect_result="fail"
+        )
+        assert result.exit_code == 0  # must NOT crash
+        assert captured["extra_host"] is None
+
+    def test_tailscale_url_printed(self, monkeypatch):
+        result, _ = self._invoke(monkeypatch, ["--tailscale"])
+        assert "vps.tail1234.ts.net" in result.output
+
+    def test_dns_nameless_tailnet_uses_ip(self, monkeypatch):
+        from gitstow.core.tailscale import TailscaleInfo
+
+        monkeypatch_info = TailscaleInfo(ip="100.101.102.103", dns_name="")
+        from typer.testing import CliRunner
+
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings
+
+        captured = {}
+        monkeypatch.setattr("gitstow.web.server.run", lambda **kw: captured.update(kw))
+        monkeypatch.setattr(
+            "gitstow.cli.serve.load_config", lambda: Settings()
+        )
+        monkeypatch.setattr(
+            "gitstow.cli.serve.detect_tailscale", lambda: monkeypatch_info
+        )
+        monkeypatch.setattr("gitstow.cli.serve.tailscale_available", lambda: True)
+        result = CliRunner().invoke(app, ["ui", "--no-browser", "--tailscale"])
+        assert result.exit_code == 0
+        assert captured["extra_allowed_hostnames"] == {"100.101.102.103"}
+        assert "100.101.102.103" in result.output
+
+    def test_degenerate_loopback_detection_falls_back(self, monkeypatch):
+        """A tailscale IP of 127.0.0.1 would double-bind the same addr:port
+        (EADDRINUSE) — treat it as detection failure, localhost only."""
+        from typer.testing import CliRunner
+
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings
+        from gitstow.core.tailscale import TailscaleInfo
+
+        captured = {}
+        monkeypatch.setattr("gitstow.web.server.run", lambda **kw: captured.update(kw))
+        monkeypatch.setattr("gitstow.cli.serve.load_config", lambda: Settings())
+        monkeypatch.setattr(
+            "gitstow.cli.serve.detect_tailscale",
+            lambda: TailscaleInfo(ip="127.0.0.1", dns_name="me.ts.net"),
+        )
+        monkeypatch.setattr("gitstow.cli.serve.tailscale_available", lambda: True)
+        result = CliRunner().invoke(app, ["ui", "--no-browser", "--tailscale"])
+        assert result.exit_code == 0
+        assert captured["extra_host"] is None
+        assert captured["extra_allowed_hostnames"] is None
+        # distinct from detection failure — don't send users to restart a healthy daemon
+        assert "loopback" in result.output
+        assert "tailscaled running" not in result.output
+
+    def test_tailscale_cli_not_installed_warns_without_daemon_advice(self, monkeypatch):
+        """No tailscale binary — don't tell the user to check a daemon they never had."""
+        from typer.testing import CliRunner
+
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings
+
+        captured = {}
+        monkeypatch.setattr("gitstow.web.server.run", lambda **kw: captured.update(kw))
+        monkeypatch.setattr("gitstow.cli.serve.load_config", lambda: Settings())
+        monkeypatch.setattr("gitstow.cli.serve.tailscale_available", lambda: False)
+        monkeypatch.setattr(
+            "gitstow.cli.serve.detect_tailscale",
+            lambda: (_ for _ in ()).throw(AssertionError("detect must be skipped")),
+        )
+        result = CliRunner().invoke(app, ["ui", "--no-browser", "--tailscale"])
+        assert result.exit_code == 0
+        assert captured["extra_host"] is None
+        assert "not found" in result.output
+        assert "tailscaled running" not in result.output
+
+    def test_bare_magicdns_name_allowed(self, monkeypatch):
+        """MagicDNS search domain means peers browse http://vps:7853."""
+        result, captured = self._invoke(monkeypatch, ["--tailscale"])
+        assert "vps" in captured["extra_allowed_hostnames"]
+
+    def test_mixed_case_magicdns_is_lowercased(self, monkeypatch):
+        """The Host guard compares against urlparse().hostname (lowercased), so
+        a mixed-case MagicDNS name must be normalized before it is allowed."""
+        from typer.testing import CliRunner
+
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings
+        from gitstow.core.tailscale import TailscaleInfo
+
+        captured = {}
+        monkeypatch.setattr("gitstow.web.server.run", lambda **kw: captured.update(kw))
+        monkeypatch.setattr("gitstow.cli.serve.load_config", lambda: Settings())
+        monkeypatch.setattr(
+            "gitstow.cli.serve.detect_tailscale",
+            lambda: TailscaleInfo(ip="100.101.102.103", dns_name="VPS.Tail1234.ts.net"),
+        )
+        monkeypatch.setattr("gitstow.cli.serve.tailscale_available", lambda: True)
+        result = CliRunner().invoke(app, ["ui", "--no-browser", "--tailscale"])
+        assert result.exit_code == 0
+        assert captured["extra_allowed_hostnames"] == {
+            "100.101.102.103", "vps.tail1234.ts.net", "vps",
+        }

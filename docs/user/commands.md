@@ -531,12 +531,13 @@ Completes:
 
 ### `gitstow ui`
 
-Launch a local browser dashboard — a dark-themed web UI for daily repo management. Binds to `127.0.0.1` only; auto-opens your default browser.
+Launch a local browser dashboard — a dark-themed web UI for daily repo management. Binds to `127.0.0.1`; auto-opens your default browser.
 
 ```bash
 gitstow ui                     # http://127.0.0.1:7853
 gitstow ui --port 8080         # custom port
 gitstow ui --no-browser        # don't auto-open
+gitstow ui --tailscale         # also serve on this machine's Tailscale address
 ```
 
 **Features:**
@@ -547,7 +548,9 @@ gitstow ui --no-browser        # don't auto-open
 - Workspace CRUD + Scan; Collection export/import under Settings
 - Click **Shutdown** in the footer (or Ctrl+C) to stop
 
-**Security:** binds `127.0.0.1` only — there is no `--host` flag. The server runs git operations in arbitrary workspace directories, so it must not be LAN-reachable.
+**Tailscale access:** with `--tailscale` (or `gitstow config set ui_tailscale true` to make it the default), the dashboard additionally binds this machine's own Tailscale address, so you can open it from any other device on your tailnet — useful for a VPS or headless box. `--no-tailscale` turns it off for a single run. If the Tailscale CLI isn't installed or the daemon isn't reachable, gitstow prints a warning and serves localhost-only instead of failing.
+
+**Security:** binds `127.0.0.1` by default, and — only when Tailscale access is enabled — this machine's own Tailscale address as well. It never binds `0.0.0.0`, and there is no `--host` flag. The server runs git operations in arbitrary workspace directories, so it must not be LAN-reachable; with Tailscale access on, your trust boundary is your tailnet. Requests arriving with any other Host/Origin are rejected.
 
 #### Reading the dashboard
 
@@ -613,9 +616,10 @@ gitstow config set default_host gitlab.com
 gitstow config set prefer_ssh true
 gitstow config set parallel_limit 8
 gitstow config set clone_timeout 900
+gitstow config set ui_tailscale true
 ```
 
-Valid keys: `default_host`, `prefer_ssh`, `parallel_limit`, `clone_timeout` (clone timeout in seconds).
+Valid keys: `default_host`, `prefer_ssh`, `parallel_limit`, `clone_timeout` (clone timeout in seconds), `ui_tailscale` (serve `gitstow ui` on this machine's Tailscale address as well).
 
 > **Note:** The old `root_path` setting has been replaced by workspaces. Use `gitstow workspace add` to manage where repos are stored.
 

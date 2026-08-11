@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added
+
+- **Tailscale access for the dashboard** — `gitstow ui --tailscale` (or `gitstow config set ui_tailscale true`, also offered during `gitstow onboard` when Tailscale is installed) serves the dashboard on the machine's Tailscale address alongside localhost. VPS-friendly: reachable from any device on your tailnet, never bound to `0.0.0.0`, and the anti-rebinding Host guard only admits the machine's own tailnet IP and MagicDNS name. Falls back to localhost-only with a warning when Tailscale isn't running.
+
 ### Changed
 
 - **MCP server works with both mcp 1.x and 2.x** — the server imports FastMCP from whichever the environment has (2.0 renamed it to `MCPServer`); the temporary `mcp<2` pin is gone. Internal: adopted ruff 0.16's stricter default lint rules (141 fixes; deliberate patterns get configured ignores with reasons) and unpinned ruff.

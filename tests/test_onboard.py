@@ -26,6 +26,7 @@ def test_onboard_uses_beaupy_confirmation_defaults(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(onboard_module, "CONFIG_FILE", tmp_path / "config.yaml")
     monkeypatch.setattr(onboard_module, "is_git_installed", lambda: (True, "test"))
+    monkeypatch.setattr(onboard_module, "tailscale_available", lambda: False)
     monkeypatch.setattr(
         onboard_module,
         "_setup_workspace",
@@ -120,3 +121,40 @@ def test_setup_workspace_reprompts_until_label_valid(monkeypatch):
     ws = onboard_module._setup_workspace(default_path="", default_label="", step_num=None)
 
     assert ws.label == "good-label"
+
+
+def test_tailscale_prompt_shown_and_saved_when_available(monkeypatch):
+    from gitstow.cli import onboard as onboard_module
+    from gitstow.core.config import Settings
+
+    monkeypatch.setattr(onboard_module, "tailscale_available", lambda: True)
+    monkeypatch.setattr(onboard_module, "bconfirm", lambda *a, **kw: True)
+    settings = Settings()
+    onboard_module._maybe_prompt_tailscale(settings)
+    assert settings.ui_tailscale is True
+
+
+def test_tailscale_prompt_declined(monkeypatch):
+    from gitstow.cli import onboard as onboard_module
+    from gitstow.core.config import Settings
+
+    monkeypatch.setattr(onboard_module, "tailscale_available", lambda: True)
+    monkeypatch.setattr(onboard_module, "bconfirm", lambda *a, **kw: False)
+    settings = Settings()
+    onboard_module._maybe_prompt_tailscale(settings)
+    assert settings.ui_tailscale is False
+
+
+def test_tailscale_prompt_skipped_when_not_installed(monkeypatch):
+    from gitstow.cli import onboard as onboard_module
+    from gitstow.core.config import Settings
+
+    monkeypatch.setattr(onboard_module, "tailscale_available", lambda: False)
+
+    def boom(*a, **kw):
+        raise AssertionError("prompt must not be shown without tailscale installed")
+
+    monkeypatch.setattr(onboard_module, "bconfirm", boom)
+    settings = Settings()
+    onboard_module._maybe_prompt_tailscale(settings)
+    assert settings.ui_tailscale is False

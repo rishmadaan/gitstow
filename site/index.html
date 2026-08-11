@@ -97,7 +97,7 @@
     <div class="center-head">
       <div class="eyebrow"><span class="bar"></span>gitstow ui<span class="bar"></span></div>
       <h2 class="section">The tab you leave open.</h2>
-      <p>A local-first browser dashboard, and the primary way to live with your library. Dirty state at a glance, one-click pulls, tags, freezes, and per-file diffs. It auto-refreshes every 30 seconds and never phones home: <code class="code-chip">127.0.0.1</code> only.</p>
+      <p>A local-first browser dashboard, and the primary way to live with your library. Dirty state at a glance, one-click pulls, tags, freezes, and per-file diffs. It auto-refreshes every 30 seconds and never phones home: <code class="code-chip">127.0.0.1</code> by default — or flip on Tailscale access and open it from any device on your tailnet. Never the public internet.</p>
     </div>
     <div class="bw-scroll">
       <div class="bw">
@@ -240,7 +240,7 @@
       </div>
     </div>
     <div class="blurbs">
-      <div class="blurb"><div class="label">local-first</div><div class="body">Binds 127.0.0.1 only. Your repos, your machine, nobody else's business.</div></div>
+      <div class="blurb"><div class="label">local-first</div><div class="body">Binds 127.0.0.1 — plus your Tailscale network only if you opt in. Your repos, your machine, nobody else's business.</div></div>
       <div class="blurb"><div class="label">pull all, in parallel</div><div class="body">One click updates the whole library with a per-repo summary. Frozen repos politely skipped.</div></div>
       <div class="blurb"><div class="label">per-file diffs</div><div class="body">Click into any dirty repo: staged, unstaged, untracked, with colored line diffs.</div></div>
     </div>
@@ -295,6 +295,7 @@
       <div class="fcard"><div class="glyph">⌕</div><div class="title">Search &amp; exec</div><div class="body">ripgrep across the whole library, or run any command in every repo. Filter by tag, glob, workspace.</div><code>gitstow search "def main" --glob "*.py"</code></div>
       <div class="fcard"><div class="glyph">⇄</div><div class="title">Portable collections</div><div class="body">Export your library as YAML, import it on a new machine. Your curation, reproducible.</div><code>gitstow collection export -o my-repos.yaml</code></div>
       <div class="fcard"><div class="glyph">❯</div><div class="title">Shell sugar</div><div class="body">fzf pickers, tab completion, and gs to cd into any repo. Muscle memory in three keystrokes.</div><code>eval "$(gitstow shell init)"</code></div>
+      <div class="fcard"><div class="glyph">⇶</div><div class="title">Tailscale access</div><div class="body">Run gitstow on a VPS, open the dashboard from your laptop. Your tailnet only — never 0.0.0.0.</div><code>gitstow ui --tailscale</code></div>
     </div>
   </div>
 </section>

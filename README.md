@@ -152,8 +152,16 @@ gsp                              # gitstow pull shorthand
 gitstow ui                  # opens http://127.0.0.1:7853 in your browser
 gitstow ui --port 8080
 gitstow ui --no-browser
+gitstow ui --tailscale      # also serve on your Tailscale address (VPS-friendly)
 ```
-Persistent local web dashboard for daily repo management — a tab you leave open. Shows dirty state across your library, pulls single repos or all-of-them with a parallel summary panel, adds/removes repos, edits tags, freezes stale ones. The repo detail page has a Changes section — staged/unstaged/untracked groups, click a file to expand its colored line diff. Auto-refreshes row status every 30 seconds. Binds `127.0.0.1` only (arbitrary git execution must not be LAN-reachable). Click **Shutdown** in the footer — or Ctrl+C — to stop.
+Persistent local web dashboard for daily repo management — a tab you leave open. Shows dirty state across your library, pulls single repos or all-of-them with a parallel summary panel, adds/removes repos, edits tags, freezes stale ones. The repo detail page has a Changes section — staged/unstaged/untracked groups, click a file to expand its colored line diff. Auto-refreshes row status every 30 seconds. Click **Shutdown** in the footer — or Ctrl+C — to stop.
+
+Private by default: binds `127.0.0.1` (arbitrary git execution must not be LAN-reachable). Running gitstow on a VPS or home server? Enable **Tailscale access** and the dashboard is also served on your tailnet address — open it from any of your devices, encrypted by WireGuard, invisible to the public internet. It never binds `0.0.0.0`:
+```bash
+gitstow config set ui_tailscale true   # every gitstow ui from now on
+gitstow ui --tailscale                 # or per-run
+```
+If Tailscale isn't running, `gitstow ui` warns and serves localhost only.
 
 ### JSON Output
 Every command supports `--json` for scripting and AI consumption:
@@ -230,6 +238,7 @@ workspaces:
 default_host: github.com
 prefer_ssh: false
 parallel_limit: 6
+ui_tailscale: false   # serve `gitstow ui` on your Tailscale address too
 ```
 
 Repo metadata at `~/.gitstow/repos.yaml` (nested by workspace):

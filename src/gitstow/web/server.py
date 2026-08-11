@@ -1,12 +1,15 @@
 """FastAPI server entrypoint for `gitstow ui`.
 
-Binds to 127.0.0.1 only (arbitrary git execution must not be LAN-reachable).
+Binds 127.0.0.1, plus optionally the machine's own Tailscale address
+(never 0.0.0.0).
 Stashes the uvicorn.Server instance on app.state.server so the /shutdown
 route can flip should_exit.
 """
 
 from __future__ import annotations
 
+import socket
+import threading
 import webbrowser
 from pathlib import Path
 from urllib.parse import urlparse
@@ -16,8 +19,11 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from rich.console import Console
 
 from gitstow import __version__
+
+_err_console = Console(stderr=True)
 
 # Package paths
 _PACKAGE_DIR = Path(__file__).parent
@@ -55,18 +61,34 @@ def render(request, template_name: str, status_code: int = 200, **context) -> ob
 # rebound one does not. POSTs additionally check Origin (browsers attach it to
 # all cross-origin POSTs). Header-less requests (curl) pass: CSRF/rebinding are
 # browser vectors, and this is not authentication.
+# When Tailscale serving is enabled, the machine's own tailnet IP/MagicDNS
+# name are added per-app via create_app(extra_allowed_hostnames=...).
 _ALLOWED_HOSTNAMES = {"127.0.0.1", "localhost", "::1"}
 
 
 def _header_hostname(value: str | None) -> str | None:
     if not value:
         return None
-    parsed = urlparse(value if "://" in value else f"//{value}")
-    return parsed.hostname
+    try:
+        parsed = urlparse(value if "://" in value else f"//{value}")
+        return parsed.hostname
+    except ValueError:
+        # Malformed header (e.g. "[::1" — unterminated IPv6). "" is never in the
+        # allowed set, so the request 403s; None would mean "header absent → pass".
+        return ""
 
 
-def create_app() -> FastAPI:
-    """Construct the FastAPI app and register routes + static files."""
+def create_app(extra_allowed_hostnames: set[str] | None = None) -> FastAPI:
+    """Construct the FastAPI app and register routes + static files.
+
+    extra_allowed_hostnames widens the Host/Origin guard — used for the
+    machine's own Tailscale IP and MagicDNS name. Everything else still 403s.
+    Entries must be lowercase AND carry no trailing dot: they are compared
+    against urlparse().hostname, which only lowercases — it does not strip a
+    trailing dot. (detect_tailscale() strips it at the producer.)
+    """
+    allowed_hostnames = _ALLOWED_HOSTNAMES | (extra_allowed_hostnames or set())
+
     app = FastAPI(
         title="gitstow",
         version=__version__,
@@ -78,11 +100,11 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def _reject_rebind_and_cross_origin(request: Request, call_next):
         host = _header_hostname(request.headers.get("host"))
-        if host is not None and host not in _ALLOWED_HOSTNAMES:
+        if host is not None and host not in allowed_hostnames:
             return JSONResponse({"error": "unexpected Host header"}, status_code=403)
         if request.method == "POST":
             origin = request.headers.get("origin")
-            if origin is not None and _header_hostname(origin) not in _ALLOWED_HOSTNAMES:
+            if origin is not None and _header_hostname(origin) not in allowed_hostnames:
                 return JSONResponse({"error": "cross-origin request rejected"}, status_code=403)
         return await call_next(request)
 
@@ -101,22 +123,47 @@ def create_app() -> FastAPI:
     return app
 
 
+def _bind_socket(host: str, port: int) -> socket.socket:
+    """Create a bound TCP socket the way uvicorn's own Config.bind_socket does.
+
+    uvicorn accepts pre-bound sockets via Server.run(sockets=...); asyncio
+    calls listen() itself when the server starts.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind((host, port))
+    except OSError:
+        sock.close()
+        raise
+    sock.set_inheritable(True)
+    return sock
+
+
 def run(
     host: str = "127.0.0.1",
     port: int = 7853,
     open_browser: bool = True,
+    extra_host: str | None = None,
+    extra_allowed_hostnames: set[str] | None = None,
 ) -> None:
     """Run the gitstow server. Blocks until Ctrl+C or /shutdown.
 
     Constructs uvicorn.Config + Server explicitly (not uvicorn.run) so the
     Server instance can be stashed on app.state for the /shutdown route.
+    With extra_host set (Tailscale), listens on host AND extra_host on the
+    same port via two pre-bound sockets.
     """
-    app = create_app()
+    app = create_app(extra_allowed_hostnames=extra_allowed_hostnames)
 
     if open_browser:
         @app.on_event("startup")
         async def _open_browser_on_start() -> None:
-            webbrowser.open(f"http://{host}:{port}")
+            # In a thread: with a console browser registered (lynx/w3m on
+            # headless boxes) webbrowser.open() blocks the event loop.
+            threading.Thread(
+                target=webbrowser.open, args=(f"http://{host}:{port}",), daemon=True
+            ).start()
 
     config = uvicorn.Config(
         app,
@@ -129,4 +176,19 @@ def run(
     )
     server = uvicorn.Server(config)
     app.state.server = server
-    server.run()
+    if extra_host:
+        lo_sock = _bind_socket(host, port)
+        try:
+            extra_sock = _bind_socket(extra_host, port)
+        except OSError as exc:
+            # userspace-networking tailscaled reports an IP it cannot bind
+            # (EADDRNOTAVAIL). Degrade to localhost-only on the socket we hold.
+            _err_console.print(
+                f"[yellow]⚠ Could not bind Tailscale address {extra_host}[/yellow]: "
+                f"{exc} — serving localhost only."
+            )
+            server.run(sockets=[lo_sock])
+        else:
+            server.run(sockets=[lo_sock, extra_sock])
+    else:
+        server.run()
