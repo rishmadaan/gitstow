@@ -58,10 +58,27 @@ def _render_settings(request, settings, error=None, saved=False, status_code=200
     from gitstow.core.paths import CONFIG_FILE, REPOS_FILE, SKILL_TARGET
 
     # ui_tailscale is applied at socket-bind time, so a saved change only lands
-    # on the next `gitstow ui`. Compare the saved value against what this
-    # process actually bound and say so instead of implying a live switch.
-    serving = getattr(request.app.state, "tailscale_serving", False)
+    # on the next `gitstow ui`. State the mismatch as a fact rather than
+    # prescribing a restart — with a `--tailscale` flag override in play, a
+    # restart points the opposite way. Direct attribute read: create_app()
+    # always sets it, so a regression fails loudly instead of defaulting False.
+    serving = request.app.state.tailscale_serving
     installed = tailscale_available()
+
+    if installed and settings.ui_tailscale and not serving:
+        mismatch = (
+            "Saved as on, but not active in this running server — "
+            "takes effect the next time gitstow ui starts."
+        )
+    elif not settings.ui_tailscale and serving:
+        # No installed gate: if it's serving, the CLI clearly worked.
+        mismatch = (
+            "This server was started with Tailscale serving on (e.g. --tailscale); "
+            "the saved setting turns it off the next time gitstow ui starts."
+        )
+    else:
+        # Not installed → no mismatch text; the row's own reason covers it.
+        mismatch = None
 
     ctx = {
         "default_host": settings.default_host,
@@ -84,8 +101,7 @@ def _render_settings(request, settings, error=None, saved=False, status_code=200
         clone_timeout=settings.clone_timeout,
         saved=saved,
         error=error,
-        # Not installed → the row is disabled and a restart can't help anyway.
-        tailscale_restart_needed=installed and settings.ui_tailscale != serving,
+        tailscale_mismatch=mismatch,
     )
 
 
@@ -99,28 +115,33 @@ async def settings_save(
     clone_timeout: str = Form("300"),
 ):
     settings = load_config()
-    try:
-        pl = int(parallel_limit)
-        ct = int(clone_timeout)
-        if pl < 1 or ct < 30:
-            raise ValueError
-    except ValueError:
-        return _render_settings(
-            request,
-            settings,
-            error="parallel_limit and clone_timeout must be whole numbers (limits: ≥1 and ≥30s).",
-            status_code=422,
-        )
-
+    # Assign everything submitted onto the in-memory settings BEFORE validating,
+    # so a 422 re-render echoes what the user actually submitted instead of
+    # rebuilding the form from disk. Only save_config() on the success path.
     settings.default_host = default_host.strip() or "github.com"
     settings.prefer_ssh = prefer_ssh is not None
-    # Without tailscale installed the checkbox renders disabled, and a disabled
-    # checkbox submits nothing — deriving False from the form would silently
-    # wipe a True synced in from another machine. Keep what's on disk.
-    if tailscale_available():
-        settings.ui_tailscale = ui_tailscale is not None
-    settings.parallel_limit = pl
-    settings.clone_timeout = ct
+    # Symmetric with prefer_ssh: the checkbox only renders disabled when
+    # tailscale is missing AND the setting is already False, so a missing field
+    # can never wipe a True — and the enabled box carries the real choice.
+    settings.ui_tailscale = ui_tailscale is not None
+
+    error = None
+    for field, raw, floor in (
+        ("parallel_limit", parallel_limit, 1),
+        ("clone_timeout", clone_timeout, 30),
+    ):
+        try:
+            value = int(raw)
+            if value < floor:
+                raise ValueError
+        except ValueError:
+            # Only the failing field keeps its old value.
+            error = "parallel_limit and clone_timeout must be whole numbers (limits: ≥1 and ≥30s)."
+            continue
+        setattr(settings, field, value)
+    if error:
+        return _render_settings(request, settings, error=error, status_code=422)
+
     save_config(settings)
     return RedirectResponse(url="/settings?saved=1", status_code=303)
 

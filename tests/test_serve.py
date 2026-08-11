@@ -180,10 +180,32 @@ class TestSettingsSave:
         assert depth == 0
 
 
+def _input_attrs(html: str, name: str) -> dict:
+    """Attributes of the first <input name=...>, parsed — not grepped.
+
+    Substring checks ("disabled" in html) hit unrelated markup; the DOM is what
+    the browser acts on.
+    """
+    from html.parser import HTMLParser
+
+    class _P(HTMLParser):
+        found = None
+
+        def handle_starttag(self, tag, attrs):
+            d = dict(attrs)
+            if tag == "input" and d.get("name") == name and self.found is None:
+                self.found = d
+
+    p = _P()
+    p.feed(html)
+    assert p.found is not None, f"no <input name={name!r}> in page"
+    return p.found
+
+
 class TestSettingsTailscaleToggle:
-    """ui_tailscale on the settings page — round trip, restart notice, and the
-    not-installed guard (a disabled checkbox never submits, so a naive save
-    would silently flip a synced-in True to False)."""
+    """ui_tailscale on the settings page — round trip, the honest saved-vs-serving
+    hint (never a restart prescription, which can point the wrong way under a
+    --tailscale flag override), and the not-installed off-path."""
 
     @pytest.fixture
     def has_tailscale(self, monkeypatch):
@@ -211,42 +233,139 @@ class TestSettingsTailscaleToggle:
         self._post(client)
         assert load_config().ui_tailscale is False
 
-    def test_restart_notice_when_saved_value_differs_from_serving(
+    # ---- saved-vs-serving hint ----
+
+    def test_saved_on_but_not_serving_says_next_start(
         self, client, configured, has_tailscale
     ):
-        # app bound localhost-only; saving True means "not live until restart"
         assert client.app.state.tailscale_serving is False
         r = self._post(client, ui_tailscale="on")
-        assert "Restart" in r.text and "gitstow ui" in r.text
+        assert "not active in this running server" in r.text
+        assert "takes effect the next time gitstow ui starts" in r.text
 
-    def test_no_restart_notice_when_saved_value_matches_serving(
+    def test_flash_never_carries_restart_text(self, client, configured, has_tailscale):
+        r = self._post(client, ui_tailscale="on")
+        flash = r.text.split('class="form-flash"')[1].split("</p>")[0]
+        assert "Preferences saved." in flash
+        assert "estart" not in flash and "next time" not in flash
+
+    def test_saved_off_but_serving_says_flag_override(
+        self, client, configured, has_tailscale
+    ):
+        client.app.state.tailscale_serving = True
+        try:
+            r = self._post(client)
+            assert "started with Tailscale serving on" in r.text
+            assert "turns it off the next time gitstow ui starts" in r.text
+        finally:
+            client.app.state.tailscale_serving = False
+
+    def test_no_hint_when_saved_value_matches_serving(
         self, client, configured, has_tailscale
     ):
         r = self._post(client)
-        assert "Restart" not in r.text
+        assert "next time gitstow ui starts" not in r.text
 
-    def test_get_shows_restart_notice_on_mismatch(self, client, configured, has_tailscale):
+    def test_unrelated_save_shows_no_tailscale_hint(
+        self, client, configured, has_tailscale
+    ):
+        """Saving parallel_limit with no mismatch must not nag about tailscale."""
+        r = self._post(client, parallel_limit="9")
+        assert "next time gitstow ui starts" not in r.text
+        assert "Preferences saved." in r.text
+
+    def test_get_shows_hint_on_mismatch(self, client, configured, has_tailscale):
         from gitstow.core.config import load_config, save_config
 
         s = load_config(); s.ui_tailscale = True; save_config(s)
-        html = client.get("/settings").text
-        assert "restarting" in html.lower()
+        assert "not active in this running server" in client.get("/settings").text
 
-    def test_row_disabled_with_reason_when_not_installed(
+    # ---- not installed ----
+
+    def test_row_disabled_with_reason_when_not_installed_and_off(
         self, client, configured, no_tailscale
     ):
         html = client.get("/settings").text
         assert "Install Tailscale to enable" in html
-        assert "disabled" in html
-        # no restart notice — restarting can't help without the CLI
-        assert "restarting" not in html.lower()
+        assert "disabled" in _input_attrs(html, "ui_tailscale")
+        assert "next time gitstow ui starts" not in html
 
-    def test_save_preserves_true_when_not_installed(self, client, configured, no_tailscale):
+    def test_not_installed_but_true_renders_enabled_with_off_path(
+        self, client, configured, no_tailscale
+    ):
         from gitstow.core.config import load_config, save_config
 
         s = load_config(); s.ui_tailscale = True; save_config(s)
-        self._post(client)  # disabled checkbox submits nothing
+        html = client.get("/settings").text
+        attrs = _input_attrs(html, "ui_tailscale")
+        assert "disabled" not in attrs, "no way to turn it off"
+        assert "checked" in attrs
+        assert "uncheck to turn it off" in html
+        # not installed → no mismatch nag; a restart can't help
+        assert "next time gitstow ui starts" not in html
+
+    def test_not_installed_true_stays_true_when_box_still_checked(
+        self, client, configured, no_tailscale
+    ):
+        from gitstow.core.config import load_config, save_config
+
+        s = load_config(); s.ui_tailscale = True; save_config(s)
+        self._post(client, ui_tailscale="on")
         assert load_config().ui_tailscale is True
+
+    def test_not_installed_true_can_be_turned_off(self, client, configured, no_tailscale):
+        from gitstow.core.config import load_config, save_config
+
+        s = load_config(); s.ui_tailscale = True; save_config(s)
+        self._post(client)  # user unchecked the (enabled) box
+        assert load_config().ui_tailscale is False
+
+    def test_not_installed_false_stays_false(self, client, configured, no_tailscale):
+        from gitstow.core.config import load_config
+
+        self._post(client)  # disabled box submits nothing — no-op
+        assert load_config().ui_tailscale is False
+
+    # ---- DOM-level checked reflection ----
+
+    @pytest.mark.parametrize("saved", [True, False])
+    def test_checkbox_checked_reflects_config(
+        self, client, configured, has_tailscale, saved
+    ):
+        from gitstow.core.config import load_config, save_config
+
+        s = load_config(); s.ui_tailscale = saved; save_config(s)
+        attrs = _input_attrs(client.get("/settings").text, "ui_tailscale")
+        assert ("checked" in attrs) is saved
+
+    # ---- validation error echoes submitted values ----
+
+    def test_error_rerender_echoes_submitted_checkbox(
+        self, client, configured, has_tailscale
+    ):
+        from gitstow.core.config import load_config
+
+        r = client.post("/settings", data={
+            "default_host": "github.com", "ui_tailscale": "on",
+            "parallel_limit": "6", "clone_timeout": "5",
+        })
+        assert r.status_code == 422
+        assert "checked" in _input_attrs(r.text, "ui_tailscale")
+        assert load_config().ui_tailscale is False  # disk untouched
+
+    def test_error_rerender_keeps_valid_field_reverts_failing_one(
+        self, client, configured, has_tailscale
+    ):
+        from gitstow.core.config import load_config
+
+        r = client.post("/settings", data={
+            "default_host": "github.com",
+            "parallel_limit": "9", "clone_timeout": "5",
+        })
+        assert r.status_code == 422
+        assert _input_attrs(r.text, "parallel_limit")["value"] == "9"
+        assert _input_attrs(r.text, "clone_timeout")["value"] == "300"
+        assert load_config().parallel_limit == 6  # disk untouched
 
 
 # ---------- add-repo ----------
@@ -1486,6 +1605,39 @@ class TestDualSocketRun:
         server_mod.run(port=0, open_browser=False)
         assert captured["called"] is True
         assert captured["sockets"] is None
+
+    def test_dual_socket_run_marks_tailscale_serving(self, monkeypatch):
+        """The settings page reads app.state.tailscale_serving — assert the
+        producer sets it True at the moment the two sockets are served."""
+        import uvicorn
+
+        from gitstow.web import server as server_mod
+
+        captured = {}
+
+        def fake_run(self, sockets=None):
+            captured["serving"] = self.config.app.state.tailscale_serving
+            captured["sockets"] = sockets
+
+        monkeypatch.setattr(uvicorn.Server, "run", fake_run)
+        server_mod.run(port=0, open_browser=False, extra_host="127.0.0.1")
+        assert captured["serving"] is True
+        for s in captured["sockets"]:
+            s.close()
+
+    def test_localhost_only_run_leaves_tailscale_serving_false(self, monkeypatch):
+        import uvicorn
+
+        from gitstow.web import server as server_mod
+
+        captured = {}
+
+        def fake_run(self, sockets=None):
+            captured["serving"] = self.config.app.state.tailscale_serving
+
+        monkeypatch.setattr(uvicorn.Server, "run", fake_run)
+        server_mod.run(port=0, open_browser=False)
+        assert captured["serving"] is False
 
 
 # ---------- gitstow ui --tailscale wiring ----------

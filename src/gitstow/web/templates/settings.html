@@ -13,7 +13,7 @@
 
   <form method="POST" action="/settings">
 
-    {% if saved %}<p class="form-flash">Preferences saved.{% if tailscale_restart_needed %} Restart <code>gitstow ui</code> for this to take effect.{% endif %}</p>{% endif %}
+    {% if saved %}<p class="form-flash">Preferences saved.</p>{% endif %}
     {% if error %}<p class="form-error">{{ error }}</p>{% endif %}
 
     <section>
@@ -45,18 +45,20 @@
         <dt>Tailscale</dt>
         <dd>
           <label style="display: inline-flex; align-items: center; margin: 0.55rem 0 0; font-family: 'Bricolage Grotesque', sans-serif; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--text-soft); font-size: 0.9rem;">
-            <input type="checkbox" name="ui_tailscale"{% if settings.ui_tailscale %} checked{% endif %}{% if not settings.tailscale_installed %} disabled{% endif %}>
+            <input type="checkbox" name="ui_tailscale"{% if settings.ui_tailscale %} checked{% endif %}{% if not settings.tailscale_installed and not settings.ui_tailscale %} disabled{% endif %}>
             Web dashboard over Tailscale
           </label>
           <span class="form-hint">
-            {% if not settings.tailscale_installed %}
-              Install Tailscale to enable — this machine has no <code>tailscale</code> CLI.
-            {% else %}
+            {% if settings.tailscale_installed %}
               Also serve the dashboard on this machine's Tailscale address, so other devices on your tailnet can reach it. Never binds 0.0.0.0.
+            {% elif settings.ui_tailscale %}
+              The <code>tailscale</code> CLI isn't installed, so this has no effect on this machine — uncheck to turn it off.
+            {% else %}
+              Install Tailscale to enable — this machine has no <code>tailscale</code> CLI.
             {% endif %}
           </span>
-          {% if tailscale_restart_needed and not saved %}
-          <span class="form-hint">This change takes effect after restarting <code>gitstow ui</code>.</span>
+          {% if tailscale_mismatch %}
+          <span class="form-hint">{{ tailscale_mismatch }}</span>
           {% endif %}
         </dd>
 
