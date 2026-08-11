@@ -32,7 +32,7 @@ def detect_tailscale() -> TailscaleInfo | None:
     try:
         ip_proc = subprocess.run(
             ["tailscale", "ip", "-4"],
-            capture_output=True, text=True, timeout=_TIMEOUT,
+            capture_output=True, text=True, timeout=_TIMEOUT, check=False,
         )
         if ip_proc.returncode != 0 or not ip_proc.stdout.strip():
             return None
@@ -46,7 +46,7 @@ def detect_tailscale() -> TailscaleInfo | None:
     try:
         status_proc = subprocess.run(
             ["tailscale", "status", "--json"],
-            capture_output=True, text=True, timeout=_TIMEOUT,
+            capture_output=True, text=True, timeout=_TIMEOUT, check=False,
         )
         if status_proc.returncode == 0:
             self_info = json.loads(status_proc.stdout).get("Self") or {}
