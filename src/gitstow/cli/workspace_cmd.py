@@ -8,13 +8,8 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from gitstow.core.config import (
-    NO_WORKSPACES_HINT,
-    Workspace,
-    is_valid_label,
-    load_config,
-    save_config,
-)
+from gitstow.cli.helpers import print_no_workspaces_hint
+from gitstow.core.config import Workspace, is_valid_label, load_config, save_config
 from gitstow.core.discovery import discover_repos
 from gitstow.core.repo import Repo, RepoStore
 
@@ -40,7 +35,7 @@ def workspace_list(
         # Zero workspaces is a valid state, not an error — exit 0 and say what's next.
         if not quiet:
             console.print()
-            console.print(f"  [dim]{NO_WORKSPACES_HINT}[/dim]")
+            print_no_workspaces_hint(console)
             console.print()
         return
 
@@ -185,7 +180,7 @@ def workspace_remove(
     console.print(f"  [green]✓[/green] Workspace [bold]{label}[/bold] removed")
     # The last workspace may go — say what the now-empty config needs next.
     if not settings.workspaces:
-        console.print(f"  [dim]{NO_WORKSPACES_HINT}[/dim]")
+        print_no_workspaces_hint(console)
 
 
 @workspace_app.command("scan")

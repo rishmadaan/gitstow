@@ -96,11 +96,9 @@
 
   {% elif not workspaces %}
 
-  <article class="card" style="text-align: center; padding: 3rem 2rem;">
-    <h4 style="margin-bottom: 0.75rem;">No workspaces configured.</h4>
-    <p style="color: var(--muted); margin-bottom: 1.25rem;">A workspace is the directory gitstow clones into. Add one before adding repos — or run <code>gitstow workspace add &lt;path&gt; --label &lt;name&gt;</code> / <code>gitstow onboard</code> in a terminal.</p>
-    <a href="/workspaces" class="btn btn-primary">Add a workspace</a>
-  </article>
+  {% with lede="A workspace is the directory gitstow clones into. Add one before adding repos — from the workspaces page, or from a terminal:", cta=True, centered=True %}
+  {% include "partials/no_workspaces.html" %}
+  {% endwith %}
 
   {% else %}
 

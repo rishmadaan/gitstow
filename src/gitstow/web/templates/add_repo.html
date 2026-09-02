@@ -20,17 +20,9 @@
 
   {% if not workspaces %}
 
-  <article class="card">
-    <h4>No workspaces yet.</h4>
-    <p>gitstow clones into a workspace, and none are configured — so there is nowhere to put this repo yet.</p>
-    <p>Add one from the workspaces page, or from a terminal:</p>
-    <code class="path-code" style="margin-bottom: 0.4rem;">gitstow workspace add &lt;path&gt; --label &lt;name&gt;</code>
-    <code class="path-code">gitstow onboard</code>
-    <div style="margin-top: 1.25rem;">
-      <a href="/workspaces" class="btn btn-primary">Add a workspace</a>
-      <a href="/" class="btn btn-ghost">Cancel</a>
-    </div>
-  </article>
+  {% with lede="gitstow clones into a workspace, and none are configured — so there is nowhere to put this repo yet. Add one from the workspaces page, or from a terminal:", cta=True, cancel=True %}
+  {% include "partials/no_workspaces.html" %}
+  {% endwith %}
 
   {% else %}
 

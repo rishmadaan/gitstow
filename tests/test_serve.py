@@ -169,15 +169,18 @@ class TestSettingsSave:
         assert "alert(" not in r.text
 
     def test_no_nested_forms_on_settings_page(self, client, configured):
-        import re
-        html = client.get("/settings").text
-        # Walk form open/close tags — depth must never exceed 1 (nested forms are
-        # dropped by browsers, breaking both the outer and inner form).
-        depth = 0
-        for tag in re.findall(r"<form\b|</form>", html):
-            depth += 1 if tag.startswith("<form") else -1
-            assert depth in (0, 1), "nested <form> detected on settings page"
-        assert depth == 0
+        _assert_no_nested_forms(client.get("/settings").text, "settings page")
+
+
+def _assert_no_nested_forms(html: str, where: str) -> None:
+    """Walk form open/close tags — depth must never exceed 1 (browsers silently
+    drop nested <form> tags, breaking both the outer and inner form)."""
+    import re
+    depth = 0
+    for tag in re.findall(r"<form\b|</form>", html):
+        depth += 1 if tag.startswith("<form") else -1
+        assert depth in (0, 1), f"nested <form> detected on {where}"
+    assert depth == 0
 
 
 def _input_attrs(html: str, name: str) -> dict:
@@ -1821,19 +1824,10 @@ class TestNoWorkspacesConfigured:
         save_config(Settings())
         return isolated
 
-    @staticmethod
-    def _assert_no_nested_forms(html: str, where: str):
-        import re
-        depth = 0
-        for tag in re.findall(r"<form\b|</form>", html):
-            depth += 1 if tag.startswith("<form") else -1
-            assert depth in (0, 1), f"nested <form> detected on {where}"
-        assert depth == 0
-
     def test_dashboard_shows_no_workspaces_card(self, client, empty):
         r = client.get("/")
         assert r.status_code == 200
-        assert "No workspaces configured." in r.text
+        assert "No workspaces yet." in r.text
         assert "/workspaces" in r.text
 
     def test_dashboard_rows_fragment_survives_empty_config(self, client, empty):
@@ -1848,7 +1842,7 @@ class TestNoWorkspacesConfigured:
         assert "gitstow onboard" in r.text
         # The add form is still there, and still a single flat form.
         assert 'action="/workspaces/add"' in r.text
-        self._assert_no_nested_forms(r.text, "workspaces page")
+        _assert_no_nested_forms(r.text, "workspaces page")
 
     def test_add_page_offers_a_workspace_not_an_empty_select(self, client, empty):
         r = client.get("/add")
@@ -1857,7 +1851,7 @@ class TestNoWorkspacesConfigured:
         assert 'href="/workspaces"' in r.text
         # No repo-add form at all — an empty <select> would be a dead end.
         assert 'action="/repos/add"' not in r.text
-        self._assert_no_nested_forms(r.text, "add page")
+        _assert_no_nested_forms(r.text, "add page")
 
     def test_post_repo_add_rejects_cleanly(self, client, empty):
         r = client.post(

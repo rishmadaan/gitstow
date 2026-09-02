@@ -67,12 +67,9 @@
   {% endif %}
 
   {% if not workspaces %}
-  <article class="card" style="margin-bottom: 2rem;">
-    <h4>No workspaces yet.</h4>
-    <p>Zero workspaces is a valid state — gitstow tracks nothing until you point it at a directory. Use the form below, or a terminal:</p>
-    <code class="path-code" style="margin-bottom: 0.4rem;">gitstow workspace add &lt;path&gt; --label &lt;name&gt;</code>
-    <code class="path-code">gitstow onboard</code>
-  </article>
+  {% with lede="Zero workspaces is a valid state — gitstow tracks nothing until you point it at a directory. Use the form below, or a terminal:", bottom_gap=True %}
+  {% include "partials/no_workspaces.html" %}
+  {% endwith %}
   {% endif %}
 
   {% if orphans %}

@@ -9,7 +9,8 @@ import typer
 from rich.console import Console
 
 from gitstow import __version__
-from gitstow.core.config import NO_WORKSPACES_HINT, load_config
+from gitstow.cli.helpers import print_no_workspaces_hint
+from gitstow.core.config import load_config
 from gitstow.core.discovery import discover_repos, reconcile
 from gitstow.core.git import is_git_installed
 from gitstow.core.paths import APP_HOME, CONFIG_FILE, get_repos_file
@@ -107,16 +108,16 @@ def doctor(
     _check("App directory", APP_HOME.exists())
     _check("Config file", CONFIG_FILE.exists())
     _check("Repos file", repos_file.exists(), str(repos_file))
-    ws_status = (
-        f"[green]OK[/green] [dim]({len(workspaces)} configured)[/dim]"
-        if workspaces
-        else "[red]None configured[/red]"
+    _check(
+        "Workspaces", bool(workspaces),
+        f"{len(workspaces)} configured" if workspaces else "",
+        fail_label="None configured",
     )
-    console.print(f"     Workspaces: {ws_status}")
     console.print(f"     Repos tracked: {store.count()}")
 
     if not workspaces:
-        console.print(f"\n     [yellow]{NO_WORKSPACES_HINT}[/yellow]")
+        console.print()
+        print_no_workspaces_hint(console, style="yellow", indent="     ")
     elif not CONFIG_FILE.exists():
         console.print("\n     [yellow]Run [bold]gitstow onboard[/bold] to set up.[/yellow]")
 
@@ -185,8 +186,8 @@ def _check_ssh_connectivity() -> bool:
         return False
 
 
-def _check(label: str, ok: bool, detail: str = "") -> None:
+def _check(label: str, ok: bool, detail: str = "", fail_label: str = "Missing") -> None:
     """Print a check result."""
-    status = "[green]OK[/green]" if ok else "[red]Missing[/red]"
+    status = "[green]OK[/green]" if ok else f"[red]{fail_label}[/red]"
     detail_str = f" [dim]({detail})[/dim]" if detail else ""
     console.print(f"     {label}: {status}{detail_str}")

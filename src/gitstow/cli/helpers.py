@@ -3,14 +3,34 @@
 from __future__ import annotations
 
 import sys
+from typing import NoReturn
 
 import typer
 from rich.console import Console
 
-from gitstow.core.config import NO_WORKSPACES_HINT, Settings, Workspace
+from gitstow.core.config import Settings, Workspace
 from gitstow.core.repo import Repo, RepoStore
 
 err_console = Console(stderr=True)
+
+# Rich-markup rendering of NO_WORKSPACES_HINT for terminal output. The plain
+# constant (backticks, angle brackets) is for MCP JSON and the web; printed raw
+# through Rich it shows literal backticks and half-highlights `<path>`.
+NO_WORKSPACES_MARKUP = (
+    "No workspaces configured. Add one with "
+    "[bold]gitstow workspace add <path> --label <name>[/bold] or run [bold]gitstow onboard[/bold]."
+)
+
+
+def print_no_workspaces_hint(console: Console, style: str = "dim", indent: str = "  ") -> None:
+    """Print the empty-state hint as a styled, un-highlighted line."""
+    console.print(f"{indent}[{style}]{NO_WORKSPACES_MARKUP}[/{style}]", highlight=False)
+
+
+def fail_no_workspaces() -> NoReturn:
+    """Stop a command that needs a workspace when none is configured."""
+    err_console.print(f"[red]Error:[/red] {NO_WORKSPACES_MARKUP}", highlight=False)
+    raise typer.Exit(code=1)
 
 
 def resolve_workspaces(
@@ -25,8 +45,7 @@ def resolve_workspaces(
     """
     all_ws = settings.get_workspaces()
     if not all_ws:
-        err_console.print(f"[red]Error:[/red] {NO_WORKSPACES_HINT}")
-        raise typer.Exit(code=1)
+        fail_no_workspaces()
     if workspace_label is None:
         return all_ws
     ws = settings.get_workspace(workspace_label)
