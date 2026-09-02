@@ -94,6 +94,14 @@
     auto-refresh 30s · click repo name → details · pull runs in place · <a href="#" onclick="document.getElementById('help-dialog').showModal(); return false;" style="color: var(--muted); text-decoration: underline;">what does this dashboard show?</a>
   </small>
 
+  {% elif not workspaces %}
+
+  <article class="card" style="text-align: center; padding: 3rem 2rem;">
+    <h4 style="margin-bottom: 0.75rem;">No workspaces configured.</h4>
+    <p style="color: var(--muted); margin-bottom: 1.25rem;">A workspace is the directory gitstow clones into. Add one before adding repos — or run <code>gitstow workspace add &lt;path&gt; --label &lt;name&gt;</code> / <code>gitstow onboard</code> in a terminal.</p>
+    <a href="/workspaces" class="btn btn-primary">Add a workspace</a>
+  </article>
+
   {% else %}
 
   <article class="card" style="text-align: center; padding: 3rem 2rem;">

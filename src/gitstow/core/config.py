@@ -11,9 +11,18 @@ from pathlib import Path
 
 import yaml
 
-from gitstow.core.paths import CONFIG_FILE, DEFAULT_ROOT, ensure_app_dirs
+from gitstow.core.paths import CONFIG_FILE, ensure_app_dirs
 
 _LABEL_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+
+# One sentence, one pair of commands — reused verbatim by the CLI, the MCP server
+# and (paraphrased into HTML) by the web dashboard, so every surface says the same
+# thing when zero workspaces are configured. Zero is a legitimate state: gitstow
+# never invents a workspace.
+NO_WORKSPACES_HINT = (
+    "No workspaces configured. Add one with "
+    "`gitstow workspace add <path> --label <name>` or run `gitstow onboard`."
+)
 
 
 def is_valid_label(label: str) -> bool:
@@ -63,12 +72,13 @@ class Settings:
     root_path: str = ""
 
     def get_workspaces(self) -> list[Workspace]:
-        """Return all workspaces. If none configured, synthesize one from legacy root_path."""
-        if self.workspaces:
-            return self.workspaces
-        # Backward compat: synthesize a single workspace from legacy root_path
-        path = self.root_path or str(DEFAULT_ROOT)
-        return [Workspace(path=path, label="oss", layout="structured")]
+        """Return the configured workspaces — exactly what is on disk, nothing invented.
+
+        An empty list is a legitimate state (fresh install, or the last workspace
+        removed). Legacy `root_path` configs are migrated to a real, persisted
+        workspace in `load_config()`; nothing is synthesized on read.
+        """
+        return self.workspaces
 
     def get_workspace(self, label: str) -> Workspace | None:
         """Look up a workspace by label."""
@@ -77,13 +87,21 @@ class Settings:
                 return ws
         return None
 
-    def get_default_workspace(self) -> Workspace:
-        """Return the first workspace (used as default for add, etc.)."""
-        return self.get_workspaces()[0]
+    def get_default_workspace(self) -> Workspace | None:
+        """Return the first workspace, or None when none are configured."""
+        workspaces = self.get_workspaces()
+        return workspaces[0] if workspaces else None
 
     def get_root(self) -> Path:
-        """Deprecated — returns the default workspace path for backward compat."""
-        return self.get_default_workspace().get_path()
+        """Deprecated — the default workspace's path.
+
+        Raises RuntimeError when no workspace is configured; there is no sensible
+        path to return and silently inventing one is the bug this replaced.
+        """
+        ws = self.get_default_workspace()
+        if ws is None:
+            raise RuntimeError(NO_WORKSPACES_HINT)
+        return ws.get_path()
 
     def to_dict(self) -> dict:
         d: dict = {
@@ -122,7 +140,9 @@ def load_config() -> Settings:
         data = yaml.safe_load(f) or {}
     settings = Settings.from_dict(data)
 
-    # Auto-migrate: if legacy root_path is set but no workspaces, migrate
+    # Auto-migrate: a legacy `root_path` config becomes one real, persisted
+    # workspace. This is the only place a workspace is ever created implicitly,
+    # and it writes to disk — so what the user sees is what the config holds.
     if not settings.workspaces and settings.root_path:
         settings.workspaces = [
             Workspace(

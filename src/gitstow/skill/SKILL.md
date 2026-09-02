@@ -22,6 +22,18 @@ gitstow organizes repos into **workspaces** — directories with a label, layout
 
 Use `-w <label>` on any command to filter to a specific workspace.
 
+**A config can have zero workspaces** — a fresh install, or after the user removed
+their last one. That is a valid state, not corruption: gitstow never invents one.
+Commands that sweep workspaces (`add`, `pull`, `fetch`, `list`, `status`, `exec`, `search`, `stats`, `migrate`,
+`collection import` and `shell pick`) exit 1 with:
+
+```
+Error: No workspaces configured. Add one with `gitstow workspace add <path> --label <name>` or run `gitstow onboard`.
+```
+
+That message *is* the fix — run `gitstow workspace add <path> --label <name>`
+(or `gitstow onboard`) before retrying. Do not work around it with raw `git clone`.
+
 ## Cardinal Rule: Never Use Raw `git clone`
 
 When the user asks to clone, download, or get a repo, **always use `gitstow add`**. Never fall back to `git clone` — even for a single repo. `gitstow add` clones AND tracks the repo, so it appears in status dashboards and bulk operations.
@@ -44,7 +56,7 @@ gitstow --version
 ```
 
 If not installed: suggest `pipx install gitstow` (or `pip install gitstow`). Every install includes the full CLI and the browser dashboard (`gitstow ui`).
-If installed but not configured (no `~/.gitstow/config.yaml`): guide with `gitstow onboard`.
+If installed but not configured (no `~/.gitstow/config.yaml`, or `workspaces: []`): guide with `gitstow onboard`, or `gitstow workspace add <path> --label <name>` if the user already knows where they want repos.
 
 ## Core Principle: Use --json for Machine Output
 
@@ -92,7 +104,7 @@ For commands shown to the user to run themselves, use the human-readable form (n
 | Move a workspace's repos to a new location | `gitstow -w active config migrate-root ~/new-location` — workspace is chosen via the **global** `-w` flag before `config`, not a local flag on `migrate-root` |
 | List workspaces | `gitstow workspace list` |
 | Add a workspace | `gitstow workspace add ~/path --label name --layout flat` |
-| Remove a workspace | `gitstow workspace remove name` |
+| Remove a workspace | `gitstow workspace remove name` — removing the **last** one is allowed; the config is then simply empty |
 | Scan workspace for repos | `gitstow workspace scan name` |
 | Run setup wizard | `gitstow onboard` |
 | Health check | `gitstow doctor` |
@@ -224,5 +236,6 @@ An optional MCP server exists (`pip install gitstow[mcp]`, run `gitstow-mcp`) fo
 
 - Config: `~/.gitstow/config.yaml`
 - Repo metadata: `~/.gitstow/repos.yaml` (central, nested by workspace)
-- Repos: across configured workspaces (default first workspace: `~/oss/`)
+- Repos: across configured workspaces. There is no built-in default workspace — `gitstow add`
+  uses the first one in `config.yaml`, and errors if none are configured.
 - `gitstow ui` (the browser dashboard) ships with every install. If it errors about missing web dependencies, the install is partial/outdated — `pip install --upgrade gitstow` fixes it.

@@ -1,9 +1,10 @@
 """Tests for config and workspace system."""
 
+import pytest
 import yaml
 
 
-from gitstow.core.config import Settings, Workspace
+from gitstow.core.config import Settings, Workspace, load_config
 
 
 class TestWorkspace:
@@ -50,18 +51,23 @@ class TestSettings:
         assert len(settings.get_workspaces()) == 1
         assert settings.get_workspaces()[0].label == "oss"
 
-    def test_get_workspaces_synthesizes_from_legacy(self):
-        settings = Settings(root_path="~/old-repos")
-        workspaces = settings.get_workspaces()
-        assert len(workspaces) == 1
-        assert workspaces[0].path == "~/old-repos"
-        assert workspaces[0].label == "oss"
-
-    def test_get_workspaces_default_when_empty(self):
+    def test_get_workspaces_empty_is_a_real_state(self):
+        """Zero workspaces stays zero — no phantom 'oss' at ~/opensource."""
         settings = Settings()
-        workspaces = settings.get_workspaces()
-        assert len(workspaces) == 1
-        assert workspaces[0].label == "oss"
+        assert settings.get_workspaces() == []
+        assert settings.get_default_workspace() is None
+        assert settings.get_workspace("oss") is None
+
+    def test_get_workspaces_does_not_synthesize_from_legacy_root_path(self):
+        """Migration is load_config()'s job (it persists); reading never invents."""
+        settings = Settings(root_path="~/old-repos")
+        assert settings.get_workspaces() == []
+        assert settings.get_default_workspace() is None
+
+    def test_get_root_raises_without_workspaces(self):
+        settings = Settings()
+        with pytest.raises(RuntimeError):
+            settings.get_root()
 
     def test_get_workspace_by_label(self):
         ws1 = Workspace(path="~/oss", label="oss")
@@ -112,6 +118,44 @@ def test_clone_timeout_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
     save_config(Settings(clone_timeout=900))
     assert load_config().clone_timeout == 900
+
+
+class TestLegacyRootPathMigration:
+    """The one place a workspace is created implicitly — and it writes to disk."""
+
+    def test_load_config_migrates_root_path_and_persists_it(self, tmp_path, monkeypatch):
+        config_file = tmp_path / "config.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        config_file.write_text(yaml.dump({"root_path": "~/old-repos", "default_host": "github.com"}))
+
+        settings = load_config()
+
+        assert len(settings.workspaces) == 1
+        assert settings.workspaces[0].label == "oss"
+        assert settings.workspaces[0].path == "~/old-repos"
+        assert settings.workspaces[0].layout == "structured"
+        assert settings.root_path == ""
+
+        # ...and the migration is on disk, not just in memory.
+        on_disk = yaml.safe_load(config_file.read_text())
+        assert "root_path" not in on_disk
+        assert on_disk["workspaces"] == [
+            {"path": "~/old-repos", "label": "oss", "layout": "structured"}
+        ]
+
+    def test_load_config_without_root_path_stays_empty(self, tmp_path, monkeypatch):
+        config_file = tmp_path / "config.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        config_file.write_text(yaml.dump({"workspaces": [], "default_host": "github.com"}))
+
+        settings = load_config()
+
+        assert settings.workspaces == []
+        assert settings.get_default_workspace() is None
+        # Nothing was written behind the user's back either.
+        assert yaml.safe_load(config_file.read_text())["workspaces"] == []
 
 
 class TestConfigPersistence:

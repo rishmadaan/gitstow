@@ -1,5 +1,7 @@
 """CLI smoke tests using Typer's CliRunner."""
 
+import json
+
 import pytest
 from typer.testing import CliRunner
 
@@ -396,8 +398,8 @@ class TestOrphanedWorkspaceRecords:
         from gitstow.core.repo import RepoStore
 
         repos_file = self._seed_orphan(tmp_path, monkeypatch)
-        # Only one configured workspace — the "cannot remove the only workspace"
-        # guard must not block clearing an orphaned label.
+        # 'gone' is not in config at all — the orphan-clearing branch must run
+        # regardless of how many real workspaces exist alongside it.
         result = CliRunner().invoke(app, ["workspace", "remove", "gone"])
         assert result.exit_code == 0
         assert "Cleared 2 orphaned" in result.output
@@ -1153,3 +1155,145 @@ class TestDiffCommand:
         result = runner.invoke(app, ["diff", "owner/repo", "--quiet"])
         assert result.exit_code == 0
         assert result.output.strip() == ""
+
+
+class TestNoWorkspacesConfigured:
+    """Zero workspaces is a legitimate state — every surface says the same thing.
+
+    Regression guard for the phantom 'oss' workspace at ~/opensource that
+    Settings.get_workspaces() used to synthesize but never persist.
+    """
+
+    HINT_FRAGMENTS = ("No workspaces configured", "gitstow workspace add", "gitstow onboard")
+
+    def _isolate(self, tmp_path, monkeypatch):
+        """Point config.yaml / repos.yaml at tmp and start from an empty config."""
+        from gitstow.core.config import Settings, save_config
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        monkeypatch.setattr("gitstow.core.config.ensure_app_dirs", lambda: None)
+        save_config(Settings())
+        return config_file, repos_file
+
+    def _combined(self, result):
+        """Rich hard-wraps mid-phrase — normalize whitespace before asserting."""
+        return " ".join(((result.output or "") + (result.stderr or "")).split())
+
+    def _assert_hint(self, result):
+        combined = self._combined(result)
+        for fragment in self.HINT_FRAGMENTS:
+            assert fragment in combined, f"missing {fragment!r} in: {combined}"
+
+    # --- removing the last workspace is allowed ---
+
+    def test_workspace_remove_last_succeeds_and_empties_config(self, tmp_path, monkeypatch):
+        import yaml
+
+        from gitstow.core.config import Settings, Workspace, save_config
+
+        config_file, _ = self._isolate(tmp_path, monkeypatch)
+        ws_dir = tmp_path / "only"; ws_dir.mkdir()
+        save_config(Settings(workspaces=[
+            Workspace(path=str(ws_dir), label="only", layout="structured")
+        ]))
+
+        result = CliRunner().invoke(app, ["workspace", "remove", "only"])
+
+        assert result.exit_code == 0
+        assert yaml.safe_load(config_file.read_text())["workspaces"] == []
+        self._assert_hint(result)
+
+    # --- an empty config can be filled again under any label ---
+
+    def test_workspace_add_oss_on_empty_config(self, tmp_path, monkeypatch):
+        """'oss' was the phantom's label — adding it for real must not collide."""
+        import yaml
+
+        config_file, _ = self._isolate(tmp_path, monkeypatch)
+        target = tmp_path / "opensource"
+
+        added = CliRunner().invoke(
+            app, ["workspace", "add", str(target), "--label", "oss", "--no-scan"]
+        )
+        assert added.exit_code == 0, self._combined(added)
+
+        # Identity, not count: the persisted workspace is the one just asked for.
+        saved = yaml.safe_load(config_file.read_text())["workspaces"]
+        assert saved == [{"path": str(target), "label": "oss", "layout": "structured"}]
+
+        listed = CliRunner().invoke(app, ["workspace", "list"])
+        assert listed.exit_code == 0
+        assert "oss" in self._combined(listed)
+
+    # --- commands that need a workspace stop with the hint ---
+
+    def test_list_exits_with_hint(self, tmp_path, monkeypatch):
+        self._isolate(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["list"])
+        assert result.exit_code == 1
+        self._assert_hint(result)
+
+    def test_add_exits_with_hint_and_clones_nothing(self, tmp_path, monkeypatch):
+        called = []
+        monkeypatch.setattr(
+            "gitstow.core.git.clone",
+            lambda *a, **kw: called.append(a) or (_ for _ in ()).throw(AssertionError("cloned")),
+        )
+        _, repos_file = self._isolate(tmp_path, monkeypatch)
+
+        result = CliRunner().invoke(app, ["add", "anthropic/claude-code"])
+
+        assert result.exit_code == 1
+        self._assert_hint(result)
+        assert called == []
+        assert not repos_file.exists()
+
+    def test_status_exits_with_hint(self, tmp_path, monkeypatch):
+        self._isolate(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["status"])
+        assert result.exit_code == 1
+        self._assert_hint(result)
+
+    def test_migrate_root_exits_with_hint(self, tmp_path, monkeypatch):
+        self._isolate(tmp_path, monkeypatch)
+        result = CliRunner().invoke(
+            app, ["config", "migrate-root", str(tmp_path / "elsewhere"), "--yes"]
+        )
+        assert result.exit_code == 1
+        self._assert_hint(result)
+
+    # --- read-only surfaces stay at exit 0 but still point the way ---
+
+    def test_workspace_list_exits_zero_with_hint(self, tmp_path, monkeypatch):
+        self._isolate(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["workspace", "list"])
+        assert result.exit_code == 0
+        self._assert_hint(result)
+
+    def test_config_show_renders_empty_workspaces(self, tmp_path, monkeypatch):
+        self._isolate(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["config", "show"])
+        assert result.exit_code == 0
+        combined = self._combined(result)
+        assert "Workspaces (0)" in combined
+        self._assert_hint(result)
+
+    def test_doctor_reports_no_workspaces_as_a_failed_check(self, tmp_path, monkeypatch):
+        self._isolate(tmp_path, monkeypatch)
+
+        human = CliRunner().invoke(app, ["doctor"])
+        assert human.exit_code == 0
+        combined = self._combined(human)
+        assert "None configured" in combined
+        self._assert_hint(human)
+
+        as_json = CliRunner().invoke(app, ["doctor", "--json"])
+        assert as_json.exit_code == 0
+        payload = json.loads(as_json.output)
+        assert payload["config"]["workspaces_configured"] is False
+        assert payload["config"]["workspaces"] == 0
+

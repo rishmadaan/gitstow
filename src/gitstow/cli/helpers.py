@@ -7,7 +7,7 @@ import sys
 import typer
 from rich.console import Console
 
-from gitstow.core.config import Settings, Workspace
+from gitstow.core.config import NO_WORKSPACES_HINT, Settings, Workspace
 from gitstow.core.repo import Repo, RepoStore
 
 err_console = Console(stderr=True)
@@ -17,8 +17,16 @@ def resolve_workspaces(
     settings: Settings,
     workspace_label: str | None = None,
 ) -> list[Workspace]:
-    """Return workspaces filtered by label, or all if label is None."""
+    """Return workspaces filtered by label, or all if label is None.
+
+    With zero workspaces configured there is nothing to operate on, so every
+    command routed through here stops with the same hint instead of falling
+    back to an invented default.
+    """
     all_ws = settings.get_workspaces()
+    if not all_ws:
+        err_console.print(f"[red]Error:[/red] {NO_WORKSPACES_HINT}")
+        raise typer.Exit(code=1)
     if workspace_label is None:
         return all_ws
     ws = settings.get_workspace(workspace_label)

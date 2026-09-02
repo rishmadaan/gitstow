@@ -17,7 +17,7 @@ try:  # mcp >= 2.0 renamed FastMCP; same decorator surface
 except ImportError:  # mcp 1.x
     from mcp.server.fastmcp import FastMCP
 
-from gitstow.core.config import Workspace, load_config
+from gitstow.core.config import NO_WORKSPACES_HINT, Workspace, load_config
 from gitstow.core.git import (
     clone as git_clone,
 )
@@ -133,6 +133,9 @@ def add_repo(
         JSON with success status, repo key, and path.
     """
     settings, store = _get_settings_and_store()
+    if not settings.get_workspaces():
+        # Nothing configured — there is no default to fall back on.
+        return json.dumps({"success": False, "error": NO_WORKSPACES_HINT})
     ws = settings.get_workspace(workspace) if workspace else settings.get_default_workspace()
     if not ws:
         return json.dumps({"success": False, "error": f"Workspace '{workspace}' not found"})

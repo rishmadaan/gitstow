@@ -4,6 +4,12 @@ All notable changes to gitstow will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **A fresh install no longer invents an `oss` workspace at `~/opensource`** — with nothing configured, gitstow used to conjure a workspace that lived only in memory. It could not be removed (`workspace remove oss` refused: "Cannot remove the only workspace"), it could not be replaced (`workspace add ... --label oss` refused: "already exists"), removing it from the dashboard silently did nothing because the page re-conjured it on the next render, and `gitstow add owner/repo` quietly cloned into `~/opensource` under a workspace label that appeared nowhere in your config. Zero workspaces is now a real, visible state: `get_workspaces()` returns exactly what you configured, every surface shows the same empty state with the same one-line fix (`gitstow workspace add <path> --label <name>`, or `gitstow onboard`), and you may remove your last workspace — the CLI tells you what to do next, and the dashboard's library, add-repo, and workspaces pages each show an empty-state card instead of a dead form or a phantom row. The legacy `root_path` → `oss` migration is unchanged and still runs, but only in `load_config()` where it is written to disk, so what you see is what your config holds. `~/opensource` survives solely as the path `gitstow onboard` suggests for your first workspace.
+
 ## [0.7.1] - 2026-08-11
 
 ### Added

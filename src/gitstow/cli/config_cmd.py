@@ -8,7 +8,7 @@ import sys
 import typer
 from rich.console import Console
 
-from gitstow.core.config import load_config, save_config
+from gitstow.core.config import NO_WORKSPACES_HINT, load_config, save_config
 from gitstow.core.paths import CONFIG_FILE, REPOS_FILE
 from gitstow.core.repo import RepoStore
 
@@ -57,6 +57,8 @@ def config_show(
     # Show workspaces
     workspaces = settings.get_workspaces()
     console.print(f"    [bold]Workspaces ({len(workspaces)}):[/bold]")
+    if not workspaces:
+        console.print(f"      [dim]{NO_WORKSPACES_HINT}[/dim]")
     ws_counts = store.all_workspaces()
     for ws in workspaces:
         count = ws_counts.get(ws.label, 0)
@@ -149,11 +151,14 @@ def config_migrate_root(
     settings = load_config()
     store = RepoStore()
 
-    # Ensure the workspace list is materialized (legacy configs synthesize it).
-    if not settings.workspaces:
-        settings.workspaces = settings.get_workspaces()
+    # There is nothing to move without a configured workspace — and nothing to
+    # materialize either, now that gitstow never invents one.
+    default_ws = settings.get_default_workspace()
+    if default_ws is None:
+        err_console.print(f"[red]Error:[/red] {NO_WORKSPACES_HINT}")
+        raise typer.Exit(code=1)
 
-    ws_label = (ctx.obj or {}).get("workspace") or settings.get_default_workspace().label
+    ws_label = (ctx.obj or {}).get("workspace") or default_ws.label
     ws = settings.get_workspace(ws_label)
     if ws is None:
         labels = ", ".join(w.label for w in settings.get_workspaces())

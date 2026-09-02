@@ -41,6 +41,8 @@ def _ws_slot(label: str, sorted_labels: list[str]) -> int:
 async def add_repo_form(request: Request):
     settings = load_config()
     workspaces = settings.get_workspaces()
+    # With nothing configured there is no workspace to clone into — show the way
+    # out rather than a form whose only <select> is empty.
     return render(request, "add_repo.html", page="add", workspaces=workspaces)
 
 

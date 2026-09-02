@@ -36,7 +36,7 @@ gitstow onboard
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `workspaces` | Single workspace at `~/oss` | List of workspace directories. Each has a path, label, layout, and optional auto-tags. |
+| `workspaces` | *(none)* | List of workspace directories. Each has a path, label, layout, and optional auto-tags. A fresh install has none — add one with `gitstow workspace add <path> --label <name>` or `gitstow onboard`. An empty list is valid; gitstow never invents a workspace. |
 | `default_host` | `github.com` | Assumed host when you type shorthand like `owner/repo`. |
 | `prefer_ssh` | `false` | If `true`, clones via SSH (`git@host:owner/repo.git`) instead of HTTPS. |
 | `parallel_limit` | `6` | Maximum concurrent git operations during `pull` and `status`. |

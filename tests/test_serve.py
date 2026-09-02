@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from gitstow.core.config import Settings, Workspace, save_config
+from gitstow.core.config import Settings, Workspace, load_config, save_config
 from gitstow.core.git import ChangedFiles, CommitInfo, FetchResult, FileChange, PullResult, RepoStatus
 from gitstow.core.repo import Repo, RepoStore
 from gitstow.web.server import create_app
@@ -1806,3 +1806,97 @@ class TestUiTailscaleFlag:
         assert captured["extra_allowed_hostnames"] == {
             "100.101.102.103", "vps.tail1234.ts.net", "vps",
         }
+
+
+class TestNoWorkspacesConfigured:
+    """Zero workspaces is a real, visible state in the dashboard too.
+
+    Regression guard for the phantom 'oss' workspace: the workspaces list route
+    used to re-synthesize it after a remove, so removing appeared to do nothing
+    and adding a real 'oss' was rejected as a duplicate.
+    """
+
+    @pytest.fixture
+    def empty(self, isolated):
+        save_config(Settings())
+        return isolated
+
+    @staticmethod
+    def _assert_no_nested_forms(html: str, where: str):
+        import re
+        depth = 0
+        for tag in re.findall(r"<form\b|</form>", html):
+            depth += 1 if tag.startswith("<form") else -1
+            assert depth in (0, 1), f"nested <form> detected on {where}"
+        assert depth == 0
+
+    def test_dashboard_shows_no_workspaces_card(self, client, empty):
+        r = client.get("/")
+        assert r.status_code == 200
+        assert "No workspaces configured." in r.text
+        assert "/workspaces" in r.text
+
+    def test_dashboard_rows_fragment_survives_empty_config(self, client, empty):
+        r = client.get("/dashboard/rows")
+        assert r.status_code == 200
+
+    def test_workspaces_page_shows_empty_state(self, client, empty):
+        r = client.get("/workspaces")
+        assert r.status_code == 200
+        assert "No workspaces yet." in r.text
+        assert "gitstow workspace add" in r.text
+        assert "gitstow onboard" in r.text
+        # The add form is still there, and still a single flat form.
+        assert 'action="/workspaces/add"' in r.text
+        self._assert_no_nested_forms(r.text, "workspaces page")
+
+    def test_add_page_offers_a_workspace_not_an_empty_select(self, client, empty):
+        r = client.get("/add")
+        assert r.status_code == 200
+        assert "No workspaces yet." in r.text
+        assert 'href="/workspaces"' in r.text
+        # No repo-add form at all — an empty <select> would be a dead end.
+        assert 'action="/repos/add"' not in r.text
+        self._assert_no_nested_forms(r.text, "add page")
+
+    def test_post_repo_add_rejects_cleanly(self, client, empty):
+        r = client.post(
+            "/repos/add",
+            data={"url": "anthropic/claude-code", "workspace": "oss", "tags": ""},
+            follow_redirects=False,
+        )
+        assert r.status_code == 200
+        assert "No workspaces configured" in r.text
+        assert RepoStore().count() == 0
+
+    def test_removing_the_last_workspace_lands_on_the_empty_state(
+        self, client, empty, workspace_dir
+    ):
+        ws = Workspace(path=str(workspace_dir), label="only", layout="structured")
+        save_config(Settings(workspaces=[ws]))
+
+        r = client.post("/workspaces/only/remove", follow_redirects=True)
+        assert r.status_code == 200
+        # Identity, not just a count: the removed label is gone from the page
+        # and the empty state replaced it.
+        assert "No workspaces yet." in r.text
+        assert 'action="/workspaces/only/remove"' not in r.text
+        assert load_config().workspaces == []
+
+        # ...and it stays gone on a fresh GET (the bug re-synthesized it here).
+        again = client.get("/workspaces")
+        assert "No workspaces yet." in again.text
+        assert ">only<" not in again.text
+
+    def test_adding_oss_on_an_empty_config_succeeds(self, client, empty, isolated):
+        target = isolated / "opensource"
+        r = client.post(
+            "/workspaces/add",
+            data={"label": "oss", "path": str(target), "layout": "structured", "auto_tags": ""},
+            follow_redirects=True,
+        )
+        assert r.status_code == 200
+        assert "already exists" not in r.text
+        saved = load_config().workspaces
+        assert [(w.label, w.path) for w in saved] == [("oss", str(target))]
+

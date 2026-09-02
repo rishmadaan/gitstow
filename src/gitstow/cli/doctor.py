@@ -9,7 +9,7 @@ import typer
 from rich.console import Console
 
 from gitstow import __version__
-from gitstow.core.config import load_config
+from gitstow.core.config import NO_WORKSPACES_HINT, load_config
 from gitstow.core.discovery import discover_repos, reconcile
 from gitstow.core.git import is_git_installed
 from gitstow.core.paths import APP_HOME, CONFIG_FILE, get_repos_file
@@ -44,6 +44,9 @@ def doctor(
         "repos_file_exists": repos_file.exists(),
         "repos_file_path": str(repos_file),
         "workspaces": len(workspaces),
+        # A config with zero workspaces is valid but unusable — surface it as a
+        # failed check rather than a silent pass.
+        "workspaces_configured": bool(workspaces),
         "repos_tracked": store.count(),
     }
 
@@ -104,10 +107,17 @@ def doctor(
     _check("App directory", APP_HOME.exists())
     _check("Config file", CONFIG_FILE.exists())
     _check("Repos file", repos_file.exists(), str(repos_file))
-    console.print(f"     Workspaces:    {len(workspaces)}")
+    ws_status = (
+        f"[green]OK[/green] [dim]({len(workspaces)} configured)[/dim]"
+        if workspaces
+        else "[red]None configured[/red]"
+    )
+    console.print(f"     Workspaces: {ws_status}")
     console.print(f"     Repos tracked: {store.count()}")
 
-    if not CONFIG_FILE.exists():
+    if not workspaces:
+        console.print(f"\n     [yellow]{NO_WORKSPACES_HINT}[/yellow]")
+    elif not CONFIG_FILE.exists():
         console.print("\n     [yellow]Run [bold]gitstow onboard[/bold] to set up.[/yellow]")
 
     # Per-workspace health
@@ -132,7 +142,9 @@ def doctor(
         for ws_name, key in total_missing:
             console.print(f"       [{ws_name}] {key}")
 
-    if not total_orphaned and not total_missing:
+    if not workspaces:
+        console.print("     [dim]Nothing to check — no workspaces configured.[/dim]")
+    elif not total_orphaned and not total_missing:
         console.print(f"\n     [green]✓ All repos in sync across {len(workspaces)} workspace(s)[/green]")
 
     if orphaned_ws:

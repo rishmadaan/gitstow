@@ -15,7 +15,7 @@ from datetime import datetime
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from gitstow.core.config import load_config
+from gitstow.core.config import NO_WORKSPACES_HINT, load_config
 from gitstow.core.git import clone as git_clone
 from gitstow.core.git import fetch as git_fetch
 from gitstow.core.git import get_status, is_git_repo
@@ -313,6 +313,11 @@ async def add_repo(
     settings = load_config()
     store = RepoStore()
     form_values = {"url": url, "workspace": workspace, "tags": tags}
+
+    if not settings.get_workspaces():
+        # No workspace exists to clone into — say so plainly instead of blaming
+        # the (necessarily empty) workspace field.
+        return _render_add_form(request, settings, form_values, NO_WORKSPACES_HINT)
 
     ws = settings.get_workspace(workspace)
     if ws is None:
