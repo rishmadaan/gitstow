@@ -10,7 +10,7 @@ from beaupy import select as bselect
 from rich.console import Console
 from rich.panel import Panel
 
-from gitstow.core.config import Settings, Workspace, save_config
+from gitstow.core.config import Settings, Workspace, load_config, save_config
 from gitstow.core.discovery import discover_repos
 from gitstow.core.git import is_git_installed
 from gitstow.core.paths import CONFIG_FILE, DEFAULT_ROOT, ensure_app_dirs
@@ -45,7 +45,12 @@ def onboard(
 
     Interactive wizard to configure workspaces, default host, and preferences.
     """
-    if CONFIG_FILE.exists() and not force:
+    # "Configured" means having a workspace, not having a file. A config.yaml
+    # with `workspaces: []` (last one removed, or written by `config set` on a
+    # fresh install) is exactly the state the empty-state hint sends people here
+    # from — refusing there would be a dead end.
+    settings = load_config()
+    if settings.get_workspaces() and not force:
         console.print(
             "\n  [yellow]gitstow is already configured.[/yellow] "
             "Use [bold]--force[/bold] to reconfigure.\n"
@@ -73,7 +78,11 @@ def onboard(
         raise typer.Exit(code=1)
     console.print(f"  [green]✓[/green] git {git_version} found\n")
 
-    settings = Settings()
+    # The wizard rebuilds the workspace list only; tuned fields the wizard never
+    # asks about (parallel_limit, clone_timeout, and anything added later) are
+    # carried over from the loaded config rather than reset to Settings()
+    # defaults — including on --force.
+    settings.workspaces = []
 
     # 1. First workspace
     console.print("  [bold]1. Set up your first workspace[/bold]")

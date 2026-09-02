@@ -689,7 +689,10 @@ With no workspaces configured — a fresh install, or after removing your last o
 the command exits **0** (this is a valid state, not an error) and prints:
 
 ```
-No workspaces configured. Add one with `gitstow workspace add <path> --label <name>` or run `gitstow onboard`.
+No workspaces configured. Add one with:
+  gitstow workspace add <path> --label <name>
+or run:
+  gitstow onboard
 ```
 
 `--quiet` prints nothing in that case, so scripts see an empty list.
@@ -744,11 +747,14 @@ then tells you how to get back:
 
 ```
   ✓ Workspace oss removed
-  No workspaces configured. Add one with `gitstow workspace add <path> --label <name>` or run `gitstow onboard`.
+  No workspaces configured. Add one with:
+    gitstow workspace add <path> --label <name>
+  or run:
+    gitstow onboard
 ```
 
 Until you add one, commands that sweep workspaces (`add`, `pull`, `fetch`, `list`, `status`, `exec`, `search`, `stats`, `migrate`,
-`collection import` and `shell pick`)
+`collection import`, `config migrate-root` and `shell pick`)
 exit **1** with that same message on stderr. `workspace list`, `config show` and
 `doctor` still run, and each points at the same fix. Commands that name a single
 repo (`diff`, `open`, `remove`, `repo …`) report that the repo isn't tracked, which

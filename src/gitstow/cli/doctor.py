@@ -7,6 +7,7 @@ import sys
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from gitstow import __version__
 from gitstow.cli.helpers import print_no_workspaces_hint
@@ -118,8 +119,6 @@ def doctor(
     if not workspaces:
         console.print()
         print_no_workspaces_hint(console, style="yellow", indent="     ")
-    elif not CONFIG_FILE.exists():
-        console.print("\n     [yellow]Run [bold]gitstow onboard[/bold] to set up.[/yellow]")
 
     # Per-workspace health
     console.print("\n  [bold]3. Workspace Health[/bold]\n")
@@ -136,12 +135,14 @@ def doctor(
     if total_orphaned:
         console.print(f"\n     [yellow]⚠ {len(total_orphaned)} untracked repos on disk:[/yellow]")
         for ws_name, key in total_orphaned:
-            console.print(f"       [{ws_name}] {key}")
+            # escape() the whole bracketed label: Rich reads a bare [label] as a
+            # style tag and swallows it, printing a label-less row.
+            console.print(f"       {escape(f'[{ws_name}]')} {key}")
 
     if total_missing:
         console.print(f"\n     [yellow]⚠ {len(total_missing)} tracked but missing from disk:[/yellow]")
         for ws_name, key in total_missing:
-            console.print(f"       [{ws_name}] {key}")
+            console.print(f"       {escape(f'[{ws_name}]')} {key}")
 
     if not workspaces:
         console.print("     [dim]Nothing to check — no workspaces configured.[/dim]")
@@ -151,15 +152,19 @@ def doctor(
     if orphaned_ws:
         console.print("\n     [yellow]⚠ Repos tracked under removed workspaces (invisible to list/status):[/yellow]")
         for label, count in orphaned_ws.items():
-            console.print(f"       [{label}] {count} repo{'s' if count != 1 else ''}")
+            console.print(
+                f"       {escape(f'[{label}]')} {count} repo{'s' if count != 1 else ''}"
+            )
         console.print(
             "       [dim]Clear with 'gitstow workspace remove <label>', or re-add the workspace "
             "with 'gitstow workspace add <path> --label <label>'.[/dim]"
         )
 
     # 4. SSH connectivity hint
+    # Skipped entirely with nothing configured: an up-to-10s network probe to
+    # help repos that no workspace can reach is time spent for no answer.
     ssh_repos = [r for r in store.list_all() if r.remote_url and r.remote_url.startswith("git@")]
-    if ssh_repos:
+    if workspaces and ssh_repos:
         console.print("\n  [bold]4. SSH Connectivity[/bold]\n")
         ssh_ok = _check_ssh_connectivity()
         if ssh_ok:

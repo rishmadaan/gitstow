@@ -141,7 +141,7 @@ def config_migrate_root(
 
     \b
     Examples:
-      gitstow config migrate-root ~/new-location            # default workspace
+      gitstow config migrate-root ~/new-location            # first configured workspace
       gitstow -w active config migrate-root ~/new-location  # specific workspace
     """
     import shutil

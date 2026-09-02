@@ -10,7 +10,11 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from gitstow.cli.helpers import iter_repos_with_workspace
+from gitstow.cli.helpers import (
+    _require_workspace,
+    iter_repos_with_workspace,
+    resolve_workspaces,
+)
 from gitstow.core.config import Workspace, load_config
 from gitstow.core.git import fetch as git_fetch
 from gitstow.core.git import is_git_repo
@@ -78,6 +82,10 @@ def fetch(
     settings = load_config()
     store = RepoStore()
     ws_label = ctx.obj.get("workspace") if ctx.obj else None
+    # Guard first, branch second: with zero workspaces configured there is
+    # nothing to fetch in either form, and the named-repo path below would
+    # otherwise report a cheerful "No repos to fetch" instead of the hint.
+    resolve_workspaces(settings, ws_label)
 
     # Resolve target repos — include frozen (fetch is non-destructive)
     if repos:
@@ -85,9 +93,10 @@ def fetch(
         for key in repos:
             repo = store.get(key)
             if repo:
-                ws = settings.get_workspace(repo.workspace)
-                if ws:
-                    targets.append((repo, ws))
+                # Tracked under a workspace that is no longer configured: say so
+                # (shared orphan wording) instead of silently dropping the repo.
+                ws = _require_workspace(settings, repo.workspace, key)
+                targets.append((repo, ws))
             else:
                 err_console.print(f"[yellow]Warning:[/yellow] '{key}' not tracked. Skipping.")
     else:

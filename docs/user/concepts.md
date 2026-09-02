@@ -64,7 +64,10 @@ specify with `-w`). A fresh install has none — gitstow does not invent one, so
 workspace before adding repos. Every command that sweeps workspaces says so:
 
 ```
-Error: No workspaces configured. Add one with `gitstow workspace add <path> --label <name>` or run `gitstow onboard`.
+Error: No workspaces configured. Add one with:
+  gitstow workspace add <path> --label <name>
+or run:
+  gitstow onboard
 ```
 
 ### Structured layout (default)

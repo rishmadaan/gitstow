@@ -89,10 +89,17 @@ class TestSettings:
         assert "root_path" not in d
         assert len(d["workspaces"]) == 1
 
-    def test_to_dict_includes_root_path_when_no_workspaces(self):
+    def test_to_dict_never_writes_root_path(self):
+        """root_path is read-only legacy input — writing it back resurrects it.
+
+        A config holding both `workspaces` and a leftover `root_path` would, once
+        its last workspace was removed, save `workspaces: [] + root_path` and the
+        next load_config() would migrate that root_path into an `oss` workspace
+        the user had just deleted.
+        """
         settings = Settings(root_path="~/old-repos")
         d = settings.to_dict()
-        assert d["root_path"] == "~/old-repos"
+        assert "root_path" not in d
         assert d["workspaces"] == []
 
     def test_from_dict_roundtrip(self):
@@ -155,6 +162,108 @@ class TestLegacyRootPathMigration:
         assert settings.workspaces == []
         assert settings.get_default_workspace() is None
         # Nothing was written behind the user's back either.
+        assert yaml.safe_load(config_file.read_text())["workspaces"] == []
+
+    def test_removing_the_last_workspace_does_not_resurrect_root_path(
+        self, tmp_path, monkeypatch
+    ):
+        """A leftover root_path beside real workspaces must not come back to life.
+
+        Before the fix: `workspace remove` saved `workspaces: [] + root_path`
+        (to_dict re-serialized it), and the very next load_config() migrated that
+        root_path into a persisted `oss` workspace — the user's removal undone.
+        """
+        from typer.testing import CliRunner
+
+        from gitstow.cli.main import app
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+
+        ws_dir = tmp_path / "only"
+        ws_dir.mkdir()
+        config_file.write_text(yaml.dump({
+            "workspaces": [{"path": str(ws_dir), "label": "only", "layout": "structured"}],
+            "root_path": "~/opensource",
+            "default_host": "github.com",
+        }))
+
+        result = CliRunner().invoke(app, ["workspace", "remove", "only"])
+        assert result.exit_code == 0, result.output
+
+        assert load_config().get_workspaces() == []
+        on_disk = yaml.safe_load(config_file.read_text())
+        assert "root_path" not in on_disk
+        assert on_disk["workspaces"] == []
+
+
+class TestImplicitOssWorkspaceMigration:
+    """Pre-0.7.2 `gitstow add` cloned into ~/opensource under the label `oss`
+    without ever writing config.yaml. Those installs are adopted once, on disk."""
+
+    def _isolate(self, tmp_path, monkeypatch, default_root):
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        monkeypatch.setattr("gitstow.core.config.DEFAULT_ROOT", default_root)
+        config_file.write_text(yaml.dump({"workspaces": [], "default_host": "github.com"}))
+        return config_file
+
+    def _seed_record(self, label):
+        from gitstow.core.repo import Repo, RepoStore
+
+        RepoStore().add(Repo(
+            owner="anthropic", name="claude-code",
+            remote_url="https://github.com/anthropic/claude-code.git",
+            workspace=label,
+        ))
+
+    def test_records_under_oss_with_existing_dir_are_adopted(self, tmp_path, monkeypatch):
+        default_root = tmp_path / "opensource"
+        default_root.mkdir()
+        config_file = self._isolate(tmp_path, monkeypatch, default_root)
+        self._seed_record("oss")
+
+        settings = load_config()
+
+        # Identity, not a count: the adopted workspace is the implied one.
+        assert [(w.label, w.path, w.layout) for w in settings.get_workspaces()] == [
+            ("oss", str(default_root), "structured")
+        ]
+        # ...and it is on disk, so the next command sees it too.
+        assert yaml.safe_load(config_file.read_text())["workspaces"] == [
+            {"path": str(default_root), "label": "oss", "layout": "structured"}
+        ]
+
+    def test_records_under_oss_without_the_dir_stay_orphans(self, tmp_path, monkeypatch):
+        """No directory means no workspace to adopt — doctor reports the records."""
+        default_root = tmp_path / "opensource"  # never created
+        config_file = self._isolate(tmp_path, monkeypatch, default_root)
+        self._seed_record("oss")
+
+        assert load_config().get_workspaces() == []
+        assert yaml.safe_load(config_file.read_text())["workspaces"] == []
+
+    def test_empty_store_stays_empty(self, tmp_path, monkeypatch):
+        default_root = tmp_path / "opensource"
+        default_root.mkdir()
+        config_file = self._isolate(tmp_path, monkeypatch, default_root)
+
+        assert load_config().get_workspaces() == []
+        assert yaml.safe_load(config_file.read_text())["workspaces"] == []
+
+    def test_records_under_another_label_are_not_adopted(self, tmp_path, monkeypatch):
+        default_root = tmp_path / "opensource"
+        default_root.mkdir()
+        config_file = self._isolate(tmp_path, monkeypatch, default_root)
+        self._seed_record("active")
+
+        assert load_config().get_workspaces() == []
         assert yaml.safe_load(config_file.read_text())["workspaces"] == []
 
 

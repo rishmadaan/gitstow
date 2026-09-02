@@ -62,7 +62,10 @@ Until a workspace exists, commands that need one (`add`, `pull`, `list`, `status
 stop with:
 
 ```
-Error: No workspaces configured. Add one with `gitstow workspace add <path> --label <name>` or run `gitstow onboard`.
+Error: No workspaces configured. Add one with:
+  gitstow workspace add <path> --label <name>
+or run:
+  gitstow onboard
 ```
 
 ## 3. Add Your First Repo

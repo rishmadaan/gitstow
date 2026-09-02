@@ -109,6 +109,7 @@
         </dd>
         <dt>Import</dt>
         <dd>
+          {% if settings.has_workspaces %}
           <form method="POST" action="/collection/import" enctype="multipart/form-data" style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
             <label class="file-label btn btn-outline btn-sm">Choose file…
               <input type="file" name="file" accept=".yaml,.yml,.json,.txt" required>
@@ -117,6 +118,13 @@
             <button type="submit" class="btn btn-primary btn-sm">Upload & clone</button>
           </form>
           <span class="form-hint">Upload YAML / JSON / plain URLs. Repos clone into their recorded workspace when it's configured — otherwise the first workspace. Already-tracked repos are skipped.</span>
+          {% else %}
+          {# Import clones into a workspace; with none configured the upload has
+             nowhere to land, so show the way out instead of a dead form. #}
+          {% with lede="Importing a collection clones its repos into a workspace, and none are configured yet. Add one from the workspaces page, or from a terminal:", cta=True %}
+          {% include "partials/no_workspaces.html" %}
+          {% endwith %}
+          {% endif %}
         </dd>
       </dl>
     </section>

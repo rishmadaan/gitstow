@@ -11,7 +11,7 @@ from pathlib import Path
 
 import yaml
 
-from gitstow.core.paths import CONFIG_FILE, ensure_app_dirs
+from gitstow.core.paths import CONFIG_FILE, DEFAULT_ROOT, ensure_app_dirs
 
 _LABEL_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
@@ -104,7 +104,13 @@ class Settings:
         return ws.get_path()
 
     def to_dict(self) -> dict:
-        d: dict = {
+        # root_path is never serialized. It is a read-only legacy input consumed
+        # by the migration in load_config(); writing it back would resurrect it —
+        # a config holding both `workspaces` and a leftover `root_path` would,
+        # after its last workspace is removed, save `workspaces: [] + root_path`
+        # and the next load would migrate that root_path into a fresh `oss`
+        # workspace the user never asked for.
+        return {
             "workspaces": [ws.to_dict() for ws in self.workspaces],
             "default_host": self.default_host,
             "prefer_ssh": self.prefer_ssh,
@@ -112,10 +118,6 @@ class Settings:
             "clone_timeout": self.clone_timeout,
             "ui_tailscale": self.ui_tailscale,
         }
-        # Don't serialize root_path if workspaces are configured
-        if not self.workspaces and self.root_path:
-            d["root_path"] = self.root_path
-        return d
 
     @classmethod
     def from_dict(cls, data: dict) -> Settings:
@@ -153,8 +155,43 @@ def load_config() -> Settings:
         ]
         settings.root_path = ""
         save_config(settings)
+        return settings
+
+    _migrate_implicit_oss_workspace(settings)
 
     return settings
+
+
+def _migrate_implicit_oss_workspace(settings: Settings) -> None:
+    """Adopt the pre-0.7.2 implicit `oss` workspace, once, on disk.
+
+    Up to 0.7.1 an unconfigured `gitstow add owner/repo` cloned into ~/opensource
+    and recorded the repo under the label `oss` — without ever writing
+    config.yaml. Those installs would now see "No workspaces configured" from
+    every command while their repos sat invisible on disk. When the only
+    evidence of that history is present (no workspaces, no root_path, ≥1 record
+    under `oss`, and ~/opensource actually exists), persist the workspace that
+    was implied all along. Silent, like the root_path migration above.
+
+    If ~/opensource is gone the records are orphans, not a workspace: nothing is
+    invented, and `gitstow doctor` reports them under "removed workspaces".
+    """
+    if settings.workspaces or settings.root_path:
+        return
+    if not DEFAULT_ROOT.is_dir():
+        return
+
+    # repos.yaml is RepoStore's business only (imported lazily — repo.py does
+    # not import config, so this stays cycle-safe either way).
+    from gitstow.core.repo import RepoStore
+
+    if not RepoStore().list_by_workspace("oss"):
+        return
+
+    settings.workspaces = [
+        Workspace(path=str(DEFAULT_ROOT), label="oss", layout="structured")
+    ]
+    save_config(settings)
 
 
 def save_config(settings: Settings) -> None:

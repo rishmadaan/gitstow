@@ -44,6 +44,16 @@ def _get_settings_and_store():
     return settings, store
 
 
+def _no_workspaces_error() -> str:
+    """The shared empty-state answer for tools that need a workspace.
+
+    Without this these tools return success-shaped empties (an empty repo list,
+    "0 pulled"), which reads to a caller as "nothing to do" rather than
+    "nothing is configured yet".
+    """
+    return json.dumps({"success": False, "error": NO_WORKSPACES_HINT})
+
+
 def _get_workspace_for_repo(repo: Repo, settings) -> Workspace | None:
     """Get the workspace a repo belongs to."""
     return settings.get_workspace(repo.workspace)
@@ -81,6 +91,8 @@ def list_repos(
         JSON array of repo objects with key, workspace, remote_url, frozen, tags, added, last_pulled, last_fetched.
     """
     settings, store = _get_settings_and_store()
+    if not settings.get_workspaces():
+        return _no_workspaces_error()
     repos = store.list_all()
 
     if workspace:
@@ -121,7 +133,8 @@ def add_repo(
     """Clone a git repository into a workspace.
 
     Accepts GitHub shorthand (owner/repo), full HTTPS URLs, or SSH URLs.
-    Uses the default workspace unless specified.
+    Uses the first configured workspace unless specified; errors with a hint
+    if none is configured.
 
     Args:
         url: Git URL or GitHub shorthand (e.g., "anthropic/claude-code").
@@ -241,6 +254,8 @@ def pull_repos(
     from gitstow.core.operations import filter_repo_pairs, run_bulk
 
     settings, store = _get_settings_and_store()
+    if not settings.get_workspaces():
+        return _no_workspaces_error()
 
     pairs = []
     for r in store.list_all():
@@ -311,6 +326,8 @@ def fetch_repos(
     from gitstow.core.operations import filter_repo_pairs, run_bulk
 
     settings, store = _get_settings_and_store()
+    if not settings.get_workspaces():
+        return _no_workspaces_error()
     pairs = []
     for r in store.list_all():
         ws = settings.get_workspace(r.workspace)
@@ -355,6 +372,8 @@ def repo_status(
         JSON array of repo status objects.
     """
     settings, store = _get_settings_and_store()
+    if not settings.get_workspaces():
+        return _no_workspaces_error()
     repos = store.list_all()
 
     if workspace:
@@ -601,6 +620,8 @@ def search_repos(
     from pathlib import Path
 
     settings, store = _get_settings_and_store()
+    if not settings.get_workspaces():
+        return _no_workspaces_error()
     repos = store.list_all()
 
     if tag:
@@ -658,6 +679,8 @@ def collection_stats() -> str:
     from pathlib import Path
 
     settings, store = _get_settings_and_store()
+    if not settings.get_workspaces():
+        return _no_workspaces_error()
     repos = store.list_all()
     owners = store.all_owners()
     tags = store.all_tags()

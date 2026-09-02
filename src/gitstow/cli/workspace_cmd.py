@@ -163,9 +163,11 @@ def workspace_remove(
 
     if not keep_repos:
         store = RepoStore()
-        repos = store.list_by_workspace(label)
-        for repo in repos:
-            store.remove(repo.key, workspace=label)
+        # One locked read-modify-write for the whole batch, not N of them.
+        with store.bulk():
+            repos = store.list_by_workspace(label)  # re-list under the lock
+            for repo in repos:
+                store.remove(repo.key, workspace=label)
         console.print(f"  [yellow]○[/yellow] Untracked {len(repos)} repos from [bold]{label}[/bold]")
     else:
         store = RepoStore()

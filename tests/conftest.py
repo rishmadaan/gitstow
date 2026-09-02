@@ -6,6 +6,19 @@ from gitstow.core.config import Settings, Workspace
 from gitstow.core.repo import Repo, RepoStore
 
 
+@pytest.fixture(autouse=True)
+def _no_real_default_root(monkeypatch, tmp_path):
+    """Keep the developer's real ~/opensource out of every test.
+
+    load_config() adopts an implicit `oss` workspace when DEFAULT_ROOT exists on
+    disk and repos.yaml holds `oss` records. Left unpatched, that one-time
+    migration would fire or not depending on whose machine runs the suite.
+    Tests that exercise the migration set DEFAULT_ROOT themselves; this default
+    points it at a directory that does not exist.
+    """
+    monkeypatch.setattr("gitstow.core.config.DEFAULT_ROOT", tmp_path / "no-default-root")
+
+
 @pytest.fixture
 def tmp_config_file(tmp_path):
     """Path to a temporary config.yaml."""

@@ -34,7 +34,8 @@ def migrate(
     """[bold]Migrate[/bold] existing repos into the gitstow structure.
 
     Moves repos into the target workspace directory and registers them.
-    Uses the default workspace unless -w is specified.
+    Moves into the first configured workspace unless -w is specified;
+    errors with a hint if none is configured.
 
     \b
     Examples:

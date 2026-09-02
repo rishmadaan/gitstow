@@ -25,10 +25,13 @@ Use `-w <label>` on any command to filter to a specific workspace.
 **A config can have zero workspaces** — a fresh install, or after the user removed
 their last one. That is a valid state, not corruption: gitstow never invents one.
 Commands that sweep workspaces (`add`, `pull`, `fetch`, `list`, `status`, `exec`, `search`, `stats`, `migrate`,
-`collection import` and `shell pick`) exit 1 with:
+`collection import`, `config migrate-root` and `shell pick`) exit 1 with:
 
 ```
-Error: No workspaces configured. Add one with `gitstow workspace add <path> --label <name>` or run `gitstow onboard`.
+Error: No workspaces configured. Add one with:
+  gitstow workspace add <path> --label <name>
+or run:
+  gitstow onboard
 ```
 
 That message *is* the fix — run `gitstow workspace add <path> --label <name>`

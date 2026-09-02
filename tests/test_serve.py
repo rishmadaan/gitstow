@@ -632,7 +632,6 @@ class TestMoveRepo:
         assert r.status_code == 404
 
     def test_drawer_move_section_no_nested_forms(self, client, isolated, monkeypatch):
-        import re
         a, _ = self._two_ws(isolated)
         (a / "widget" / ".git").mkdir(parents=True)
         RepoStore().add(Repo(owner="", name="widget", remote_url="u", workspace="a"))
@@ -641,11 +640,7 @@ class TestMoveRepo:
         html = client.get("/repo/a/widget").text
         assert 'action="/repos/a/widget/move"' in html
         assert 'name="target"' in html
-        depth = 0
-        for tag in re.findall(r"<form\b|</form>", html):
-            depth += 1 if tag.startswith("<form") else -1
-            assert depth in (0, 1), "nested <form> detected in repo drawer"
-        assert depth == 0
+        _assert_no_nested_forms(html, "repo drawer")
 
     def test_drawer_move_picker_shows_context_not_a_preselection(
         self, client, isolated, monkeypatch,
@@ -1860,6 +1855,28 @@ class TestNoWorkspacesConfigured:
             follow_redirects=False,
         )
         assert r.status_code == 200
+        # The empty-state card IS the message; an error banner repeating the
+        # same sentence above it said everything twice.
+        assert "No workspaces yet." in r.text
+        assert "No workspaces configured" not in r.text
+        assert RepoStore().count() == 0
+
+    def test_settings_page_swaps_the_import_form_for_the_empty_state(self, client, empty):
+        r = client.get("/settings")
+        assert r.status_code == 200
+        assert "No workspaces yet." in r.text
+        # An upload with nowhere to clone into is a dead form.
+        assert 'action="/collection/import"' not in r.text
+        _assert_no_nested_forms(r.text, "settings page (empty config)")
+
+    def test_post_collection_import_answers_with_the_page_not_raw_json(self, client, empty):
+        r = client.post(
+            "/collection/import",
+            files={"file": ("repos.yaml", b"version: 1\nrepos: {}\n", "application/x-yaml")},
+            follow_redirects=False,
+        )
+        assert r.status_code == 200
+        assert "text/html" in r.headers["content-type"]
         assert "No workspaces configured" in r.text
         assert RepoStore().count() == 0
 

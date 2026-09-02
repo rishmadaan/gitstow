@@ -83,6 +83,9 @@ def _render_settings(request, settings, error=None, saved=False, status_code=200
         mismatch = None
 
     ctx = {
+        # Collection import clones into a workspace — the form is only real
+        # when one exists.
+        "has_workspaces": bool(settings.get_workspaces()),
         "default_host": settings.default_host,
         "prefer_ssh": settings.prefer_ssh,
         "ui_tailscale": settings.ui_tailscale,

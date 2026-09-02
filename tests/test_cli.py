@@ -1180,7 +1180,8 @@ class TestNoWorkspacesConfigured:
         return config_file, repos_file
 
     def _combined(self, result):
-        """Rich hard-wraps mid-phrase — normalize whitespace before asserting."""
+        """The hint spans several lines (sentence, then one command per line) —
+        normalize whitespace before asserting on it."""
         return " ".join(((result.output or "") + (result.stderr or "")).split())
 
     def _assert_hint(self, result):
@@ -1239,8 +1240,12 @@ class TestNoWorkspacesConfigured:
 
     def test_add_exits_with_hint_and_clones_nothing(self, tmp_path, monkeypatch):
         called = []
+        # cli/add.py binds `from gitstow.core.git import clone as git_clone` at
+        # import time, so the fake has to replace THAT name — patching
+        # gitstow.core.git.clone never fires and the test would pass on a real
+        # network clone.
         monkeypatch.setattr(
-            "gitstow.core.git.clone",
+            "gitstow.cli.add.git_clone",
             lambda *a, **kw: called.append(a) or (_ for _ in ()).throw(AssertionError("cloned")),
         )
         _, repos_file = self._isolate(tmp_path, monkeypatch)
@@ -1297,3 +1302,52 @@ class TestNoWorkspacesConfigured:
         assert payload["config"]["workspaces_configured"] is False
         assert payload["config"]["workspaces"] == 0
 
+
+    # --- named-repo forms of pull/fetch hit the same guard ---
+
+    def _seed_orphan_record(self, tmp_path, monkeypatch):
+        """Empty config, but one repo record tracked under a label."""
+        from gitstow.core.repo import Repo, RepoStore
+
+        self._isolate(tmp_path, monkeypatch)
+        RepoStore().add(Repo(
+            owner="foo", name="bar",
+            remote_url="https://github.com/foo/bar.git",
+            workspace="oss",
+        ))
+
+    def test_pull_named_repo_exits_with_hint(self, tmp_path, monkeypatch):
+        """`pull foo/bar` used to exit 0 with 'No repos to pull.' — the named-key
+        branch resolved workspaces itself and silently dropped every repo."""
+        self._seed_orphan_record(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["pull", "foo/bar"])
+        assert result.exit_code == 1
+        self._assert_hint(result)
+        assert "No repos to pull" not in self._combined(result)
+
+    def test_fetch_named_repo_exits_with_hint(self, tmp_path, monkeypatch):
+        self._seed_orphan_record(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["fetch", "foo/bar"])
+        assert result.exit_code == 1
+        self._assert_hint(result)
+        assert "No repos to fetch" not in self._combined(result)
+
+    # --- doctor prints the label, not a swallowed style tag ---
+
+    def test_doctor_orphan_report_shows_the_label(self, tmp_path, monkeypatch):
+        """`[{label}]` is Rich markup — unescaped, Rich parses it as a style tag
+        and prints the row with no label at all."""
+        from gitstow.core.repo import Repo, RepoStore
+
+        self._isolate(tmp_path, monkeypatch)
+        RepoStore().add(Repo(
+            owner="foo", name="bar",
+            remote_url="https://github.com/foo/bar.git",
+            workspace="retired-ws",
+        ))
+
+        result = CliRunner().invoke(app, ["doctor"])
+
+        assert result.exit_code == 0
+        combined = self._combined(result)
+        assert "[retired-ws] 1 repo" in combined

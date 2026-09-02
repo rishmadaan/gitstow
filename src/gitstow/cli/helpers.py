@@ -16,20 +16,50 @@ err_console = Console(stderr=True)
 # Rich-markup rendering of NO_WORKSPACES_HINT for terminal output. The plain
 # constant (backticks, angle brackets) is for MCP JSON and the web; printed raw
 # through Rich it shows literal backticks and half-highlights `<path>`.
-NO_WORKSPACES_MARKUP = (
-    "No workspaces configured. Add one with "
-    "[bold]gitstow workspace add <path> --label <name>[/bold] or run [bold]gitstow onboard[/bold]."
-)
+#
+# Split across lines because a single sentence wraps at the terminal's width —
+# usually straight through the middle of the command the user has to type. The
+# sentence stays one line; each command gets its own soft-wrapped line so it is
+# always copy-pasteable.
+NO_WORKSPACES_LEAD = "No workspaces configured. Add one with:"
+NO_WORKSPACES_COMMANDS = ("gitstow workspace add <path> --label <name>", "gitstow onboard")
+NO_WORKSPACES_OR = "or run:"
+
+def _styled(text: str, *styles: str) -> str:
+    """Wrap text in Rich markup, skipping empty styles."""
+    style = " ".join(s for s in styles if s)
+    return f"[{style}]{text}[/{style}]" if style else text
+
+
+def _print_no_workspaces_block(
+    console: Console, first_line: str, style: str = "", indent: str = "",
+) -> None:
+    """Render the hint as a sentence plus one un-wrappable command per line.
+
+    soft_wrap keeps the commands intact: Rich would otherwise fold
+    `gitstow workspace add <path> --label <name>` at the terminal width,
+    mid-command, and the user copies a broken line.
+    """
+    add_cmd, onboard_cmd = NO_WORKSPACES_COMMANDS
+    console.print(first_line, highlight=False)
+    for line in (
+        indent + "  " + _styled(add_cmd, style, "bold"),
+        indent + _styled(NO_WORKSPACES_OR, style),
+        indent + "  " + _styled(onboard_cmd, style, "bold"),
+    ):
+        console.print(line, highlight=False, soft_wrap=True)
 
 
 def print_no_workspaces_hint(console: Console, style: str = "dim", indent: str = "  ") -> None:
-    """Print the empty-state hint as a styled, un-highlighted line."""
-    console.print(f"{indent}[{style}]{NO_WORKSPACES_MARKUP}[/{style}]", highlight=False)
+    """Print the empty-state hint as a styled, un-highlighted block."""
+    _print_no_workspaces_block(
+        console, indent + _styled(NO_WORKSPACES_LEAD, style), style, indent,
+    )
 
 
 def fail_no_workspaces() -> NoReturn:
     """Stop a command that needs a workspace when none is configured."""
-    err_console.print(f"[red]Error:[/red] {NO_WORKSPACES_MARKUP}", highlight=False)
+    _print_no_workspaces_block(err_console, f"[red]Error:[/red] {NO_WORKSPACES_LEAD}")
     raise typer.Exit(code=1)
 
 
