@@ -176,9 +176,36 @@ def _pull_if_safe(path):
     return git_pull(path)
 
 
+def _no_workspaces_panel(request: Request, action: str):
+    """The bulk-action answer when zero workspaces are configured.
+
+    These endpoints are HTMX fragment targets (`#pull-summary`, swapped
+    outerHTML), so the answer has to be that fragment — a full page or a JSON
+    4xx would land inside the panel. It carries the panel's id so the next
+    action can still target it, and reuses the shared empty-state card so this
+    sentence is worded in exactly one place.
+    """
+    return render(
+        request,
+        "partials/no_workspaces.html",
+        panel_id="pull-summary",
+        lede=(
+            f"There is nothing to {action}: a workspace is the directory gitstow "
+            "clones into, and none is configured. Add one from the workspaces "
+            "page, or from a terminal:"
+        ),
+        cta=True,
+    )
+
+
 @router.post("/repos/pull-all", response_class=HTMLResponse)
 async def pull_all(request: Request):
     settings = load_config()
+    # Zero workspaces means every record is an orphan of a removed workspace.
+    # Running the bulk pull would report each one as "missing" — a wall of
+    # false failures for a config that simply has nowhere to pull into.
+    if not settings.get_workspaces():
+        return _no_workspaces_panel(request, "pull")
     store = RepoStore()
     ws_by_label = {w.label: w for w in settings.get_workspaces()}
 
@@ -245,6 +272,10 @@ async def pull_all(request: Request):
 async def fetch_all(request: Request):
     """Fetch all remotes in parallel — non-destructive, includes frozen repos."""
     settings = load_config()
+    # Same reasoning as pull-all: with no workspace configured there is no path
+    # to fetch in, and every retained record would be reported as missing.
+    if not settings.get_workspaces():
+        return _no_workspaces_panel(request, "fetch")
     store = RepoStore()
     ws_by_label = {w.label: w for w in settings.get_workspaces()}
 

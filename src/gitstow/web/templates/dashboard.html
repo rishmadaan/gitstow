@@ -30,6 +30,11 @@
     </div>
   </section>
 
+  {# Every control here acts on repos in a workspace — the filters, the bulk
+     buttons, and the clone form behind "+ Add repo". With no workspace
+     configured there is nothing for any of them to act on, so the whole bar
+     goes rather than offering buttons whose only possible answer is the hint. #}
+  {% if workspaces %}
   <div class="action-bar">
     <select id="ws-filter" title="Show only one workspace's repos">
       <option value="">All workspaces</option>
@@ -61,6 +66,7 @@
   </div>
 
   <article id="pull-summary" hidden></article>
+  {% endif %}
 
   {% if repos %}
   <div class="table-wrap">

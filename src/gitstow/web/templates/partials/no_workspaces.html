@@ -1,7 +1,9 @@
 {# Empty-state card shown wherever a page needs a workspace and none is configured.
    Context: lede (sentence), cta (bool: link to /workspaces), cancel (bool: back link),
-   centered (bool). The two commands mirror NO_WORKSPACES_HINT in core/config.py. #}
-<article class="card"{% if centered %} style="text-align: center; padding: 3rem 2rem;"{% elif bottom_gap %} style="margin-bottom: 2rem;"{% endif %}>
+   centered (bool), panel_id (str: element id, so an HTMX swap that replaces a
+   panel can keep that panel's target id). The two commands mirror
+   NO_WORKSPACES_HINT in core/config.py. #}
+<article{% if panel_id %} id="{{ panel_id }}"{% endif %} class="card"{% if centered %} style="text-align: center; padding: 3rem 2rem;"{% elif bottom_gap %} style="margin-bottom: 2rem;"{% endif %}>
   <h4>No workspaces yet.</h4>
   <p>{{ lede }}</p>
   <code class="path-code" style="margin-bottom: 0.4rem;">gitstow workspace add &lt;path&gt; --label &lt;name&gt;</code>

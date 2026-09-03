@@ -387,6 +387,39 @@ class TestImplicitOssWorkspaceMigration:
         kept = RepoStore().list_by_workspace("oss")
         assert [(r.workspace, r.key) for r in kept] == [("oss", "anthropic/claude-code")]
 
+    def test_removal_still_sticks_after_config_version_is_bumped(
+        self, tmp_path, monkeypatch
+    ):
+        """The one-time guarantee must survive the NEXT format bump.
+
+        A config stamped 2 has already been past this migration. If the guard
+        compared against CONFIG_VERSION — the moving writer version — then the
+        day CONFIG_VERSION becomes 3 that same file reads as "not yet migrated"
+        and the deliberate `workspaces: []` gets `oss` re-adopted. The guard
+        must compare against the version that introduced the marker instead.
+        """
+        default_root = tmp_path / "opensource"
+        default_root.mkdir()
+        config_file = self._isolate(
+            tmp_path, monkeypatch, default_root,
+            seed_config={
+                "workspaces": [],
+                "default_host": "github.com",
+                "config_version": 2,
+            },
+        )
+        self._seed_record("oss")
+        # The future: a later format change bumps the writer version.
+        monkeypatch.setattr("gitstow.core.config.CONFIG_VERSION", 3)
+
+        assert load_config().get_workspaces() == []
+        assert yaml.safe_load(config_file.read_text())["workspaces"] == []
+        # The record that would have been the excuse is still exactly where it was.
+        from gitstow.core.repo import RepoStore
+
+        kept = RepoStore().list_by_workspace("oss")
+        assert [(r.workspace, r.key) for r in kept] == [("oss", "anthropic/claude-code")]
+
 
 class TestConfigPersistence:
     """Tests for save/load config with real files."""

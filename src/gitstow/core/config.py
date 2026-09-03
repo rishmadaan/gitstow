@@ -22,7 +22,19 @@ _LABEL_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 #   1 — notional: the workspaces-era file, which never carried a marker.
 #   2 — written by this version onward. An empty `workspaces: []` in such a file
 #       is the user's own choice, never a legacy install to be migrated.
+#
+# CONFIG_VERSION is the *writer* version and moves with every format change.
+# A migration must therefore never gate itself on it: comparing against a moving
+# number makes the guard mean "not yet current" instead of "already run", so the
+# next bump re-runs a migration that already happened. Each migration compares
+# against its own introduction version constant instead — the version whose save
+# first stamped the evidence that the migration is done.
 CONFIG_VERSION = 2
+
+# The version that introduced the marker the implicit-`oss` migration reads. Any
+# config stamped at or above this has already been past that migration once, so
+# it never runs again — whatever CONFIG_VERSION grows to later.
+_IMPLICIT_OSS_MIGRATION_VERSION = 2
 
 # One sentence, one pair of commands — reused verbatim by the CLI, the MCP server
 # and (paraphrased into HTML) by the web dashboard, so every surface says the same
@@ -200,12 +212,14 @@ def _migrate_implicit_oss_workspace(settings: Settings) -> None:
     If ~/opensource is gone the records are orphans, not a workspace: nothing is
     invented, and `gitstow doctor` reports them under "removed workspaces".
 
-    Runs once and only for configs that predate the marker. A file gitstow itself
+    Runs once and only for configs that predate `_IMPLICIT_OSS_MIGRATION_VERSION`,
+    the version that introduced the marker — never CONFIG_VERSION, which moves.
+    A file gitstow itself
     wrote carries `config_version`, so its `workspaces: []` is the user's own
     removal — re-adopting `oss` there would undo `gitstow workspace remove oss`
     on the next command and make the empty state unreachable.
     """
-    if settings.config_version >= CONFIG_VERSION:
+    if settings.config_version >= _IMPLICIT_OSS_MIGRATION_VERSION:
         return
     if settings.workspaces or settings.root_path:
         return

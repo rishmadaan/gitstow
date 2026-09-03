@@ -183,6 +183,30 @@ def _assert_no_nested_forms(html: str, where: str) -> None:
     assert depth == 0
 
 
+def _hx_post_targets(html: str) -> set[str]:
+    """Every hx-post URL in the page, parsed from the DOM.
+
+    Substring checks are useless here: the help dialog documents "Pull all" and
+    "Fetch all" in prose, so only the actual control attributes distinguish a
+    rendered button from a paragraph describing one.
+    """
+    from html.parser import HTMLParser
+
+    class _P(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.urls: set[str] = set()
+
+        def handle_starttag(self, tag, attrs):
+            url = dict(attrs).get("hx-post")
+            if url:
+                self.urls.add(url)
+
+    p = _P()
+    p.feed(html)
+    return p.urls
+
+
 def _input_attrs(html: str, name: str) -> dict:
     """Attributes of the first <input name=...>, parsed — not grepped.
 
@@ -1828,6 +1852,74 @@ class TestNoWorkspacesConfigured:
     def test_dashboard_rows_fragment_survives_empty_config(self, client, empty):
         r = client.get("/dashboard/rows")
         assert r.status_code == 200
+
+    def test_dashboard_hides_controls_that_act_on_repos(self, client, empty):
+        """No workspace means nothing for the bulk actions or filters to act on."""
+        r = client.get("/")
+        assert r.status_code == 200
+        # /shutdown (footer) is not a repo action and stays.
+        assert _hx_post_targets(r.text) == {"/shutdown"}
+        assert 'id="ws-filter"' not in r.text
+        assert 'id="repo-search"' not in r.text
+        _assert_no_nested_forms(r.text, "dashboard (empty config)")
+
+    def test_bulk_controls_come_back_once_a_workspace_exists(
+        self, client, empty, workspace_dir
+    ):
+        """The hiding is conditional on the empty state, not permanent."""
+        save_config(Settings(workspaces=[
+            Workspace(path=str(workspace_dir), label="only", layout="structured")
+        ]))
+        targets = _hx_post_targets(client.get("/").text)
+        assert "/repos/pull-all" in targets
+        assert "/repos/fetch-all" in targets
+
+    def test_post_pull_all_answers_with_the_empty_state(self, client, empty):
+        r = client.post("/repos/pull-all")
+        assert r.status_code == 200
+        assert "text/html" in r.headers["content-type"]
+        assert "No workspaces yet." in r.text
+        assert "gitstow workspace add" in r.text
+        # Not a zero-item success report: "0 attempted, 0 ok" reads as a
+        # working pull over an empty library, which is the wrong story.
+        assert "Pull all — complete" not in r.text
+        assert "attempted" not in r.text
+        # The panel keeps its HTMX target id, so the next action still lands here.
+        assert 'id="pull-summary"' in r.text
+
+    def test_post_fetch_all_answers_with_the_empty_state(self, client, empty):
+        r = client.post("/repos/fetch-all")
+        assert r.status_code == 200
+        assert "text/html" in r.headers["content-type"]
+        assert "No workspaces yet." in r.text
+        assert "gitstow workspace add" in r.text
+        assert "Fetch all — complete" not in r.text
+        assert "processed" not in r.text
+        assert 'id="pull-summary"' in r.text
+
+    def test_bulk_actions_do_not_report_retained_records_as_missing(
+        self, client, empty, workspace_dir
+    ):
+        """Records survive `workspace remove` — they must not become failures.
+
+        Without the guard the bulk run walks every orphaned record and reports
+        each as "workspace not found", turning a config with nowhere to pull
+        into a wall of red.
+        """
+        RepoStore().add(Repo(
+            owner="anthropic", name="claude-code",
+            remote_url="https://github.com/anthropic/claude-code.git",
+            workspace="oss",
+        ))
+        for endpoint in ("/repos/pull-all", "/repos/fetch-all"):
+            r = client.post(endpoint)
+            assert r.status_code == 200, endpoint
+            assert "anthropic/claude-code" not in r.text, endpoint
+            assert "missing" not in r.text.lower(), endpoint
+        # The record is untouched — the guard declines work, it does not prune.
+        assert [
+            repo.global_key for repo in RepoStore().list_all()
+        ] == ["oss:anthropic/claude-code"]
 
     def test_workspaces_page_shows_empty_state(self, client, empty):
         r = client.get("/workspaces")
