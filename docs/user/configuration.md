@@ -42,6 +42,7 @@ gitstow onboard
 | `parallel_limit` | `6` | Maximum concurrent git operations during `pull` and `status`. |
 | `clone_timeout` | `300` | Seconds before a clone is abandoned. Raise it for very large repos. |
 | `ui_tailscale` | `false` | If `true`, `gitstow ui` also serves the dashboard on this machine's Tailscale address. See [Web Dashboard over Tailscale](#web-dashboard-over-tailscale). |
+| `config_version` | *(written by gitstow)* | Internal — records which version of gitstow last wrote this file, so one-time upgrade migrations know they have already run. Do not edit. |
 
 ## File Locations
 
@@ -65,6 +66,7 @@ prefer_ssh: false
 parallel_limit: 6
 clone_timeout: 300
 ui_tailscale: false
+config_version: 2
 ```
 
 Each workspace entry has:

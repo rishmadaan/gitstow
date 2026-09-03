@@ -1899,6 +1899,42 @@ class TestNoWorkspacesConfigured:
         assert "No workspaces yet." in again.text
         assert ">only<" not in again.text
 
+    def test_removing_oss_at_the_default_root_is_not_re_migrated(
+        self, client, empty, isolated, monkeypatch
+    ):
+        """The dashboard's remove must stick for the one setup that looks legacy.
+
+        A workspace labelled `oss` at DEFAULT_ROOT with repo records is exactly
+        the pre-0.7.2 fingerprint. Only the config_version marker tells the
+        implicit-`oss` migration that this `workspaces: []` is a deliberate
+        removal, not an install that never had a config.
+        """
+        default_root = isolated / "opensource"
+        default_root.mkdir()
+        monkeypatch.setattr("gitstow.core.config.DEFAULT_ROOT", default_root)
+        save_config(Settings(workspaces=[
+            Workspace(path=str(default_root), label="oss", layout="structured")
+        ]))
+        RepoStore().add(Repo(
+            owner="anthropic", name="claude-code",
+            remote_url="https://github.com/anthropic/claude-code.git",
+            workspace="oss",
+        ))
+
+        r = client.post("/workspaces/oss/remove", follow_redirects=True)
+        assert r.status_code == 200
+        assert load_config().get_workspaces() == []
+
+        again = client.get("/workspaces")
+        assert "No workspaces yet." in again.text
+        assert 'action="/workspaces/oss/scan"' not in again.text
+        assert load_config().get_workspaces() == []
+        # The records survive the removal (kept, as the route intends) — they are
+        # the evidence the migration would otherwise re-adopt the workspace from.
+        assert [
+            repo.global_key for repo in RepoStore().list_by_workspace("oss")
+        ] == ["oss:anthropic/claude-code"]
+
     def test_adding_oss_on_an_empty_config_succeeds(self, client, empty, isolated):
         target = isolated / "opensource"
         r = client.post(

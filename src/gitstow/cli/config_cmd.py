@@ -95,6 +95,9 @@ def config_set(
     """
     settings = load_config()
 
+    # config_version is deliberately absent: it is provenance gitstow writes, not
+    # a setting. Editing it would either re-trigger or permanently disable the
+    # one-time legacy migrations.
     valid_keys = {"default_host", "prefer_ssh", "parallel_limit", "clone_timeout", "ui_tailscale"}
     if key not in valid_keys:
         err_console.print(

@@ -13,7 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Changed
 
-- **Upgrading from 0.7.1 or earlier adopts your implicit `oss` workspace** — installs where `gitstow add` had cloned into `~/opensource` without ever writing a config now get that workspace written to `config.yaml` once, silently, on the next command, so those repos stay visible (if `~/opensource` no longer exists, nothing is invented and `gitstow doctor` reports the leftover records).
+- **Upgrading from 0.7.1 or earlier adopts your implicit `oss` workspace** — installs where `gitstow add` had cloned into `~/opensource` without ever writing a config now get that workspace written to `config.yaml` once, silently, on the next command, so those repos stay visible (if `~/opensource` no longer exists, nothing is invented and `gitstow doctor` reports the leftover records). The adoption only ever looks at configs that predate this version — every config gitstow writes from now on carries a `config_version` marker, so once you remove `oss` yourself it stays removed.
 
 ## [0.7.1] - 2026-08-11
 

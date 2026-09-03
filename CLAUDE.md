@@ -58,7 +58,7 @@ src/gitstow/
 
 ## Key Files
 
-- `core/config.py` — Workspace + Settings dataclasses. `get_workspaces()` returns exactly what is configured and **never synthesizes a workspace**; zero workspaces is a valid state and `get_default_workspace()` returns `None` for it. The legacy `root_path` → `oss` migration shim lives only in `load_config()`, where it is persisted to disk. `NO_WORKSPACES_HINT` is the one empty-state message every surface (CLI, MCP, web) reuses.
+- `core/config.py` — Workspace + Settings dataclasses. `get_workspaces()` returns exactly what is configured and **never synthesizes a workspace**; zero workspaces is a valid state and `get_default_workspace()` returns `None` for it. The legacy `root_path` → `oss` migration shim lives only in `load_config()`, where it is persisted to disk. Both one-time migrations (`root_path` → `oss`, and adopting the pre-0.7.2 implicit `oss` workspace at `~/opensource`) run there too, gated by `config_version` — the provenance marker every save writes, which is what keeps an explicit `workspaces: []` from being re-migrated into a workspace the user just removed. `NO_WORKSPACES_HINT` is the one empty-state message every surface (CLI, MCP, web) reuses.
 - `core/repo.py` — Repo with workspace field, RepoStore with nested YAML format, legacy auto-migration.
 - `core/discovery.py` — `discover_repos(root, layout)` supports structured and flat layouts.
 - `core/url_parser.py` — URL parsing (the hardest part). Test changes here thoroughly.

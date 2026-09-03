@@ -4,7 +4,10 @@ import pytest
 import yaml
 
 
-from gitstow.core.config import Settings, Workspace, load_config
+from gitstow.core.config import CONFIG_VERSION, Settings, Workspace, load_config
+
+# A config as 0.7.1 wrote it: workspaces already the format, no provenance marker.
+_LEGACY_CONFIG = {"workspaces": [], "default_host": "github.com"}
 
 
 class TestWorkspace:
@@ -101,6 +104,30 @@ class TestSettings:
         d = settings.to_dict()
         assert "root_path" not in d
         assert d["workspaces"] == []
+
+    def test_to_dict_always_stamps_the_current_config_version(self):
+        """Writing this dict IS what makes a file current — whatever it was read as."""
+        assert Settings().to_dict()["config_version"] == CONFIG_VERSION
+        legacy = Settings.from_dict({"workspaces": []})
+        assert legacy.config_version == 0
+        assert legacy.to_dict()["config_version"] == CONFIG_VERSION
+
+    def test_from_dict_without_marker_is_version_zero(self):
+        assert Settings.from_dict({}).config_version == 0
+
+    def test_save_then_load_preserves_the_marker(self, tmp_path, monkeypatch):
+        from gitstow.core.config import save_config
+
+        config_file = tmp_path / "config.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+
+        settings = Settings(workspaces=[Workspace(path=str(tmp_path), label="oss")])
+        assert settings.config_version == 0
+        save_config(settings)
+        # The stamp lands on the object too, so memory matches the file.
+        assert settings.config_version == CONFIG_VERSION
+        assert load_config().config_version == CONFIG_VERSION
 
     def test_from_dict_roundtrip(self):
         ws = Workspace(path="~/oss", label="oss")
@@ -204,14 +231,17 @@ class TestImplicitOssWorkspaceMigration:
     """Pre-0.7.2 `gitstow add` cloned into ~/opensource under the label `oss`
     without ever writing config.yaml. Those installs are adopted once, on disk."""
 
-    def _isolate(self, tmp_path, monkeypatch, default_root):
+    def _isolate(self, tmp_path, monkeypatch, default_root, seed_config=_LEGACY_CONFIG):
         config_file = tmp_path / "config.yaml"
         repos_file = tmp_path / "repos.yaml"
         monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
         monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
         monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
         monkeypatch.setattr("gitstow.core.config.DEFAULT_ROOT", default_root)
-        config_file.write_text(yaml.dump({"workspaces": [], "default_host": "github.com"}))
+        # seed_config=None models the install this migration exists for: repos.yaml
+        # written by `gitstow add`, config.yaml never written at all.
+        if seed_config is not None:
+            config_file.write_text(yaml.dump(seed_config))
         return config_file
 
     def _seed_record(self, label):
@@ -265,6 +295,97 @@ class TestImplicitOssWorkspaceMigration:
 
         assert load_config().get_workspaces() == []
         assert yaml.safe_load(config_file.read_text())["workspaces"] == []
+
+    def test_legacy_file_without_marker_is_still_adopted(self, tmp_path, monkeypatch):
+        """0.7.1's settings page wrote `workspaces: []` with no marker — migrate it."""
+        default_root = tmp_path / "opensource"
+        default_root.mkdir()
+        config_file = self._isolate(
+            tmp_path, monkeypatch, default_root,
+            seed_config={"workspaces": [], "default_host": "github.com", "prefer_ssh": True},
+        )
+        self._seed_record("oss")
+
+        settings = load_config()
+
+        assert [(w.label, w.path) for w in settings.get_workspaces()] == [
+            ("oss", str(default_root))
+        ]
+        on_disk = yaml.safe_load(config_file.read_text())
+        assert on_disk["config_version"] == CONFIG_VERSION
+        assert on_disk["prefer_ssh"] is True  # the rest of the config survives
+
+    def test_no_config_file_at_all_is_the_case_this_exists_for(self, tmp_path, monkeypatch):
+        """The pre-0.7.2 install has NO config.yaml — `add` only ever wrote repos.yaml.
+
+        load_config() used to return Settings() before reaching the migration, so
+        the one state it was written for was the one state it never saw.
+        """
+        default_root = tmp_path / "opensource"
+        default_root.mkdir()
+        config_file = self._isolate(tmp_path, monkeypatch, default_root, seed_config=None)
+        assert not config_file.exists()
+        self._seed_record("oss")
+
+        settings = load_config()
+
+        assert [(w.label, w.path, w.layout) for w in settings.get_workspaces()] == [
+            ("oss", str(default_root), "structured")
+        ]
+        on_disk = yaml.safe_load(config_file.read_text())
+        assert on_disk["workspaces"] == [
+            {"path": str(default_root), "label": "oss", "layout": "structured"}
+        ]
+        assert on_disk["config_version"] == CONFIG_VERSION
+
+    def test_no_config_file_and_no_records_writes_nothing(self, tmp_path, monkeypatch):
+        """Declining to migrate must not litter a config file just to stamp a marker."""
+        default_root = tmp_path / "opensource"
+        default_root.mkdir()
+        config_file = self._isolate(tmp_path, monkeypatch, default_root, seed_config=None)
+
+        assert load_config().get_workspaces() == []
+        assert not config_file.exists()
+
+    def test_explicit_removal_of_oss_is_not_re_adopted(self, tmp_path, monkeypatch):
+        """`workspace remove oss` on the common setup must stick.
+
+        Records stay (the default --keep-repos), ~/opensource is still there, and
+        the config is left holding `workspaces: []` — the exact predicate the
+        migration fires on. Only the marker separates "user removed it" from
+        "legacy install", so without it the next command resurrects the workspace.
+        """
+        from typer.testing import CliRunner
+
+        from gitstow.cli.main import app
+        from gitstow.core.repo import RepoStore
+
+        default_root = tmp_path / "opensource"
+        default_root.mkdir()
+        config_file = self._isolate(
+            tmp_path, monkeypatch, default_root,
+            seed_config={
+                "workspaces": [
+                    {"path": str(default_root), "label": "oss", "layout": "structured"}
+                ],
+                "default_host": "github.com",
+                "config_version": CONFIG_VERSION,
+            },
+        )
+        self._seed_record("oss")
+
+        result = CliRunner().invoke(app, ["workspace", "remove", "oss"])
+        assert result.exit_code == 0, result.output
+
+        assert load_config().get_workspaces() == []
+        on_disk = yaml.safe_load(config_file.read_text())
+        assert on_disk["workspaces"] == []
+        assert on_disk["config_version"] == CONFIG_VERSION
+        # Identity of what survived: the record is untouched under `oss` (kept by
+        # default), and it is the record — not a count — that the migration would
+        # have used as its excuse to bring the workspace back.
+        kept = RepoStore().list_by_workspace("oss")
+        assert [(r.workspace, r.key) for r in kept] == [("oss", "anthropic/claude-code")]
 
 
 class TestConfigPersistence:
@@ -352,6 +473,21 @@ class TestMigrateRoot:
     def test_config_set_rejects_root_path_without_advertising_it(self):
         from gitstow.cli.config_cmd import config_set
         assert "root_path" not in (config_set.__doc__ or "")
+
+    def test_config_set_rejects_config_version(self, monkeypatch):
+        """Provenance is gitstow's to write — hand-setting it breaks the migrations."""
+        from typer.testing import CliRunner
+
+        from gitstow.cli import config_cmd
+        from gitstow.cli.main import app
+
+        saved = []
+        monkeypatch.setattr(config_cmd, "load_config", lambda: Settings())
+        monkeypatch.setattr(config_cmd, "save_config", saved.append)
+
+        result = CliRunner().invoke(app, ["config", "set", "config_version", "5"])
+        assert result.exit_code == 1
+        assert saved == []
 
 
 class TestUiTailscaleSetting:

@@ -15,6 +15,15 @@ from gitstow.core.paths import CONFIG_FILE, DEFAULT_ROOT, ensure_app_dirs
 
 _LABEL_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
+# Provenance marker written into config.yaml by every save. Its only job is to
+# tell a config gitstow wrote from one that predates this version:
+#   0 — no marker in the file (or no file at all): pre-0.7.2, may still need the
+#       implicit-`oss` migration below.
+#   1 — notional: the workspaces-era file, which never carried a marker.
+#   2 — written by this version onward. An empty `workspaces: []` in such a file
+#       is the user's own choice, never a legacy install to be migrated.
+CONFIG_VERSION = 2
+
 # One sentence, one pair of commands — reused verbatim by the CLI, the MCP server
 # and (paraphrased into HTML) by the web dashboard, so every surface says the same
 # thing when zero workspaces are configured. Zero is a legitimate state: gitstow
@@ -68,6 +77,10 @@ class Settings:
     clone_timeout: int = 300  # seconds; large repos may need more
     ui_tailscale: bool = False  # serve `gitstow ui` on the tailnet address too
 
+    # Provenance, not a user setting: 0 means "this config predates the marker".
+    # gitstow manages it; `config set` refuses it.
+    config_version: int = 0
+
     # Legacy field — only used for migration from pre-workspace configs
     root_path: str = ""
 
@@ -117,6 +130,9 @@ class Settings:
             "parallel_limit": self.parallel_limit,
             "clone_timeout": self.clone_timeout,
             "ui_tailscale": self.ui_tailscale,
+            # Always the current version: writing this dict IS the write that
+            # makes the file a current one, whatever it was read as.
+            "config_version": CONFIG_VERSION,
         }
 
     @classmethod
@@ -130,6 +146,7 @@ class Settings:
             parallel_limit=data.get("parallel_limit", 6),
             clone_timeout=data.get("clone_timeout", 300),
             ui_tailscale=data.get("ui_tailscale", False),
+            config_version=data.get("config_version", 0),
             root_path=data.get("root_path", ""),
         )
 
@@ -137,7 +154,14 @@ class Settings:
 def load_config() -> Settings:
     """Load settings from config.yaml. Returns defaults if file doesn't exist."""
     if not CONFIG_FILE.exists():
-        return Settings()
+        # No file is exactly the pre-0.7.2 zero-config state the implicit-`oss`
+        # migration exists for: `gitstow add` wrote repos.yaml and never a config.
+        # Returning early here skipped the migration for the only case it targets.
+        # It saves only when it adopts, so declining leaves no file behind — a
+        # read must not litter a config just to stamp a version marker.
+        settings = Settings()
+        _migrate_implicit_oss_workspace(settings)
+        return settings
     with open(CONFIG_FILE) as f:
         data = yaml.safe_load(f) or {}
     settings = Settings.from_dict(data)
@@ -175,7 +199,14 @@ def _migrate_implicit_oss_workspace(settings: Settings) -> None:
 
     If ~/opensource is gone the records are orphans, not a workspace: nothing is
     invented, and `gitstow doctor` reports them under "removed workspaces".
+
+    Runs once and only for configs that predate the marker. A file gitstow itself
+    wrote carries `config_version`, so its `workspaces: []` is the user's own
+    removal — re-adopting `oss` there would undo `gitstow workspace remove oss`
+    on the next command and make the empty state unreachable.
     """
+    if settings.config_version >= CONFIG_VERSION:
+        return
     if settings.workspaces or settings.root_path:
         return
     if not DEFAULT_ROOT.is_dir():
@@ -195,7 +226,12 @@ def _migrate_implicit_oss_workspace(settings: Settings) -> None:
 
 
 def save_config(settings: Settings) -> None:
-    """Write settings to config.yaml."""
+    """Write settings to config.yaml, stamping the current config_version.
+
+    The stamp lands on the object too, so the in-memory Settings keeps matching
+    the file it was just written to (a legacy config is current once saved).
+    """
     ensure_app_dirs()
+    settings.config_version = CONFIG_VERSION
     with open(CONFIG_FILE, "w") as f:
         yaml.dump(settings.to_dict(), f, default_flow_style=False, sort_keys=False)
