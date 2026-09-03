@@ -41,6 +41,8 @@ def _ws_slot(label: str, sorted_labels: list[str]) -> int:
 async def add_repo_form(request: Request):
     settings = load_config()
     workspaces = settings.get_workspaces()
+    # With nothing configured there is no workspace to clone into — show the way
+    # out rather than a form whose only <select> is empty.
     return render(request, "add_repo.html", page="add", workspaces=workspaces)
 
 
@@ -81,6 +83,9 @@ def _render_settings(request, settings, error=None, saved=False, status_code=200
         mismatch = None
 
     ctx = {
+        # Collection import clones into a workspace — the form is only real
+        # when one exists.
+        "has_workspaces": bool(settings.get_workspaces()),
         "default_host": settings.default_host,
         "prefer_ssh": settings.prefer_ssh,
         "ui_tailscale": settings.ui_tailscale,

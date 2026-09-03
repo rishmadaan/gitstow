@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from gitstow.core.config import Settings, Workspace, save_config
+from gitstow.core.config import Settings, Workspace, load_config, save_config
 from gitstow.core.git import ChangedFiles, CommitInfo, FetchResult, FileChange, PullResult, RepoStatus
 from gitstow.core.repo import Repo, RepoStore
 from gitstow.web.server import create_app
@@ -169,15 +169,42 @@ class TestSettingsSave:
         assert "alert(" not in r.text
 
     def test_no_nested_forms_on_settings_page(self, client, configured):
-        import re
-        html = client.get("/settings").text
-        # Walk form open/close tags — depth must never exceed 1 (nested forms are
-        # dropped by browsers, breaking both the outer and inner form).
-        depth = 0
-        for tag in re.findall(r"<form\b|</form>", html):
-            depth += 1 if tag.startswith("<form") else -1
-            assert depth in (0, 1), "nested <form> detected on settings page"
-        assert depth == 0
+        _assert_no_nested_forms(client.get("/settings").text, "settings page")
+
+
+def _assert_no_nested_forms(html: str, where: str) -> None:
+    """Walk form open/close tags — depth must never exceed 1 (browsers silently
+    drop nested <form> tags, breaking both the outer and inner form)."""
+    import re
+    depth = 0
+    for tag in re.findall(r"<form\b|</form>", html):
+        depth += 1 if tag.startswith("<form") else -1
+        assert depth in (0, 1), f"nested <form> detected on {where}"
+    assert depth == 0
+
+
+def _hx_post_targets(html: str) -> set[str]:
+    """Every hx-post URL in the page, parsed from the DOM.
+
+    Substring checks are useless here: the help dialog documents "Pull all" and
+    "Fetch all" in prose, so only the actual control attributes distinguish a
+    rendered button from a paragraph describing one.
+    """
+    from html.parser import HTMLParser
+
+    class _P(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.urls: set[str] = set()
+
+        def handle_starttag(self, tag, attrs):
+            url = dict(attrs).get("hx-post")
+            if url:
+                self.urls.add(url)
+
+    p = _P()
+    p.feed(html)
+    return p.urls
 
 
 def _input_attrs(html: str, name: str) -> dict:
@@ -629,7 +656,6 @@ class TestMoveRepo:
         assert r.status_code == 404
 
     def test_drawer_move_section_no_nested_forms(self, client, isolated, monkeypatch):
-        import re
         a, _ = self._two_ws(isolated)
         (a / "widget" / ".git").mkdir(parents=True)
         RepoStore().add(Repo(owner="", name="widget", remote_url="u", workspace="a"))
@@ -638,11 +664,7 @@ class TestMoveRepo:
         html = client.get("/repo/a/widget").text
         assert 'action="/repos/a/widget/move"' in html
         assert 'name="target"' in html
-        depth = 0
-        for tag in re.findall(r"<form\b|</form>", html):
-            depth += 1 if tag.startswith("<form") else -1
-            assert depth in (0, 1), "nested <form> detected in repo drawer"
-        assert depth == 0
+        _assert_no_nested_forms(html, "repo drawer")
 
     def test_drawer_move_picker_shows_context_not_a_preselection(
         self, client, isolated, monkeypatch,
@@ -1806,3 +1828,214 @@ class TestUiTailscaleFlag:
         assert captured["extra_allowed_hostnames"] == {
             "100.101.102.103", "vps.tail1234.ts.net", "vps",
         }
+
+
+class TestNoWorkspacesConfigured:
+    """Zero workspaces is a real, visible state in the dashboard too.
+
+    Regression guard for the phantom 'oss' workspace: the workspaces list route
+    used to re-synthesize it after a remove, so removing appeared to do nothing
+    and adding a real 'oss' was rejected as a duplicate.
+    """
+
+    @pytest.fixture
+    def empty(self, isolated):
+        save_config(Settings())
+        return isolated
+
+    def test_dashboard_shows_no_workspaces_card(self, client, empty):
+        r = client.get("/")
+        assert r.status_code == 200
+        assert "No workspaces yet." in r.text
+        assert "/workspaces" in r.text
+
+    def test_dashboard_rows_fragment_survives_empty_config(self, client, empty):
+        r = client.get("/dashboard/rows")
+        assert r.status_code == 200
+
+    def test_dashboard_hides_controls_that_act_on_repos(self, client, empty):
+        """No workspace means nothing for the bulk actions or filters to act on."""
+        r = client.get("/")
+        assert r.status_code == 200
+        # /shutdown (footer) is not a repo action and stays.
+        assert _hx_post_targets(r.text) == {"/shutdown"}
+        assert 'id="ws-filter"' not in r.text
+        assert 'id="repo-search"' not in r.text
+        _assert_no_nested_forms(r.text, "dashboard (empty config)")
+
+    def test_bulk_controls_come_back_once_a_workspace_exists(
+        self, client, empty, workspace_dir
+    ):
+        """The hiding is conditional on the empty state, not permanent."""
+        save_config(Settings(workspaces=[
+            Workspace(path=str(workspace_dir), label="only", layout="structured")
+        ]))
+        targets = _hx_post_targets(client.get("/").text)
+        assert "/repos/pull-all" in targets
+        assert "/repos/fetch-all" in targets
+
+    def test_post_pull_all_answers_with_the_empty_state(self, client, empty):
+        r = client.post("/repos/pull-all")
+        assert r.status_code == 200
+        assert "text/html" in r.headers["content-type"]
+        assert "No workspaces yet." in r.text
+        assert "gitstow workspace add" in r.text
+        # Not a zero-item success report: "0 attempted, 0 ok" reads as a
+        # working pull over an empty library, which is the wrong story.
+        assert "Pull all — complete" not in r.text
+        assert "attempted" not in r.text
+        # The panel keeps its HTMX target id, so the next action still lands here.
+        assert 'id="pull-summary"' in r.text
+
+    def test_post_fetch_all_answers_with_the_empty_state(self, client, empty):
+        r = client.post("/repos/fetch-all")
+        assert r.status_code == 200
+        assert "text/html" in r.headers["content-type"]
+        assert "No workspaces yet." in r.text
+        assert "gitstow workspace add" in r.text
+        assert "Fetch all — complete" not in r.text
+        assert "processed" not in r.text
+        assert 'id="pull-summary"' in r.text
+
+    def test_bulk_actions_do_not_report_retained_records_as_missing(
+        self, client, empty, workspace_dir
+    ):
+        """Records survive `workspace remove` — they must not become failures.
+
+        Without the guard the bulk run walks every orphaned record and reports
+        each as "workspace not found", turning a config with nowhere to pull
+        into a wall of red.
+        """
+        RepoStore().add(Repo(
+            owner="anthropic", name="claude-code",
+            remote_url="https://github.com/anthropic/claude-code.git",
+            workspace="oss",
+        ))
+        for endpoint in ("/repos/pull-all", "/repos/fetch-all"):
+            r = client.post(endpoint)
+            assert r.status_code == 200, endpoint
+            assert "anthropic/claude-code" not in r.text, endpoint
+            assert "missing" not in r.text.lower(), endpoint
+        # The record is untouched — the guard declines work, it does not prune.
+        assert [
+            repo.global_key for repo in RepoStore().list_all()
+        ] == ["oss:anthropic/claude-code"]
+
+    def test_workspaces_page_shows_empty_state(self, client, empty):
+        r = client.get("/workspaces")
+        assert r.status_code == 200
+        assert "No workspaces yet." in r.text
+        assert "gitstow workspace add" in r.text
+        assert "gitstow onboard" in r.text
+        # The add form is still there, and still a single flat form.
+        assert 'action="/workspaces/add"' in r.text
+        _assert_no_nested_forms(r.text, "workspaces page")
+
+    def test_add_page_offers_a_workspace_not_an_empty_select(self, client, empty):
+        r = client.get("/add")
+        assert r.status_code == 200
+        assert "No workspaces yet." in r.text
+        assert 'href="/workspaces"' in r.text
+        # No repo-add form at all — an empty <select> would be a dead end.
+        assert 'action="/repos/add"' not in r.text
+        _assert_no_nested_forms(r.text, "add page")
+
+    def test_post_repo_add_rejects_cleanly(self, client, empty):
+        r = client.post(
+            "/repos/add",
+            data={"url": "anthropic/claude-code", "workspace": "oss", "tags": ""},
+            follow_redirects=False,
+        )
+        assert r.status_code == 200
+        # The empty-state card IS the message; an error banner repeating the
+        # same sentence above it said everything twice.
+        assert "No workspaces yet." in r.text
+        assert "No workspaces configured" not in r.text
+        assert RepoStore().count() == 0
+
+    def test_settings_page_swaps_the_import_form_for_the_empty_state(self, client, empty):
+        r = client.get("/settings")
+        assert r.status_code == 200
+        assert "No workspaces yet." in r.text
+        # An upload with nowhere to clone into is a dead form.
+        assert 'action="/collection/import"' not in r.text
+        _assert_no_nested_forms(r.text, "settings page (empty config)")
+
+    def test_post_collection_import_answers_with_the_page_not_raw_json(self, client, empty):
+        r = client.post(
+            "/collection/import",
+            files={"file": ("repos.yaml", b"version: 1\nrepos: {}\n", "application/x-yaml")},
+            follow_redirects=False,
+        )
+        assert r.status_code == 200
+        assert "text/html" in r.headers["content-type"]
+        assert "No workspaces configured" in r.text
+        assert RepoStore().count() == 0
+
+    def test_removing_the_last_workspace_lands_on_the_empty_state(
+        self, client, empty, workspace_dir
+    ):
+        ws = Workspace(path=str(workspace_dir), label="only", layout="structured")
+        save_config(Settings(workspaces=[ws]))
+
+        r = client.post("/workspaces/only/remove", follow_redirects=True)
+        assert r.status_code == 200
+        # Identity, not just a count: the removed label is gone from the page
+        # and the empty state replaced it.
+        assert "No workspaces yet." in r.text
+        assert 'action="/workspaces/only/remove"' not in r.text
+        assert load_config().workspaces == []
+
+        # ...and it stays gone on a fresh GET (the bug re-synthesized it here).
+        again = client.get("/workspaces")
+        assert "No workspaces yet." in again.text
+        assert ">only<" not in again.text
+
+    def test_removing_oss_at_the_default_root_is_not_re_migrated(
+        self, client, empty, isolated, monkeypatch
+    ):
+        """The dashboard's remove must stick for the one setup that looks legacy.
+
+        A workspace labelled `oss` at DEFAULT_ROOT with repo records is exactly
+        the pre-0.7.2 fingerprint. Only the config_version marker tells the
+        implicit-`oss` migration that this `workspaces: []` is a deliberate
+        removal, not an install that never had a config.
+        """
+        default_root = isolated / "opensource"
+        default_root.mkdir()
+        monkeypatch.setattr("gitstow.core.config.DEFAULT_ROOT", default_root)
+        save_config(Settings(workspaces=[
+            Workspace(path=str(default_root), label="oss", layout="structured")
+        ]))
+        RepoStore().add(Repo(
+            owner="anthropic", name="claude-code",
+            remote_url="https://github.com/anthropic/claude-code.git",
+            workspace="oss",
+        ))
+
+        r = client.post("/workspaces/oss/remove", follow_redirects=True)
+        assert r.status_code == 200
+        assert load_config().get_workspaces() == []
+
+        again = client.get("/workspaces")
+        assert "No workspaces yet." in again.text
+        assert 'action="/workspaces/oss/scan"' not in again.text
+        assert load_config().get_workspaces() == []
+        # The records survive the removal (kept, as the route intends) — they are
+        # the evidence the migration would otherwise re-adopt the workspace from.
+        assert [
+            repo.global_key for repo in RepoStore().list_by_workspace("oss")
+        ] == ["oss:anthropic/claude-code"]
+
+    def test_adding_oss_on_an_empty_config_succeeds(self, client, empty, isolated):
+        target = isolated / "opensource"
+        r = client.post(
+            "/workspaces/add",
+            data={"label": "oss", "path": str(target), "layout": "structured", "auto_tags": ""},
+            follow_redirects=True,
+        )
+        assert r.status_code == 200
+        assert "already exists" not in r.text
+        saved = load_config().workspaces
+        assert [(w.label, w.path) for w in saved] == [("oss", str(target))]
+

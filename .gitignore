@@ -11,6 +11,8 @@ build/
 .venv/
 venv/
 env/
+# uv's resolver lockfile — gitstow ships via pip/pipx/PyPI, not uv sync
+uv.lock
 
 # IDE
 .idea/

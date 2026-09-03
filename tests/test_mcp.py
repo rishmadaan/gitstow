@@ -136,3 +136,40 @@ def test_pull_repos_no_frozen_collapse(isolated):
     # Frozen a/dup skipped_frozen, unfrozen b/dup evaluated (missing on disk).
     assert "skipped_frozen" in statuses
     assert "missing" in statuses
+
+
+@pytest.mark.parametrize("tool_name", [
+    "list_repos",
+    "pull_repos",
+    "fetch_repos",
+    "search_repos",
+    "collection_stats",
+    "repo_status",
+])
+def test_tools_report_the_empty_state_instead_of_a_success_shaped_empty(isolated, tool_name):
+    """With zero workspaces these returned `[]` / "0 pulled" — a caller reads
+    that as "nothing to do", not "nothing is configured yet"."""
+    from gitstow.core.config import NO_WORKSPACES_HINT, Settings, save_config
+    from gitstow.core.repo import Repo, RepoStore
+    from gitstow.mcp import server
+
+    save_config(Settings())
+    # A record survives under a label no workspace claims — the state a
+    # pre-fix install lands in.
+    RepoStore().add(Repo(owner="foo", name="bar", remote_url="u", workspace="oss"))
+
+    tool = getattr(server, tool_name)
+    payload = json.loads(tool("pattern") if tool_name == "search_repos" else tool())
+
+    assert payload == {"success": False, "error": NO_WORKSPACES_HINT}
+
+
+def test_list_workspaces_and_get_config_still_answer_with_empties(isolated):
+    """These two legitimately describe an empty config — they must not error."""
+    from gitstow.core.config import Settings, save_config
+    from gitstow.mcp.server import get_config, list_workspaces
+
+    save_config(Settings())
+
+    assert json.loads(list_workspaces()) == []
+    assert json.loads(get_config())["workspaces"] == []

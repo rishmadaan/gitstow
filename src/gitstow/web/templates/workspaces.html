@@ -66,6 +66,12 @@
   </small>
   {% endif %}
 
+  {% if not workspaces %}
+  {% with lede="Zero workspaces is a valid state — gitstow tracks nothing until you point it at a directory. Use the form below, or a terminal:", bottom_gap=True %}
+  {% include "partials/no_workspaces.html" %}
+  {% endwith %}
+  {% endif %}
+
   {% if orphans %}
   <article class="error-banner" style="margin-bottom: 2rem;">
     <strong>Orphaned records</strong>

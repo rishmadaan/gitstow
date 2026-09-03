@@ -34,7 +34,8 @@ def migrate(
     """[bold]Migrate[/bold] existing repos into the gitstow structure.
 
     Moves repos into the target workspace directory and registers them.
-    Uses the default workspace unless -w is specified.
+    Moves into the first configured workspace unless -w is specified;
+    errors with a hint if none is configured.
 
     \b
     Examples:
@@ -46,7 +47,7 @@ def migrate(
     ws_label = (ctx.obj or {}).get("workspace")
 
     from gitstow.cli.helpers import resolve_workspaces
-    ws_list = resolve_workspaces(settings, ws_label)
+    ws_list = resolve_workspaces(settings, ws_label, output_json=output_json)
     ws = ws_list[0]
     root = ws.get_path()
     results = []

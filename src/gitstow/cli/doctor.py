@@ -7,8 +7,10 @@ import sys
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from gitstow import __version__
+from gitstow.cli.helpers import print_no_workspaces_hint
 from gitstow.core.config import load_config
 from gitstow.core.discovery import discover_repos, reconcile
 from gitstow.core.git import is_git_installed
@@ -44,6 +46,9 @@ def doctor(
         "repos_file_exists": repos_file.exists(),
         "repos_file_path": str(repos_file),
         "workspaces": len(workspaces),
+        # A config with zero workspaces is valid but unusable — surface it as a
+        # failed check rather than a silent pass.
+        "workspaces_configured": bool(workspaces),
         "repos_tracked": store.count(),
     }
 
@@ -104,11 +109,16 @@ def doctor(
     _check("App directory", APP_HOME.exists())
     _check("Config file", CONFIG_FILE.exists())
     _check("Repos file", repos_file.exists(), str(repos_file))
-    console.print(f"     Workspaces:    {len(workspaces)}")
+    _check(
+        "Workspaces", bool(workspaces),
+        f"{len(workspaces)} configured" if workspaces else "",
+        fail_label="None configured",
+    )
     console.print(f"     Repos tracked: {store.count()}")
 
-    if not CONFIG_FILE.exists():
-        console.print("\n     [yellow]Run [bold]gitstow onboard[/bold] to set up.[/yellow]")
+    if not workspaces:
+        console.print()
+        print_no_workspaces_hint(console, style="yellow", indent="     ")
 
     # Per-workspace health
     console.print("\n  [bold]3. Workspace Health[/bold]\n")
@@ -125,28 +135,36 @@ def doctor(
     if total_orphaned:
         console.print(f"\n     [yellow]⚠ {len(total_orphaned)} untracked repos on disk:[/yellow]")
         for ws_name, key in total_orphaned:
-            console.print(f"       [{ws_name}] {key}")
+            # escape() the whole bracketed label: Rich reads a bare [label] as a
+            # style tag and swallows it, printing a label-less row.
+            console.print(f"       {escape(f'[{ws_name}]')} {key}")
 
     if total_missing:
         console.print(f"\n     [yellow]⚠ {len(total_missing)} tracked but missing from disk:[/yellow]")
         for ws_name, key in total_missing:
-            console.print(f"       [{ws_name}] {key}")
+            console.print(f"       {escape(f'[{ws_name}]')} {key}")
 
-    if not total_orphaned and not total_missing:
+    if not workspaces:
+        console.print("     [dim]Nothing to check — no workspaces configured.[/dim]")
+    elif not total_orphaned and not total_missing:
         console.print(f"\n     [green]✓ All repos in sync across {len(workspaces)} workspace(s)[/green]")
 
     if orphaned_ws:
         console.print("\n     [yellow]⚠ Repos tracked under removed workspaces (invisible to list/status):[/yellow]")
         for label, count in orphaned_ws.items():
-            console.print(f"       [{label}] {count} repo{'s' if count != 1 else ''}")
+            console.print(
+                f"       {escape(f'[{label}]')} {count} repo{'s' if count != 1 else ''}"
+            )
         console.print(
             "       [dim]Clear with 'gitstow workspace remove <label>', or re-add the workspace "
             "with 'gitstow workspace add <path> --label <label>'.[/dim]"
         )
 
     # 4. SSH connectivity hint
+    # Skipped entirely with nothing configured: an up-to-10s network probe to
+    # help repos that no workspace can reach is time spent for no answer.
     ssh_repos = [r for r in store.list_all() if r.remote_url and r.remote_url.startswith("git@")]
-    if ssh_repos:
+    if workspaces and ssh_repos:
         console.print("\n  [bold]4. SSH Connectivity[/bold]\n")
         ssh_ok = _check_ssh_connectivity()
         if ssh_ok:
@@ -173,8 +191,8 @@ def _check_ssh_connectivity() -> bool:
         return False
 
 
-def _check(label: str, ok: bool, detail: str = "") -> None:
+def _check(label: str, ok: bool, detail: str = "", fail_label: str = "Missing") -> None:
     """Print a check result."""
-    status = "[green]OK[/green]" if ok else "[red]Missing[/red]"
+    status = "[green]OK[/green]" if ok else f"[red]{fail_label}[/red]"
     detail_str = f" [dim]({detail})[/dim]" if detail else ""
     console.print(f"     {label}: {status}{detail_str}")

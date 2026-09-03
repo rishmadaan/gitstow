@@ -14,7 +14,8 @@ REPOS_FILE = APP_HOME / "repos.yaml"
 # Migrated to central REPOS_FILE on first access.
 LEGACY_REPOS_FILE = REPOS_FILE  # alias for imports that used this name
 
-# Default root for repos (used when no workspaces configured)
+# Suggested default path offered by `gitstow onboard` for a first workspace.
+# Nothing falls back to it — zero configured workspaces is a valid state.
 DEFAULT_ROOT = Path.home() / "opensource"
 
 # Claude Code skill installation paths

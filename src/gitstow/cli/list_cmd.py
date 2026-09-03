@@ -56,7 +56,9 @@ def list_repos(
     store = RepoStore()
     ws_label = ctx.obj.get("workspace") if ctx.obj else None
 
-    repo_ws_pairs = iter_repos_with_workspace(store, settings, ws_label)
+    repo_ws_pairs = iter_repos_with_workspace(
+        store, settings, ws_label, output_json=output_json
+    )
 
     if tag:
         tag_set = set(tag)

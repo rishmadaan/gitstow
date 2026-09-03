@@ -53,11 +53,22 @@ gitstow pull --workspace oss
 gitstow repo info anthropic/claude-code -w work
 ```
 
-> **Migration from single root:** If you have a pre-workspace config with `root_path`, gitstow auto-migrates it to a single workspace labeled `oss` on first use. No action needed.
+> **Migration from single root:** If you have a pre-workspace config with `root_path`, gitstow auto-migrates it to a single workspace labeled `oss` on first use, and rewrites `config.yaml` to match. No action needed.
+>
+> This is the only case where gitstow creates a workspace for you, and it persists it. A config with no `root_path` and no workspaces stays empty.
 
 ## Folder Structure
 
-When you add a repo, gitstow places it in the default workspace (or the one you specify with `-w`).
+When you add a repo, gitstow places it in your first configured workspace (or the one you
+specify with `-w`). A fresh install has none — gitstow does not invent one, so create a
+workspace before adding repos. Every command that sweeps workspaces says so:
+
+```
+Error: No workspaces configured. Add one with:
+  gitstow workspace add <path> --label <name>
+or run:
+  gitstow onboard
+```
 
 ### Structured layout (default)
 

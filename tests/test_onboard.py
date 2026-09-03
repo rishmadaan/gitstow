@@ -158,3 +158,129 @@ def test_tailscale_prompt_skipped_when_not_installed(monkeypatch):
     settings = Settings()
     onboard_module._maybe_prompt_tailscale(settings)
     assert settings.ui_tailscale is False
+
+
+def _invoke_onboard(*args):
+    """Run the command through Typer so option defaults are real values.
+
+    Calling onboard() directly leaves `force` bound to its typer.Option object,
+    which is truthy — the "already configured" gate would never fire.
+    """
+    from typer.testing import CliRunner
+
+    from gitstow.cli.main import app
+
+    result = CliRunner().invoke(app, ["onboard", *args])
+    assert result.exit_code == 0, result.output
+    return result
+
+
+def _drive_onboard(monkeypatch, tmp_path, workspace_path):
+    """Stub out every interactive prompt so onboard() runs end to end.
+
+    Answers: no second workspace, github.com, no SSH, no tailscale, don't
+    create the directory (so no scan runs). Returns the console buffer.
+    """
+    from gitstow.cli import onboard as om
+
+    buf = StringIO()
+    confirm_answers = iter([False, False, False])
+    monkeypatch.setattr(om, "console", Console(file=buf, force_terminal=False))
+    monkeypatch.setattr(om, "is_git_installed", lambda: (True, "test"))
+    monkeypatch.setattr(om, "tailscale_available", lambda: False)
+    monkeypatch.setattr(
+        om, "_setup_workspace",
+        lambda **_kw: Workspace(path=str(workspace_path), label="fresh"),
+    )
+    monkeypatch.setattr(om, "bconfirm", lambda *_a, **_kw: next(confirm_answers))
+    monkeypatch.setattr(om, "bselect", lambda *_a, **_kw: om.HOST_OPTIONS[0])
+    monkeypatch.setattr(om, "ensure_app_dirs", lambda: None)
+    monkeypatch.setattr("gitstow.cli.setup_ai._setup_ai_integrations", lambda: None)
+    monkeypatch.setattr("gitstow.core.config.ensure_app_dirs", lambda: None)
+    return buf
+
+
+def test_onboard_proceeds_on_an_existing_config_with_zero_workspaces(monkeypatch, tmp_path):
+    """`workspaces: []` is exactly the state the empty-state hint sends users
+    here from — gating on CONFIG_FILE.exists() made `gitstow onboard` a dead end.
+
+    And the wizard must not reset settings it never asks about: parallel_limit
+    survives.
+    """
+    import yaml
+
+    from gitstow.core.config import load_config
+
+    config_file = tmp_path / "config.yaml"
+    monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+    monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+    monkeypatch.setattr("gitstow.cli.onboard.CONFIG_FILE", config_file)
+
+    _drive_onboard(monkeypatch, tmp_path, tmp_path / "fresh-ws")
+    config_file.write_text(yaml.dump({
+        "workspaces": [],
+        "default_host": "github.com",
+        "parallel_limit": 12,
+        "clone_timeout": 900,
+    }))
+
+    _invoke_onboard()
+
+    saved = load_config()
+    assert [(w.label, w.path) for w in saved.get_workspaces()] == [
+        ("fresh", str(tmp_path / "fresh-ws"))
+    ]
+    # Tuned fields the wizard never asks about are preserved, not reset.
+    assert saved.parallel_limit == 12
+    assert saved.clone_timeout == 900
+
+
+def test_onboard_force_preserves_tuned_fields_on_a_configured_install(monkeypatch, tmp_path):
+    """--force rebuilds the workspace list only; it used to start from a bare
+    Settings() and silently reset parallel_limit / clone_timeout / ui_tailscale."""
+    import yaml
+
+    from gitstow.core.config import load_config
+
+    config_file = tmp_path / "config.yaml"
+    monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+    monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+    monkeypatch.setattr("gitstow.cli.onboard.CONFIG_FILE", config_file)
+
+    _drive_onboard(monkeypatch, tmp_path, tmp_path / "fresh-ws")
+    config_file.write_text(yaml.dump({
+        "workspaces": [{"path": str(tmp_path / "old"), "label": "old", "layout": "flat"}],
+        "default_host": "github.com",
+        "parallel_limit": 12,
+        "ui_tailscale": True,
+    }))
+
+    _invoke_onboard("--force")
+
+    saved = load_config()
+    assert [w.label for w in saved.get_workspaces()] == ["fresh"]
+    assert saved.parallel_limit == 12
+    assert saved.ui_tailscale is True
+
+
+def test_onboard_still_refuses_a_configured_install_without_force(monkeypatch, tmp_path):
+    import yaml
+
+    from gitstow.core.config import load_config
+
+    config_file = tmp_path / "config.yaml"
+    monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+    monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+    monkeypatch.setattr("gitstow.cli.onboard.CONFIG_FILE", config_file)
+
+    buf = _drive_onboard(monkeypatch, tmp_path, tmp_path / "fresh-ws")
+    config_file.write_text(yaml.dump({
+        "workspaces": [{"path": str(tmp_path / "old"), "label": "old", "layout": "flat"}],
+        "default_host": "github.com",
+    }))
+
+    _invoke_onboard()
+
+    assert "already configured" in buf.getvalue()
+    # Untouched — the existing workspace is still the only one.
+    assert [w.label for w in load_config().get_workspaces()] == ["old"]

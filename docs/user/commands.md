@@ -80,7 +80,7 @@ gitstow add anthropic/claude-code --update
 ```
 
 **Behavior:**
-- Repos are added to the default workspace (first configured), or the workspace specified with `-w`
+- Repos are added to the first configured workspace, or the workspace specified with `-w`. With none configured, `add` exits 1 with `No workspaces configured…` and clones nothing
 - If the repo is already tracked: skips (or pulls with `--update`)
 - If the path exists on disk but isn't tracked: registers it automatically
 - If the path exists on disk with a **different** remote than the one requested: errors with a remote-mismatch message instead of silently registering — move the directory or pick another workspace
@@ -628,7 +628,7 @@ Valid keys: `default_host`, `prefer_ssh`, `parallel_limit`, `clone_timeout` (clo
 Move one workspace's repos to a new directory and update that workspace's `path` in config.
 
 ```bash
-gitstow config migrate-root ~/new-location            # Moves the default workspace
+gitstow config migrate-root ~/new-location            # Moves the first configured workspace
 gitstow -w active config migrate-root ~/new-location  # Moves a specific workspace
 gitstow config migrate-root ~/new-location --copy      # Keep originals
 gitstow config migrate-root ~/new-location --yes       # Skip confirmation
@@ -685,6 +685,18 @@ gitstow workspace list
 gitstow workspace list --quiet   # One label per line (for scripting/completions)
 ```
 
+With no workspaces configured — a fresh install, or after removing your last one —
+the command exits **0** (this is a valid state, not an error) and prints:
+
+```
+No workspaces configured. Add one with:
+  gitstow workspace add <path> --label <name>
+or run:
+  gitstow onboard
+```
+
+`--quiet` prints nothing in that case, so scripts see an empty list.
+
 ### `gitstow workspace add`
 
 Add a new workspace.
@@ -729,7 +741,28 @@ gitstow workspace remove <label> [flags]
 |------|-------------|
 | `--keep-repos/--untrack-repos` | Keep tracked repos in the store (default) or untrack them. |
 
-You cannot remove the only remaining workspace.
+**Removing your last workspace is allowed.** Zero workspaces is a valid state —
+gitstow does not invent one to fill the gap. The command reports the removal and
+then tells you how to get back:
+
+```
+  ✓ Workspace oss removed
+  No workspaces configured. Add one with:
+    gitstow workspace add <path> --label <name>
+  or run:
+    gitstow onboard
+```
+
+Until you add one, commands that sweep workspaces (`add`, `pull`, `fetch`, `list`, `status`, `exec`, `search`, `stats`, `migrate`,
+`collection import`, `config migrate-root` and `shell pick`)
+exit **1** with that same message on stderr. Run with `--json`, the same failure
+is emitted as `{"success": false, "error": "..."}` on stdout instead (still exit
+1), so a parsed run never sees an empty stdout — `collection import`,
+`config migrate-root` and `shell pick` have no `--json` option and always use the
+prose form. `workspace list`, `config show` and
+`doctor` still run, and each points at the same fix. Commands that name a single
+repo (`diff`, `open`, `remove`, `repo …`) report that the repo isn't tracked, which
+is what actually happened.
 
 ### `gitstow workspace scan`
 

@@ -13,7 +13,7 @@ from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 
 from gitstow.core.collection_io import parse_collection_file, resolve_entry_workspace
-from gitstow.core.config import load_config
+from gitstow.core.config import NO_WORKSPACES_HINT, load_config
 from gitstow.core.git import clone as git_clone
 from gitstow.core.repo import Repo, RepoStore
 from gitstow.core.url_parser import parse_git_url
@@ -94,7 +94,15 @@ async def import_collection(
     # Target workspace — default to first
     ws_list = settings.get_workspaces()
     if not ws_list:
-        raise HTTPException(status_code=400, detail="no workspaces configured")
+        # The upload comes from the Settings page, so answer with that page
+        # carrying the hint — a raw JSON 400 in the browser is a dead end.
+        # Imported here, not at module scope, so route modules stay free to
+        # import each other without an import-order cycle.
+        from gitstow.web.routes.pages import _render_settings
+
+        return _render_settings(
+            request, settings, error=NO_WORKSPACES_HINT, status_code=200,
+        )
     ws = settings.get_workspace(workspace) if workspace else ws_list[0]
     if ws is None:
         raise HTTPException(status_code=404, detail=f"workspace '{workspace}' not found")

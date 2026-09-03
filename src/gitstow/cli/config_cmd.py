@@ -8,6 +8,7 @@ import sys
 import typer
 from rich.console import Console
 
+from gitstow.cli.helpers import print_no_workspaces_hint, resolve_workspaces
 from gitstow.core.config import load_config, save_config
 from gitstow.core.paths import CONFIG_FILE, REPOS_FILE
 from gitstow.core.repo import RepoStore
@@ -57,6 +58,8 @@ def config_show(
     # Show workspaces
     workspaces = settings.get_workspaces()
     console.print(f"    [bold]Workspaces ({len(workspaces)}):[/bold]")
+    if not workspaces:
+        print_no_workspaces_hint(console, indent="      ")
     ws_counts = store.all_workspaces()
     for ws in workspaces:
         count = ws_counts.get(ws.label, 0)
@@ -92,6 +95,9 @@ def config_set(
     """
     settings = load_config()
 
+    # config_version is deliberately absent: it is provenance gitstow writes, not
+    # a setting. Editing it would either re-trigger or permanently disable the
+    # one-time legacy migrations.
     valid_keys = {"default_host", "prefer_ssh", "parallel_limit", "clone_timeout", "ui_tailscale"}
     if key not in valid_keys:
         err_console.print(
@@ -138,7 +144,7 @@ def config_migrate_root(
 
     \b
     Examples:
-      gitstow config migrate-root ~/new-location            # default workspace
+      gitstow config migrate-root ~/new-location            # first configured workspace
       gitstow -w active config migrate-root ~/new-location  # specific workspace
     """
     import shutil
@@ -149,16 +155,9 @@ def config_migrate_root(
     settings = load_config()
     store = RepoStore()
 
-    # Ensure the workspace list is materialized (legacy configs synthesize it).
-    if not settings.workspaces:
-        settings.workspaces = settings.get_workspaces()
-
-    ws_label = (ctx.obj or {}).get("workspace") or settings.get_default_workspace().label
-    ws = settings.get_workspace(ws_label)
-    if ws is None:
-        labels = ", ".join(w.label for w in settings.get_workspaces())
-        err_console.print(f"[red]Error:[/red] Unknown workspace [bold]{ws_label}[/bold]. Available: {labels}")
-        raise typer.Exit(code=1)
+    # No configured workspace → the shared hint + exit 1; unknown -w label → the
+    # shared "Unknown workspace" error; otherwise the named or first workspace.
+    ws = resolve_workspaces(settings, (ctx.obj or {}).get("workspace"))[0]
 
     old_root = ws.get_path()
     new_root_path = Path(new_root).expanduser().resolve()

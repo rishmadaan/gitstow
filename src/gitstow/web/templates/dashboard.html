@@ -30,6 +30,11 @@
     </div>
   </section>
 
+  {# Every control here acts on repos in a workspace — the filters, the bulk
+     buttons, and the clone form behind "+ Add repo". With no workspace
+     configured there is nothing for any of them to act on, so the whole bar
+     goes rather than offering buttons whose only possible answer is the hint. #}
+  {% if workspaces %}
   <div class="action-bar">
     <select id="ws-filter" title="Show only one workspace's repos">
       <option value="">All workspaces</option>
@@ -61,6 +66,7 @@
   </div>
 
   <article id="pull-summary" hidden></article>
+  {% endif %}
 
   {% if repos %}
   <div class="table-wrap">
@@ -93,6 +99,12 @@
   <small style="display: block; margin-top: 1.2rem; color: var(--muted-soft); font-family: 'JetBrains Mono', monospace; font-size: 0.78rem;">
     auto-refresh 30s · click repo name → details · pull runs in place · <a href="#" onclick="document.getElementById('help-dialog').showModal(); return false;" style="color: var(--muted); text-decoration: underline;">what does this dashboard show?</a>
   </small>
+
+  {% elif not workspaces %}
+
+  {% with lede="A workspace is the directory gitstow clones into. Add one before adding repos — from the workspaces page, or from a terminal:", cta=True, centered=True %}
+  {% include "partials/no_workspaces.html" %}
+  {% endwith %}
 
   {% else %}
 

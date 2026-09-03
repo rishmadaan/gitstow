@@ -18,6 +18,14 @@
   </article>
   {% endif %}
 
+  {% if not workspaces %}
+
+  {% with lede="gitstow clones into a workspace, and none are configured — so there is nowhere to put this repo yet. Add one from the workspaces page, or from a terminal:", cta=True, cancel=True %}
+  {% include "partials/no_workspaces.html" %}
+  {% endwith %}
+
+  {% else %}
+
   <form id="add-form" method="POST" action="/repos/add">
 
     <div class="form-row">
@@ -48,6 +56,8 @@
       <a href="/" class="btn btn-ghost">Cancel</a>
     </div>
   </form>
+
+  {% endif %}
 
   <script>
     (function () {

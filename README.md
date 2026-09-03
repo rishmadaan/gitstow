@@ -26,8 +26,10 @@ pipx install gitstow   # recommended — full install: CLI + browser dashboard
 #   sudo apt install pipx      (Debian/Ubuntu)
 #   brew install pipx          (macOS)
 
-# First-run setup (optional — works without it)
+# First-run setup — creates your first workspace, sets your default host
 gitstow onboard
+# ...or skip the wizard and add a workspace directly:
+#   gitstow workspace add ~/oss --label oss
 
 # Add repos (GitHub shorthand or full URLs)
 gitstow add anthropic/claude-code
@@ -264,7 +266,9 @@ active:
 2. **Folder-as-state** — The directory structure is the primary source of truth. `repos.yaml` supplements with metadata (frozen, tags, timestamps).
 3. **Error isolation** — One bad repo never stops operations on others. Failures are collected and reported in a summary.
 4. **Parallel execution** — Bulk operations use `asyncio` with a semaphore (default 6 concurrent) to prevent SSH connection storms.
-5. **Zero-config start** — `gitstow add owner/repo` works immediately with sensible defaults.
+5. **Explicit state** — gitstow never invents a workspace. A fresh install has none, and
+   commands that need one say exactly how to create it. Zero workspaces is a valid state:
+   you can remove your last workspace and gitstow will simply say so.
 
 ### A note on folder structure
 
@@ -277,6 +281,8 @@ Flat workspaces skip the owner directory entirely — repos are just `workspace/
 **`gitstow: command not found`** — Make sure the install location is on your PATH. With pipx this is automatic. With pip, you may need `python3 -m gitstow` or add `~/.local/bin` to your PATH.
 
 **SSH clone fails with "Permission denied (publickey)"** — Your SSH key isn't configured for the git host. Either add your key (`ssh-add`) or use HTTPS: `gitstow config set prefer_ssh false`.
+
+**`No workspaces configured`** — Expected on a fresh install, and after removing your last workspace. gitstow never invents one. Run `gitstow workspace add <path> --label <name>` or `gitstow onboard`.
 
 **Workspace directory doesn't exist** — Run `gitstow doctor` to check workspace health. Create missing directories or update the path with `gitstow workspace add`.
 

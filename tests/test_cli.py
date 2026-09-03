@@ -1,5 +1,7 @@
 """CLI smoke tests using Typer's CliRunner."""
 
+import json
+
 import pytest
 from typer.testing import CliRunner
 
@@ -396,8 +398,8 @@ class TestOrphanedWorkspaceRecords:
         from gitstow.core.repo import RepoStore
 
         repos_file = self._seed_orphan(tmp_path, monkeypatch)
-        # Only one configured workspace — the "cannot remove the only workspace"
-        # guard must not block clearing an orphaned label.
+        # 'gone' is not in config at all — the orphan-clearing branch must run
+        # regardless of how many real workspaces exist alongside it.
         result = CliRunner().invoke(app, ["workspace", "remove", "gone"])
         assert result.exit_code == 0
         assert "Cleared 2 orphaned" in result.output
@@ -1153,3 +1155,349 @@ class TestDiffCommand:
         result = runner.invoke(app, ["diff", "owner/repo", "--quiet"])
         assert result.exit_code == 0
         assert result.output.strip() == ""
+
+
+class TestNoWorkspacesConfigured:
+    """Zero workspaces is a legitimate state — every surface says the same thing.
+
+    Regression guard for the phantom 'oss' workspace at ~/opensource that
+    Settings.get_workspaces() used to synthesize but never persist.
+    """
+
+    HINT_FRAGMENTS = ("No workspaces configured", "gitstow workspace add", "gitstow onboard")
+
+    def _isolate(self, tmp_path, monkeypatch):
+        """Point config.yaml / repos.yaml at tmp and start from an empty config."""
+        from gitstow.core.config import Settings, save_config
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        monkeypatch.setattr("gitstow.core.config.ensure_app_dirs", lambda: None)
+        save_config(Settings())
+        return config_file, repos_file
+
+    def _combined(self, result):
+        """The hint spans several lines (sentence, then one command per line) —
+        normalize whitespace before asserting on it."""
+        return " ".join(((result.output or "") + (result.stderr or "")).split())
+
+    def _assert_hint(self, result):
+        combined = self._combined(result)
+        for fragment in self.HINT_FRAGMENTS:
+            assert fragment in combined, f"missing {fragment!r} in: {combined}"
+
+    # --- removing the last workspace is allowed ---
+
+    def test_workspace_remove_last_succeeds_and_empties_config(self, tmp_path, monkeypatch):
+        import yaml
+
+        from gitstow.core.config import Settings, Workspace, save_config
+
+        config_file, _ = self._isolate(tmp_path, monkeypatch)
+        ws_dir = tmp_path / "only"; ws_dir.mkdir()
+        save_config(Settings(workspaces=[
+            Workspace(path=str(ws_dir), label="only", layout="structured")
+        ]))
+
+        result = CliRunner().invoke(app, ["workspace", "remove", "only"])
+
+        assert result.exit_code == 0
+        assert yaml.safe_load(config_file.read_text())["workspaces"] == []
+        self._assert_hint(result)
+
+    # --- an empty config can be filled again under any label ---
+
+    def test_workspace_add_oss_on_empty_config(self, tmp_path, monkeypatch):
+        """'oss' was the phantom's label — adding it for real must not collide."""
+        import yaml
+
+        config_file, _ = self._isolate(tmp_path, monkeypatch)
+        target = tmp_path / "opensource"
+
+        added = CliRunner().invoke(
+            app, ["workspace", "add", str(target), "--label", "oss", "--no-scan"]
+        )
+        assert added.exit_code == 0, self._combined(added)
+
+        # Identity, not count: the persisted workspace is the one just asked for.
+        saved = yaml.safe_load(config_file.read_text())["workspaces"]
+        assert saved == [{"path": str(target), "label": "oss", "layout": "structured"}]
+
+        listed = CliRunner().invoke(app, ["workspace", "list"])
+        assert listed.exit_code == 0
+        assert "oss" in self._combined(listed)
+
+    # --- commands that need a workspace stop with the hint ---
+
+    def test_list_exits_with_hint(self, tmp_path, monkeypatch):
+        self._isolate(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["list"])
+        assert result.exit_code == 1
+        self._assert_hint(result)
+
+    def test_add_exits_with_hint_and_clones_nothing(self, tmp_path, monkeypatch):
+        called = []
+        # cli/add.py binds `from gitstow.core.git import clone as git_clone` at
+        # import time, so the fake has to replace THAT name — patching
+        # gitstow.core.git.clone never fires and the test would pass on a real
+        # network clone.
+        monkeypatch.setattr(
+            "gitstow.cli.add.git_clone",
+            lambda *a, **kw: called.append(a) or (_ for _ in ()).throw(AssertionError("cloned")),
+        )
+        _, repos_file = self._isolate(tmp_path, monkeypatch)
+
+        result = CliRunner().invoke(app, ["add", "anthropic/claude-code"])
+
+        assert result.exit_code == 1
+        self._assert_hint(result)
+        assert called == []
+        assert not repos_file.exists()
+
+    def test_status_exits_with_hint(self, tmp_path, monkeypatch):
+        self._isolate(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["status"])
+        assert result.exit_code == 1
+        self._assert_hint(result)
+
+    def test_migrate_root_exits_with_hint(self, tmp_path, monkeypatch):
+        self._isolate(tmp_path, monkeypatch)
+        result = CliRunner().invoke(
+            app, ["config", "migrate-root", str(tmp_path / "elsewhere"), "--yes"]
+        )
+        assert result.exit_code == 1
+        self._assert_hint(result)
+
+    # --- read-only surfaces stay at exit 0 but still point the way ---
+
+    def test_workspace_list_exits_zero_with_hint(self, tmp_path, monkeypatch):
+        self._isolate(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["workspace", "list"])
+        assert result.exit_code == 0
+        self._assert_hint(result)
+
+    def test_config_show_renders_empty_workspaces(self, tmp_path, monkeypatch):
+        self._isolate(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["config", "show"])
+        assert result.exit_code == 0
+        combined = self._combined(result)
+        assert "Workspaces (0)" in combined
+        self._assert_hint(result)
+
+    def test_doctor_reports_no_workspaces_as_a_failed_check(self, tmp_path, monkeypatch):
+        self._isolate(tmp_path, monkeypatch)
+
+        human = CliRunner().invoke(app, ["doctor"])
+        assert human.exit_code == 0
+        combined = self._combined(human)
+        assert "None configured" in combined
+        self._assert_hint(human)
+
+        as_json = CliRunner().invoke(app, ["doctor", "--json"])
+        assert as_json.exit_code == 0
+        payload = json.loads(as_json.output)
+        assert payload["config"]["workspaces_configured"] is False
+        assert payload["config"]["workspaces"] == 0
+
+
+    # --- named-repo forms of pull/fetch hit the same guard ---
+
+    def _seed_orphan_record(self, tmp_path, monkeypatch):
+        """Empty config, but one repo record tracked under a label."""
+        from gitstow.core.repo import Repo, RepoStore
+
+        self._isolate(tmp_path, monkeypatch)
+        RepoStore().add(Repo(
+            owner="foo", name="bar",
+            remote_url="https://github.com/foo/bar.git",
+            workspace="oss",
+        ))
+
+    def test_pull_named_repo_exits_with_hint(self, tmp_path, monkeypatch):
+        """`pull foo/bar` used to exit 0 with 'No repos to pull.' — the named-key
+        branch resolved workspaces itself and silently dropped every repo."""
+        self._seed_orphan_record(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["pull", "foo/bar"])
+        assert result.exit_code == 1
+        self._assert_hint(result)
+        assert "No repos to pull" not in self._combined(result)
+
+    def test_fetch_named_repo_exits_with_hint(self, tmp_path, monkeypatch):
+        self._seed_orphan_record(tmp_path, monkeypatch)
+        result = CliRunner().invoke(app, ["fetch", "foo/bar"])
+        assert result.exit_code == 1
+        self._assert_hint(result)
+        assert "No repos to fetch" not in self._combined(result)
+
+    # --- doctor prints the label, not a swallowed style tag ---
+
+    def test_doctor_orphan_report_shows_the_label(self, tmp_path, monkeypatch):
+        """`[{label}]` is Rich markup — unescaped, Rich parses it as a style tag
+        and prints the row with no label at all."""
+        from gitstow.core.repo import Repo, RepoStore
+
+        self._isolate(tmp_path, monkeypatch)
+        RepoStore().add(Repo(
+            owner="foo", name="bar",
+            remote_url="https://github.com/foo/bar.git",
+            workspace="retired-ws",
+        ))
+
+        result = CliRunner().invoke(app, ["doctor"])
+
+        assert result.exit_code == 0
+        combined = self._combined(result)
+        assert "[retired-ws] 1 repo" in combined
+
+    # --- --json mode: the failure IS the payload, on stdout ---
+
+    # Every command that has a --json option and reaches the zero-workspace
+    # guard (from `grep resolve_workspaces|iter_repos_with_workspace src/gitstow/cli/`).
+    # `config migrate-root`, `collection import` and `shell pick` reach the
+    # guard but have no --json option, so they keep the prose form.
+    @pytest.mark.parametrize("argv", [
+        ["add", "anthropic/claude-code", "--json"],
+        ["exec", "--json", "--", "true"],
+        ["fetch", "--json"],
+        ["list", "--json"],
+        ["migrate", "/nonexistent/repo", "--json"],
+        ["pull", "--json"],
+        ["search", "react", "--json"],
+        ["stats", "--json"],
+        ["status", "--json"],
+    ], ids=lambda a: a[0])
+    def test_json_mode_writes_the_hint_to_stdout_as_json(self, tmp_path, monkeypatch, argv):
+        """Scripts and the Claude skill parse stdout. An empty stdout plus Rich
+        prose on stderr reads as a crash, not as 'nothing configured yet'."""
+        from gitstow.core.config import NO_WORKSPACES_HINT
+
+        self._isolate(tmp_path, monkeypatch)
+
+        result = CliRunner().invoke(app, argv)
+
+        assert result.exit_code == 1
+        payload = json.loads(result.stdout)
+        assert payload["success"] is False
+        assert payload["error"] == NO_WORKSPACES_HINT
+        # Rich prose on stderr would double-report the same failure.
+        assert "No workspaces configured" not in (result.stderr or "")
+
+    def test_human_mode_keeps_stdout_empty_and_hints_on_stderr(self, tmp_path, monkeypatch):
+        """The counterpart contract: without --json nothing lands on stdout."""
+        self._isolate(tmp_path, monkeypatch)
+
+        result = CliRunner().invoke(app, ["list"])
+
+        assert result.exit_code == 1
+        assert (result.stdout or "").strip() == ""
+        stderr = " ".join((result.stderr or "").split())
+        for fragment in self.HINT_FRAGMENTS:
+            assert fragment in stderr, f"missing {fragment!r} in: {stderr}"
+
+
+class TestOrphanedRecordInBulkOperation:
+    """`gitstow pull good orphan` must still pull `good`.
+
+    An orphan is a repo whose workspace left config while its record stayed in
+    repos.yaml. It is one bad name among several — the same class as the
+    existing "not tracked. Skipping." warning — and README's bulk contract is
+    that one bad repo never blocks the others.
+    """
+
+    def _seed(self, tmp_path, monkeypatch):
+        """Config with only `active`; store with active:good and retired:orphan."""
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        monkeypatch.setattr("gitstow.core.config.ensure_app_dirs", lambda: None)
+
+        ws_dir = tmp_path / "active"
+        (ws_dir / "good").mkdir(parents=True)
+        save_config(Settings(workspaces=[
+            Workspace(path=str(ws_dir), label="active", layout="flat")
+        ]))
+
+        store = RepoStore()
+        store.add(Repo(owner="", name="good", remote_url="u", workspace="active"))
+        store.add(Repo(owner="", name="orphan", remote_url="u", workspace="retired"))
+
+    def _fake_git(self, monkeypatch, module, symbol, result):
+        """Replace the name the command module bound at import time.
+
+        `from gitstow.core.git import pull as git_pull` copies the function into
+        cli.pull's namespace — patching gitstow.core.git.pull never fires.
+        """
+        called = []
+
+        def _fake(path, *a, **kw):
+            called.append(str(path))
+            return result
+
+        monkeypatch.setattr(f"gitstow.cli.{module}.{symbol}", _fake)
+        return called
+
+    def test_pull_skips_the_orphan_and_still_pulls_the_good_repo(self, tmp_path, monkeypatch):
+        from gitstow.core.git import PullResult, RepoStatus
+
+        self._seed(tmp_path, monkeypatch)
+        monkeypatch.setattr("gitstow.cli.pull.is_git_repo", lambda p: True)
+        monkeypatch.setattr(
+            "gitstow.cli.pull.get_status", lambda p: RepoStatus(branch="main", behind=1)
+        )
+        pulled = self._fake_git(
+            monkeypatch, "pull", "git_pull", PullResult(success=True, output="Updating")
+        )
+
+        result = CliRunner().invoke(app, ["pull", "good", "orphan"])
+
+        # Identity, not count: the repo that survived the skip is `good`.
+        assert [p.rsplit("/", 1)[-1] for p in pulled] == ["good"]
+        assert result.exit_code == 0, (result.stdout, result.stderr)
+        warning = " ".join(((result.stdout or "") + (result.stderr or "")).split())
+        assert "orphan" in warning and "retired" in warning
+        assert "Warning" in warning
+
+    def test_fetch_skips_the_orphan_and_still_fetches_the_good_repo(self, tmp_path, monkeypatch):
+        from gitstow.core.git import FetchResult
+
+        self._seed(tmp_path, monkeypatch)
+        monkeypatch.setattr("gitstow.cli.fetch.is_git_repo", lambda p: True)
+        fetched = self._fake_git(
+            monkeypatch, "fetch", "git_fetch", FetchResult(success=True, output="ok")
+        )
+
+        result = CliRunner().invoke(app, ["fetch", "good", "orphan"])
+
+        assert [p.rsplit("/", 1)[-1] for p in fetched] == ["good"]
+        assert result.exit_code == 0, (result.stdout, result.stderr)
+        warning = " ".join(((result.stdout or "") + (result.stderr or "")).split())
+        assert "orphan" in warning and "retired" in warning
+        assert "Warning" in warning
+
+    def test_pull_json_keeps_the_orphan_warning_off_stdout(self, tmp_path, monkeypatch):
+        """--json stdout stays a pure payload; the warning goes to stderr."""
+        from gitstow.core.git import PullResult, RepoStatus
+
+        self._seed(tmp_path, monkeypatch)
+        monkeypatch.setattr("gitstow.cli.pull.is_git_repo", lambda p: True)
+        monkeypatch.setattr(
+            "gitstow.cli.pull.get_status", lambda p: RepoStatus(branch="main", behind=1)
+        )
+        self._fake_git(
+            monkeypatch, "pull", "git_pull", PullResult(success=True, output="Updating")
+        )
+
+        result = CliRunner().invoke(app, ["pull", "good", "orphan", "--json"])
+
+        assert result.exit_code == 0, (result.stdout, result.stderr)
+        payload = json.loads(result.stdout)
+        assert [r["repo"] for r in payload["results"]] == ["good"]
+        assert "orphan" in (result.stderr or "")

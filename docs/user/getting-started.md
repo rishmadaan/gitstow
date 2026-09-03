@@ -41,7 +41,34 @@ gitstow --version
 
 > **Command not found?** On some systems, pip installs to a directory not on your PATH. Try `python3 -m gitstow --version` instead, or use pipx which handles PATH automatically.
 
-## 2. Add Your First Repo
+## 2. Create a Workspace
+
+A fresh install has **no workspaces**. A workspace is the directory gitstow clones
+into, and gitstow never invents one for you — so this is the first step.
+
+The interactive wizard walks you through it (and suggests `~/opensource` as a path):
+
+```bash
+gitstow onboard
+```
+
+Or do it in one line:
+
+```bash
+gitstow workspace add ~/oss --label oss --layout structured
+```
+
+Until a workspace exists, commands that need one (`add`, `pull`, `list`, `status`, …)
+stop with:
+
+```
+Error: No workspaces configured. Add one with:
+  gitstow workspace add <path> --label <name>
+or run:
+  gitstow onboard
+```
+
+## 3. Add Your First Repo
 
 ```bash
 gitstow add anthropic/claude-code
@@ -49,12 +76,13 @@ gitstow add anthropic/claude-code
 
 That's it. gitstow:
 1. Recognizes `anthropic/claude-code` as GitHub shorthand
-2. Clones to `~/oss/anthropic/claude-code/` (your default workspace)
+2. Clones to `~/oss/anthropic/claude-code/` (your first configured workspace)
 3. Registers it in your collection
 
-> **Default workspace:** Repos go to `~/oss/` by default (in a workspace labeled `oss`). Change it with `gitstow onboard` for the interactive setup wizard, or add additional workspaces with `gitstow workspace add`.
+> **Which workspace?** With more than one configured, `gitstow add` uses the first
+> one listed in `config.yaml`. Target another with `-w`, e.g. `gitstow -w active add owner/repo`.
 
-## 3. Add More Repos
+## 4. Add More Repos
 
 ```bash
 # GitHub shorthand (most common)
@@ -70,7 +98,7 @@ gitstow add git@bitbucket.org:owner/repo.git
 gitstow add torvalds/linux --shallow
 ```
 
-## 4. See Your Collection
+## 5. See Your Collection
 
 ```bash
 gitstow list
@@ -90,7 +118,7 @@ Output:
     linux                                     just now
 ```
 
-## 5. Update Everything
+## 6. Update Everything
 
 ```bash
 gitstow pull
@@ -110,7 +138,7 @@ Output:
 
 Every repo is pulled in parallel (up to 6 at once). If one repo fails, the others still update — you get a summary at the end.
 
-## 6. Check Status
+## 7. Check Status
 
 ```bash
 gitstow status
@@ -132,7 +160,7 @@ For a guided first-run experience:
 gitstow onboard
 ```
 
-This walks you through choosing a root directory, default git host, SSH vs HTTPS preference, and scans for existing repos to register.
+This walks you through creating your first workspace (suggesting `~/opensource` as its path), choosing a default git host and SSH vs HTTPS preference, then scans for existing repos to register.
 
 ## Multiple Workspaces
 
@@ -194,6 +222,10 @@ gitstow update            # upgrade to the latest PyPI version
 - For HTTPS: check your git credential helper (`git config credential.helper`)
 - For SSH: check your SSH key is added (`ssh -T git@github.com`)
 - Set SSH as default: `gitstow config set prefer_ssh true`
+
+**"No workspaces configured"**
+- Expected on a fresh install, and after removing your last workspace — zero workspaces is a valid state, not a broken one.
+- Fix it with `gitstow workspace add <path> --label <name>` or the `gitstow onboard` wizard. The same message appears in the web dashboard, with a link to the workspaces page.
 
 **"gitstow doctor" for diagnostics**
 ```bash

@@ -10,7 +10,11 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from gitstow.cli.helpers import iter_repos_with_workspace
+from gitstow.cli.helpers import (
+    iter_repos_with_workspace,
+    resolve_workspaces,
+    warn_orphaned_workspace,
+)
 from gitstow.core.config import Workspace, load_config
 from gitstow.core.git import get_status, is_git_repo
 from gitstow.core.git import pull as git_pull
@@ -108,6 +112,10 @@ def pull(
     settings = load_config()
     store = RepoStore()
     ws_label = ctx.obj.get("workspace") if ctx.obj else None
+    # Guard first, branch second: with zero workspaces configured there is
+    # nothing to pull in either form, and the named-repo path below would
+    # otherwise report a cheerful "No repos to pull" instead of the hint.
+    resolve_workspaces(settings, ws_label, output_json=output_json)
 
     # Resolve target repos
     if repos:
@@ -115,13 +123,22 @@ def pull(
         for key in repos:
             repo = store.get(key)
             if repo:
+                # Tracked under a workspace that is no longer configured: say so
+                # (shared orphan wording) instead of silently dropping the repo.
+                # A warning, not an exit — one orphaned record must not abort the
+                # valid repos named alongside it. Goes to stderr, so --json
+                # stdout stays a pure payload.
                 ws = settings.get_workspace(repo.workspace)
-                if ws:
-                    targets.append((repo, ws))
+                if ws is None:
+                    warn_orphaned_workspace(repo.workspace, key)
+                    continue
+                targets.append((repo, ws))
             else:
                 err_console.print(f"[yellow]Warning:[/yellow] '{key}' not tracked. Skipping.")
     else:
-        targets = iter_repos_with_workspace(store, settings, ws_label)
+        targets = iter_repos_with_workspace(
+            store, settings, ws_label, output_json=output_json
+        )
 
     # Apply filters
     if not include_frozen:
