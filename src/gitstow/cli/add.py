@@ -80,7 +80,7 @@ def add(
     settings = load_config()
     store = RepoStore()
     ws_label = ctx.obj.get("workspace") if ctx.obj else None
-    ws_list = resolve_workspaces(settings, ws_label)
+    ws_list = resolve_workspaces(settings, ws_label, output_json=output_json)
     ws = ws_list[0]  # The -w workspace, or the first configured one
     root = ws.get_path()
     tags = list(tag or []) + list(ws.auto_tags)

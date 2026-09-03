@@ -755,7 +755,11 @@ then tells you how to get back:
 
 Until you add one, commands that sweep workspaces (`add`, `pull`, `fetch`, `list`, `status`, `exec`, `search`, `stats`, `migrate`,
 `collection import`, `config migrate-root` and `shell pick`)
-exit **1** with that same message on stderr. `workspace list`, `config show` and
+exit **1** with that same message on stderr. Run with `--json`, the same failure
+is emitted as `{"success": false, "error": "..."}` on stdout instead (still exit
+1), so a parsed run never sees an empty stdout — `collection import`,
+`config migrate-root` and `shell pick` have no `--json` option and always use the
+prose form. `workspace list`, `config show` and
 `doctor` still run, and each points at the same fix. Commands that name a single
 repo (`diff`, `open`, `remove`, `repo …`) report that the repo isn't tracked, which
 is what actually happened.

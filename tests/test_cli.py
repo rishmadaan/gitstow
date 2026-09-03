@@ -1351,3 +1351,153 @@ class TestNoWorkspacesConfigured:
         assert result.exit_code == 0
         combined = self._combined(result)
         assert "[retired-ws] 1 repo" in combined
+
+    # --- --json mode: the failure IS the payload, on stdout ---
+
+    # Every command that has a --json option and reaches the zero-workspace
+    # guard (from `grep resolve_workspaces|iter_repos_with_workspace src/gitstow/cli/`).
+    # `config migrate-root`, `collection import` and `shell pick` reach the
+    # guard but have no --json option, so they keep the prose form.
+    @pytest.mark.parametrize("argv", [
+        ["add", "anthropic/claude-code", "--json"],
+        ["exec", "--json", "--", "true"],
+        ["fetch", "--json"],
+        ["list", "--json"],
+        ["migrate", "/nonexistent/repo", "--json"],
+        ["pull", "--json"],
+        ["search", "react", "--json"],
+        ["stats", "--json"],
+        ["status", "--json"],
+    ], ids=lambda a: a[0])
+    def test_json_mode_writes_the_hint_to_stdout_as_json(self, tmp_path, monkeypatch, argv):
+        """Scripts and the Claude skill parse stdout. An empty stdout plus Rich
+        prose on stderr reads as a crash, not as 'nothing configured yet'."""
+        from gitstow.core.config import NO_WORKSPACES_HINT
+
+        self._isolate(tmp_path, monkeypatch)
+
+        result = CliRunner().invoke(app, argv)
+
+        assert result.exit_code == 1
+        payload = json.loads(result.stdout)
+        assert payload["success"] is False
+        assert payload["error"] == NO_WORKSPACES_HINT
+        # Rich prose on stderr would double-report the same failure.
+        assert "No workspaces configured" not in (result.stderr or "")
+
+    def test_human_mode_keeps_stdout_empty_and_hints_on_stderr(self, tmp_path, monkeypatch):
+        """The counterpart contract: without --json nothing lands on stdout."""
+        self._isolate(tmp_path, monkeypatch)
+
+        result = CliRunner().invoke(app, ["list"])
+
+        assert result.exit_code == 1
+        assert (result.stdout or "").strip() == ""
+        stderr = " ".join((result.stderr or "").split())
+        for fragment in self.HINT_FRAGMENTS:
+            assert fragment in stderr, f"missing {fragment!r} in: {stderr}"
+
+
+class TestOrphanedRecordInBulkOperation:
+    """`gitstow pull good orphan` must still pull `good`.
+
+    An orphan is a repo whose workspace left config while its record stayed in
+    repos.yaml. It is one bad name among several — the same class as the
+    existing "not tracked. Skipping." warning — and README's bulk contract is
+    that one bad repo never blocks the others.
+    """
+
+    def _seed(self, tmp_path, monkeypatch):
+        """Config with only `active`; store with active:good and retired:orphan."""
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        monkeypatch.setattr("gitstow.core.config.ensure_app_dirs", lambda: None)
+
+        ws_dir = tmp_path / "active"
+        (ws_dir / "good").mkdir(parents=True)
+        save_config(Settings(workspaces=[
+            Workspace(path=str(ws_dir), label="active", layout="flat")
+        ]))
+
+        store = RepoStore()
+        store.add(Repo(owner="", name="good", remote_url="u", workspace="active"))
+        store.add(Repo(owner="", name="orphan", remote_url="u", workspace="retired"))
+
+    def _fake_git(self, monkeypatch, module, symbol, result):
+        """Replace the name the command module bound at import time.
+
+        `from gitstow.core.git import pull as git_pull` copies the function into
+        cli.pull's namespace — patching gitstow.core.git.pull never fires.
+        """
+        called = []
+
+        def _fake(path, *a, **kw):
+            called.append(str(path))
+            return result
+
+        monkeypatch.setattr(f"gitstow.cli.{module}.{symbol}", _fake)
+        return called
+
+    def test_pull_skips_the_orphan_and_still_pulls_the_good_repo(self, tmp_path, monkeypatch):
+        from gitstow.core.git import PullResult, RepoStatus
+
+        self._seed(tmp_path, monkeypatch)
+        monkeypatch.setattr("gitstow.cli.pull.is_git_repo", lambda p: True)
+        monkeypatch.setattr(
+            "gitstow.cli.pull.get_status", lambda p: RepoStatus(branch="main", behind=1)
+        )
+        pulled = self._fake_git(
+            monkeypatch, "pull", "git_pull", PullResult(success=True, output="Updating")
+        )
+
+        result = CliRunner().invoke(app, ["pull", "good", "orphan"])
+
+        # Identity, not count: the repo that survived the skip is `good`.
+        assert [p.rsplit("/", 1)[-1] for p in pulled] == ["good"]
+        assert result.exit_code == 0, (result.stdout, result.stderr)
+        warning = " ".join(((result.stdout or "") + (result.stderr or "")).split())
+        assert "orphan" in warning and "retired" in warning
+        assert "Warning" in warning
+
+    def test_fetch_skips_the_orphan_and_still_fetches_the_good_repo(self, tmp_path, monkeypatch):
+        from gitstow.core.git import FetchResult
+
+        self._seed(tmp_path, monkeypatch)
+        monkeypatch.setattr("gitstow.cli.fetch.is_git_repo", lambda p: True)
+        fetched = self._fake_git(
+            monkeypatch, "fetch", "git_fetch", FetchResult(success=True, output="ok")
+        )
+
+        result = CliRunner().invoke(app, ["fetch", "good", "orphan"])
+
+        assert [p.rsplit("/", 1)[-1] for p in fetched] == ["good"]
+        assert result.exit_code == 0, (result.stdout, result.stderr)
+        warning = " ".join(((result.stdout or "") + (result.stderr or "")).split())
+        assert "orphan" in warning and "retired" in warning
+        assert "Warning" in warning
+
+    def test_pull_json_keeps_the_orphan_warning_off_stdout(self, tmp_path, monkeypatch):
+        """--json stdout stays a pure payload; the warning goes to stderr."""
+        from gitstow.core.git import PullResult, RepoStatus
+
+        self._seed(tmp_path, monkeypatch)
+        monkeypatch.setattr("gitstow.cli.pull.is_git_repo", lambda p: True)
+        monkeypatch.setattr(
+            "gitstow.cli.pull.get_status", lambda p: RepoStatus(branch="main", behind=1)
+        )
+        self._fake_git(
+            monkeypatch, "pull", "git_pull", PullResult(success=True, output="Updating")
+        )
+
+        result = CliRunner().invoke(app, ["pull", "good", "orphan", "--json"])
+
+        assert result.exit_code == 0, (result.stdout, result.stderr)
+        payload = json.loads(result.stdout)
+        assert [r["repo"] for r in payload["results"]] == ["good"]
+        assert "orphan" in (result.stderr or "")

@@ -47,7 +47,7 @@ def migrate(
     ws_label = (ctx.obj or {}).get("workspace")
 
     from gitstow.cli.helpers import resolve_workspaces
-    ws_list = resolve_workspaces(settings, ws_label)
+    ws_list = resolve_workspaces(settings, ws_label, output_json=output_json)
     ws = ws_list[0]
     root = ws.get_path()
     results = []

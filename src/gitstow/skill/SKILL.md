@@ -34,6 +34,11 @@ or run:
   gitstow onboard
 ```
 
+With `--json`, the same failure comes back as `{"success": false, "error": "..."}`
+on stdout (still exit 1), so a parsed run never sees an empty stdout.
+`collection import`, `config migrate-root` and `shell pick` have no `--json`
+option and always print the prose form.
+
 That message *is* the fix — run `gitstow workspace add <path> --label <name>`
 (or `gitstow onboard`) before retrying. Do not work around it with raw `git clone`.
 
