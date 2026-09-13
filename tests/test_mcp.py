@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Smoke tests for the MCP server's tool functions (called directly —
 transport behavior belongs to the mcp library, not us)."""
 

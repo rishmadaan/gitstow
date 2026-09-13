@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """gitstow shell — shell integration helpers (fzf, cd, completions)."""
 
 from __future__ import annotations

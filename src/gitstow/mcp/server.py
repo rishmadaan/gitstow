@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """gitstow MCP server — tools for managing git repo collections.
 
 Exposes gitstow's core functionality via the Model Context Protocol,

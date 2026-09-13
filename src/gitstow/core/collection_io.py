@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Shared parsing + workspace routing for collection import — the single implementation behind CLI `collection import` and the web dashboard's upload."""
 
 import json

@@ -4,6 +4,19 @@ All notable changes to gitstow will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- License changed from MIT to GNU GPL v3.0 or later (`GPL-3.0-or-later`) for
+  versions after 0.7.2. Previously released versions retain their MIT license.
+  Commercial use remains permitted; redistribution of covered versions must
+  satisfy the GPL, including corresponding-source requirements. Repositories
+  managed by gitstow are unaffected. Bundled htmx and fonts retain their own
+  licenses, now included in both source and wheel distributions.
+- Standardized author attribution as `rishmadaan`, including a Git mailmap for
+  historical author names without rewriting commits.
+
 ## [0.7.2] - 2026-09-03
 
 ### Fixed

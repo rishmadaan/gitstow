@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Tests for the unified-diff parser feeding the web diff view."""
 
 from gitstow.core.diff import parse_unified_diff

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Shared CLI helpers for workspace resolution and repo lookup."""
 
 from __future__ import annotations

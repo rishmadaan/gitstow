@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """gitstow repo — manage individual repos (freeze, tag, info)."""
 
 from __future__ import annotations

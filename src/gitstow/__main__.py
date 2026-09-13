@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Allow running as `python -m gitstow`.
 
 Useful on Windows when the Scripts directory is not on PATH:

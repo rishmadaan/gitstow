@@ -1,0 +1,35 @@
+gitstow
+Copyright (c) 2026 rishmadaan
+
+gitstow's original code, documentation, and website are free software: you
+can redistribute them and/or modify them under the terms of the GNU General
+Public License as published by the Free Software Foundation, either version 3
+of the License, or (at your option) any later version.
+
+gitstow is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with
+gitstow, in LICENSE. If not, see <https://www.gnu.org/licenses/>.
+
+Source: https://github.com/rishmadaan/gitstow
+
+Versions through 0.7.2 were released under the MIT license. Those releases
+retain their original license. The transition applies to subsequent versions.
+The author names Rish and Rish Madaan refer to rishmadaan.
+
+Third-party assets retain their original licenses:
+
+- htmx 1.9.10: BSD-2-Clause. Copyright (c) 2020, Big Sky Software.
+  See src/gitstow/web/static/vendor/LICENSE-htmx.txt.
+- Bricolage Grotesque fonts: OFL-1.1.
+  Copyright 2022 The Bricolage Grotesque Project Authors.
+  See src/gitstow/web/static/fonts/OFL-bricolage-grotesque.txt.
+- JetBrains Mono fonts: OFL-1.1.
+  Copyright 2020 The JetBrains Mono Project Authors.
+  See src/gitstow/web/static/fonts/OFL-jetbrains-mono.txt.
+
+The distribution's SPDX expression includes these bundled components using
+AND. It does not offer a choice of licenses for gitstow's original code.
+Separately installed Python dependencies retain their respective licenses.

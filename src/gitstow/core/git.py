@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Git operations — thin wrappers around git subprocess calls.
 
 All git interaction goes through this module. Nothing else shells out to git.

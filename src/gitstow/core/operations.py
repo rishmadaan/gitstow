@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Shared bulk-operation layer — the one place that knows how to filter a
 repo collection and run a worker across it with retries and bounded
 concurrency. Consumed by the CLI (pull/fetch) and the MCP server so the

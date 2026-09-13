@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Tests for the shared bulk-operation layer."""
 
 from gitstow.core.config import Workspace

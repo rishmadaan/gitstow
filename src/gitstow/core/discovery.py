@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Discovery — walk directory tree to find repos and reconcile with store.
 
 Supports two layout modes:

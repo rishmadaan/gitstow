@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """gitstow setup-ai — detect and configure AI tool integrations.
 
 This is the AI-first onboarding path. gitstow's primary interface is through
