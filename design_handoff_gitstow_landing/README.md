@@ -70,7 +70,7 @@ Header: eyebrow "vs the field", h2 "The best of both. Then some.", paragraph. Bo
 Centered, 96px padding, bottom radial accent glow. H2 44px: "Stop losing repos. / Start **stowing** them." Sub: "Your future self, and your agents, will thank you." Command bar with copy button (same pattern, 16px mono).
 
 ### 9. Footer
-Top block: brand (dot + wordmark + "A git repository library manager, built for the age of AI-assisted development.") and two link columns (mono uppercase 10.5px column labels; 13.5px muted links, accent on hover): **Docs** → getting-started / commands / concepts / configuration (GitHub blob URLs), **Project** → GitHub, PyPI, Changelog, Contributing. Bottom bar behind 1px divider, mono 11.5px dim: "© 2026 · GPL v3 or later" left, "clone responsibly." right.
+Top block: brand (dot + wordmark + "A git repository library manager, built for the age of AI-assisted development.") and two link columns (mono uppercase 10.5px column labels; 13.5px muted links, accent on hover): **Docs** → getting-started / commands / concepts / configuration (GitHub blob URLs), **Project** → GitHub, PyPI, Changelog, Contributing. Bottom bar behind 1px divider, mono 11.5px dim: "© 2026 · GPL v3 or later" left (license text links to `NOTICE.txt`), "clone responsibly." right.
 
 ## Interactions & Behavior
 - Anchor nav with `scroll-behavior: smooth`.
