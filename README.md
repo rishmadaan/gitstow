@@ -320,6 +320,6 @@ requirements. Simply managing a repository with gitstow does not change that
 repository's license.
 
 Versions through 0.7.2 remain MIT-licensed; subsequent versions use GPL v3 or
-later, starting with development version 0.8.0.dev0. Bundled htmx and fonts
+later, starting with version 0.8.0. Bundled htmx and fonts
 retain their BSD and SIL Open Font licenses;
 see [NOTICE](NOTICE) for attribution and scope.

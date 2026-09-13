@@ -7,8 +7,8 @@ warranty. The full terms are in LICENSE.txt alongside this notice.
 
 Source: https://github.com/rishmadaan/gitstow/tree/main/site
 
-The GPL transition applies to the current source tree and development builds
-starting at 0.8.0.dev0. Published releases through 0.7.2 remain MIT-licensed.
+The GPL transition applies to the current source tree starting at version
+0.8.0. Published releases through 0.7.2 remain MIT-licensed.
 The installation commands on this website install the latest published
 release, whose license is included with that release.
 

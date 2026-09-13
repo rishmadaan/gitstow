@@ -16,7 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
   licenses, now included in both source and wheel distributions.
 - Standardized author attribution as `rishmadaan`, including a Git mailmap for
   historical author names without rewriting commits.
-- Development builds now identify as `0.8.0.dev0`, distinct from the published
+- The version is now `0.8.0`, distinct from the published
   MIT-licensed 0.7.2. The installed Claude skill includes its GPL notice and
   full license, including on automatic upgrades; an incomplete bundled skill
   leaves the previous installation and version marker intact. The website
