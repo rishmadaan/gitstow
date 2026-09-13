@@ -71,7 +71,7 @@ gitstow (CLI)
 ├── pyproject.toml               # Hatchling build, dependencies, entry point
 ├── README.md                    # User-facing docs
 ├── CLAUDE.md                    # AI developer instructions
-├── LICENSE                      # MIT
+├── LICENSE                      # GPL-3.0-or-later
 ├── docs/
 │   ├── user/
 │   │   └── getting-started.md   # Quick start guide
