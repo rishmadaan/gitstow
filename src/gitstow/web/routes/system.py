@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """System routes — /shutdown.
 
 POST /shutdown flips uvicorn.Server.should_exit = True via app.state.server.

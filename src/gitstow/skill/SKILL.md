@@ -7,7 +7,15 @@ description: >
   repos", "which repos need pushing", or any multi-repo management. Trigger on any
   git URL (github.com, gitlab.com, etc.) or owner/repo shorthand.
 allowed-tools: Bash(gitstow *), Read
+license: GPL-3.0-or-later
 ---
+
+<!-- SPDX-FileCopyrightText: 2026 rishmadaan
+SPDX-License-Identifier: GPL-3.0-or-later -->
+
+Copyright (c) 2026 rishmadaan. This skill is free software under the GNU General
+Public License, version 3 or (at your option) any later version. It comes with
+no warranty; see [LICENSE](LICENSE) for the full terms.
 
 # gitstow — Repo Manager Operator Guide
 

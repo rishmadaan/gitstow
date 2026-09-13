@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Shared test fixtures for gitstow."""
 
 import pytest

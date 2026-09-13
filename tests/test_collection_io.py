@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """The shared collection parser/router used by both CLI and web import."""
 
 import pytest

@@ -1,23 +1,28 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
 name = "gitstow"
-version = "0.7.2"
+version = "0.8.0"
 description = "A git repository library manager — clone, organize, and maintain collections of repos you learn from"
 readme = "README.md"
-license = "MIT"
+license = "GPL-3.0-or-later AND BSD-2-Clause AND OFL-1.1"
+license-files = [
+    "LICENSE",
+    "NOTICE",
+    "src/gitstow/web/static/vendor/LICENSE-htmx.txt",
+    "src/gitstow/web/static/fonts/OFL-*.txt",
+]
 requires-python = ">=3.10"
 authors = [
-    {name = "Rish Madaan"},
+    {name = "rishmadaan"},
 ]
 keywords = ["git", "repository", "manager", "cli", "open-source", "developer-tools"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: MacOS",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",

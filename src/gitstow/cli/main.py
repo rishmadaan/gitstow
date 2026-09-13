@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """gitstow — main CLI entry point."""
 
 from __future__ import annotations
@@ -52,7 +55,6 @@ def _auto_update_skill() -> None:
     try:
         from gitstow.cli.skill_cmd import _do_install_skill
         _do_install_skill(quiet=True)
-        version_marker.write_text(__version__)
     except Exception:
         pass  # Never block CLI on skill update failure
 

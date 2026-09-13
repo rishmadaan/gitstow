@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Tailscale detection — ask the local `tailscale` CLI for this machine's tailnet identity.
 
 Used by `gitstow ui --tailscale` to bind the dashboard on the tailnet address.

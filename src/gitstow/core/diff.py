@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Unified-diff text → structured hunks for the web diff view.
 
 Feeds the Jinja template only — the CLI hands the terminal to git itself.

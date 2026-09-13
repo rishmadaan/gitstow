@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Parallel execution — async operations with bounded concurrency.
 
 Uses asyncio with a semaphore to prevent SSH connection storms

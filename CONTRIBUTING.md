@@ -2,6 +2,14 @@
 
 Thanks for your interest in contributing! This guide will help you get started.
 
+## Contribution License
+
+By submitting a contribution, you agree to license your original contribution
+under the GNU General Public License v3.0 or later (`GPL-3.0-or-later`), as
+described in [LICENSE](LICENSE) and [NOTICE](NOTICE). You retain your copyright.
+Only submit work you have the right to contribute. Identify any third-party
+material and preserve its license and copyright notices.
+
 ## Development Setup
 
 ```bash

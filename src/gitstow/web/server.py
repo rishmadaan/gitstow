@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """FastAPI server entrypoint for `gitstow ui`.
 
 Binds 127.0.0.1, plus optionally the machine's own Tailscale address

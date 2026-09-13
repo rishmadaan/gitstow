@@ -10,6 +10,7 @@ internet connection.
 - Source: <https://unpkg&#46;com/htmx.org@1.9.10/dist/htmx.min.js>
 - SHA-256: `b3bdcf5c741897a53648b1207fff0469a0d61901429ba1f6e88f98ebd84e669e`
 - License: BSD 2-Clause
+- Full license and copyright notice: [LICENSE-htmx.txt](LICENSE-htmx.txt)
 
 ## Google Fonts
 
@@ -20,6 +21,9 @@ and latin-ext `@font-face` blocks and rewritten to use local paths:
 <https://fonts&#46;googleapis&#46;com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,300..700&family=JetBrains+Mono:wght@400;500;600&display=swap>
 
 Both font families are licensed under the SIL Open Font License 1.1 (OFL-1.1).
+Full licenses and copyright notices are included in
+[OFL-bricolage-grotesque.txt](../fonts/OFL-bricolage-grotesque.txt) and
+[OFL-jetbrains-mono.txt](../fonts/OFL-jetbrains-mono.txt).
 
 - File: `../fonts/bricolage-grotesque-latin-ext-var.woff2`
   - Source: https://fonts.gstatic.com/s/bricolagegrotesque/v9/3y996as8bTXq_nANBjzKo3IeZx8z6up5L-aNGfyOPPtQPw.woff2

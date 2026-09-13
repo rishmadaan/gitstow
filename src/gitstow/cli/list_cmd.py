@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """gitstow list — show all repos grouped by owner or workspace."""
 
 from __future__ import annotations

@@ -4,6 +4,24 @@ All notable changes to gitstow will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] - 2026-09-13
+
+### Changed
+
+- License changed from MIT to GNU GPL v3.0 or later (`GPL-3.0-or-later`) for
+  versions after 0.7.2. Previously released versions retain their MIT license.
+  Commercial use remains permitted; redistribution of covered versions must
+  satisfy the GPL, including corresponding-source requirements. Repositories
+  managed by gitstow are unaffected. Bundled htmx and fonts retain their own
+  licenses, now included in both source and wheel distributions.
+- Standardized author attribution as `rishmadaan`, including a Git mailmap for
+  historical author names without rewriting commits.
+- The version is now `0.8.0`, distinct from the published
+  MIT-licensed 0.7.2. The installed Claude skill includes its GPL notice and
+  full license, including on automatic upgrades; an incomplete bundled skill
+  leaves the previous installation and version marker intact. The website
+  also ships its GPL terms and both font licenses.
+
 ## [0.7.2] - 2026-09-03
 
 ### Fixed

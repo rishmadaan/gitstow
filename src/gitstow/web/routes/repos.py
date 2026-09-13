@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Repo mutation routes — pull (single + bulk).
 
 Phase B-2 covers pull. Later phases add add/remove/freeze/tag endpoints.

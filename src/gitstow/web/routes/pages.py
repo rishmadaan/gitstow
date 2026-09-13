@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Read-only page routes — workspaces, settings, add-repo form, repo detail.
 
 In Phase B-1 these render real data where possible; mutations land in later phases.

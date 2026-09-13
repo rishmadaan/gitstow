@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """gitstow exec — run arbitrary commands across repos."""
 
 from __future__ import annotations

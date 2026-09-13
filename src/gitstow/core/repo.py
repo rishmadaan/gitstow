@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Repo dataclass and RepoStore — CRUD for repos.yaml.
 
 The RepoStore is the single interface for reading and writing per-repo metadata.

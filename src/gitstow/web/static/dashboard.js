@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: 2026 rishmadaan
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 /* Dashboard filters — client-side over server-rendered data-* attributes.
    Re-applied after every HTMX swap because the 30s auto-refresh replaces
    the tbody rows (the controls live outside it and keep their state). */

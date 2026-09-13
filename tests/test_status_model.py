@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Tests for the shared repo-state classifier — the single source of truth
 for status presentation across CLI, web, and JSON (CLAUDE.md standard)."""
 

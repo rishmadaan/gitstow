@@ -1,9 +1,11 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """gitstow install-skill — install the Claude Code skill."""
 
 from __future__ import annotations
 
 import shutil
-from pathlib import Path
 
 import typer
 from rich.console import Console
@@ -17,6 +19,14 @@ def _do_install_skill(quiet: bool = False) -> bool:
     """Install the skill. Returns True on success."""
     source = get_skill_source_dir()
 
+    # Read the complete standalone skill before replacing an existing install.
+    try:
+        files = {name: (source / name).read_bytes() for name in ("SKILL.md", "LICENSE")}
+    except (OSError, KeyError):
+        if not quiet:
+            console.print("  [red]✗[/red] Could not read bundled skill and license")
+        return False
+
     # Ensure skills directory exists
     CLAUDE_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -27,19 +37,9 @@ def _do_install_skill(quiet: bool = False) -> bool:
     # Copy the skill directory
     SKILL_TARGET.mkdir(parents=True, exist_ok=True)
 
-    # Copy SKILL.md
-    source_skill = Path(str(source)) / "SKILL.md"
-    if source_skill.exists():
-        shutil.copy2(source_skill, SKILL_TARGET / "SKILL.md")
-    else:
-        # Fallback: try importlib.resources traversable
-        try:
-            skill_content = (source / "SKILL.md").read_text()
-            (SKILL_TARGET / "SKILL.md").write_text(skill_content)
-        except Exception:
-            if not quiet:
-                console.print("  [red]✗[/red] Could not find bundled SKILL.md")
-            return False
+    # Traversable resources work for filesystem and zip-backed packages alike.
+    for name, content in files.items():
+        (SKILL_TARGET / name).write_bytes(content)
 
     # Write version marker for auto-update detection
     from gitstow import __version__

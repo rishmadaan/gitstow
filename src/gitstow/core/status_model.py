@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Shared repo-state classification — the single source of truth for how every
 surface (CLI, web, JSON) describes a repo's state.
 

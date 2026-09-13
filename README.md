@@ -311,4 +311,15 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
 
 ## License
 
-MIT
+Copyright (c) 2026 rishmadaan. Licensed under the
+[GNU General Public License v3.0 or later](LICENSE) (`GPL-3.0-or-later`).
+
+You may use gitstow commercially and modify it. When distributing covered
+versions, you must comply with the GPL, including its corresponding-source
+requirements. Simply managing a repository with gitstow does not change that
+repository's license.
+
+Versions through 0.7.2 remain MIT-licensed; subsequent versions use GPL v3 or
+later, starting with version 0.8.0. Bundled htmx and fonts
+retain their BSD and SIL Open Font licenses;
+see [NOTICE](NOTICE) for attribution and scope.

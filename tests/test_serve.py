@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 rishmadaan
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 """Smoke tests for gitstow ui (FastAPI app).
 
 Isolates gitstow's on-disk state (config.yaml, repos.yaml) by redirecting
