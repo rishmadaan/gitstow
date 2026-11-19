@@ -139,6 +139,13 @@ def parse_git_url(
             f"Expected format: owner/repo or https://host/owner/repo"
         )
 
+    # owner/repo becomes a folder path under the workspace: a "." or ".." segment
+    # would point it outside (https://github.com/../Documents), an empty one is malformed.
+    if any(seg in ("", ".", "..") for seg in f"{owner}/{repo}".split("/")):
+        raise ValueError(
+            f"Cannot use '{original}': owner/repo may not contain '.', '..' or empty path segments"
+        )
+
     # Step 5: Build the clone URL
     clone_url = _build_clone_url(host, owner, repo, parsed.scheme, prefer_ssh)
 

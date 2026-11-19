@@ -220,3 +220,48 @@ def test_add_repo_finds_record_tracked_under_another_url_form(isolated, url):
     assert [(r.key, r.remote_url, r.tags, r.frozen) for r in RepoStore().list_all()] == [
         (LEGACY_AZURE_KEY, LEGACY_AZURE_REMOTE, ["work"], True)]
     assert not (ws_dir / "org").exists()
+
+
+@pytest.mark.parametrize("owner, name", [
+    ("..", "Documents"),   # a record written before 0.9.0 parsed https://github.com/../Documents
+    ("x", ".."),           # resolves to the workspace folder itself
+])
+def test_remove_repo_never_deletes_outside_its_workspace(isolated, owner, name):
+    """The workspace is isolated/ws, so every target here sits inside tmp_path, never the real home."""
+    from gitstow.core.config import Settings, Workspace, save_config
+    from gitstow.core.repo import Repo, RepoStore
+    from gitstow.mcp.server import remove_repo
+
+    ws_dir = isolated / "ws"
+    (ws_dir / "x").mkdir(parents=True)
+    (ws_dir / "x" / "keep.txt").write_bytes(b"workspace content\n")
+    outside = isolated / "Documents"
+    outside.mkdir()
+    (outside / "keep.txt").write_bytes(b"precious\n")
+    save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+    RepoStore().add(Repo(owner=owner, name=name, remote_url="u", workspace="ws"))
+    target = (ws_dir / owner / name).resolve()
+
+    payload = json.loads(remove_repo(f"{owner}/{name}", delete_from_disk=True))
+
+    assert payload == {"success": False, "error": f"refusing to delete path outside workspace: {target}"}
+    assert (outside / "keep.txt").read_bytes() == b"precious\n"
+    assert (ws_dir / "x" / "keep.txt").read_bytes() == b"workspace content\n"
+    assert [r.key for r in RepoStore().list_all()] == [f"{owner}/{name}"]  # still tracked
+
+
+def test_remove_repo_still_deletes_inside_its_workspace(isolated):
+    from gitstow.core.config import Settings, Workspace, save_config
+    from gitstow.core.repo import Repo, RepoStore
+    from gitstow.mcp.server import remove_repo
+
+    ws_dir = isolated / "ws"
+    (ws_dir / "acme" / "widget" / ".git").mkdir(parents=True)
+    save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+    RepoStore().add(Repo(owner="acme", name="widget", remote_url="u", workspace="ws"))
+
+    payload = json.loads(remove_repo("acme/widget", delete_from_disk=True))
+
+    assert payload == {"success": True, "repo": "acme/widget", "deleted_from_disk": True}
+    assert not (ws_dir / "acme").exists()
+    assert RepoStore().list_all() == []

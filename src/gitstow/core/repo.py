@@ -84,6 +84,12 @@ class Repo:
         )
 
 
+def inside_workspace(path: Path, workspace_root: Path) -> bool:
+    """Whether `path` resolves strictly inside `workspace_root`: the check every delete path runs."""
+    resolved, root = path.resolve(), workspace_root.resolve()
+    return resolved != root and resolved.is_relative_to(root)
+
+
 def _is_legacy_format(data: dict) -> bool:
     """Detect old flat repos.yaml format (pre-workspace).
 

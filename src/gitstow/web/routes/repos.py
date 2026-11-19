@@ -25,7 +25,7 @@ from gitstow.core.git import get_status, is_git_repo
 from gitstow.core.git import pull as git_pull
 from gitstow.core.operations import move_repo
 from gitstow.core.parallel import run_parallel
-from gitstow.core.repo import MISSING_FOLDER_HINT, Repo, RepoStore
+from gitstow.core.repo import MISSING_FOLDER_HINT, Repo, RepoStore, inside_workspace
 from gitstow.core.status_model import classify
 from gitstow.core.url_parser import parse_git_url
 from gitstow.web.routes.dashboard import (
@@ -462,14 +462,10 @@ async def delete_repo(workspace: str, key: str, request: Request):
 
     repo_path = repo.get_path(ws.get_path())
     # Defensive check — don't rmtree anything weird
-    ws_root = ws.get_path().resolve()
-    resolved = repo_path.resolve()
-    try:
-        resolved.relative_to(ws_root)
-    except ValueError:
+    if not inside_workspace(repo_path, ws.get_path()):
         raise HTTPException(
             status_code=400,
-            detail=f"refusing to delete path outside workspace: {resolved}",
+            detail=f"refusing to delete path outside workspace: {repo_path.resolve()}",
         )
 
     if repo_path.exists():

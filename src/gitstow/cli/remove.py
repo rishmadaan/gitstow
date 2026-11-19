@@ -14,7 +14,7 @@ from rich.console import Console
 
 from gitstow.cli.helpers import resolve_repo
 from gitstow.core.config import load_config
-from gitstow.core.repo import RepoStore
+from gitstow.core.repo import RepoStore, inside_workspace
 
 console = Console()
 err_console = Console(stderr=True)
@@ -61,15 +61,12 @@ def remove(
             raise typer.Exit()
 
     # Containment guard — never delete outside the workspace root
-    # (mirrors the web delete route's defensive check).
-    if delete_files and path.exists():
-        ws_root = ws.get_path().resolve()
-        resolved = path.resolve()
-        if not resolved.is_relative_to(ws_root):
-            err_console.print(
-                f"[red]Error:[/red] refusing to delete path outside workspace: {resolved}"
-            )
-            raise typer.Exit(code=1)
+    # (one check, shared with the dashboard delete route and MCP remove_repo).
+    if delete_files and path.exists() and not inside_workspace(path, ws.get_path()):
+        err_console.print(
+            f"[red]Error:[/red] refusing to delete path outside workspace: {path.resolve()}"
+        )
+        raise typer.Exit(code=1)
 
     # Remove from store
     store.remove(repo.key, workspace=ws.label)

@@ -239,3 +239,39 @@ class TestDeepLinks:
         parsed = parse_git_url(url)
         assert parsed.owner == owner
         assert parsed.repo == repo
+
+
+class TestPathSegmentsStayInsideTheWorkspace:
+    """owner/repo becomes a folder path: '.', '..' and empty segments are refused (trust boundary)."""
+
+    @pytest.mark.parametrize("url", [
+        "https://github.com/../Documents",
+        "../Documents",
+        "./repo",
+        "owner/..",
+        "owner/.",
+        "https://github.com/owner/..git",
+        "git@github.com:../x.git",
+        "ssh://git@github.com/../x",
+        "https://gitlab.com/group/../repo",
+        "https://gitlab.com/../../etc/repo",
+        "https://dev.azure.com/org/../_git/repo",
+        "https://dev.azure.com/org//_git/repo",
+        "https://dev.azure.com/org/proj/_git/..",
+        "git@ssh.dev.azure.com:v3/org/../repo",
+    ])
+    def test_dot_and_empty_segments_raise(self, url):
+        with pytest.raises(ValueError, match=r"may not contain '\.', '\.\.' or empty path segments"):
+            parse_git_url(url)
+
+    @pytest.mark.parametrize("url, key", [
+        ("anthropic/claude-code", "anthropic/claude-code"),
+        ("https://gitlab.com/group/subgroup/repo", "group/subgroup/repo"),
+        ("https://dev.azure.com/org/proj/_git/repo", "org/proj/repo"),
+        ("git@ssh.dev.azure.com:v3/org/proj/repo", "org/proj/repo"),
+        ("https://github.com/owner/repo.name", "owner/repo.name"),
+        ("https://github.com/owner/.dotfiles", "owner/.dotfiles"),
+        ("https://github.com/owner/...", "owner/..."),
+    ])
+    def test_dots_inside_a_name_still_parse(self, url, key):
+        assert parse_git_url(url).key == key

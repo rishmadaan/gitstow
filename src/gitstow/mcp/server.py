@@ -31,7 +31,7 @@ from gitstow.core.git import (
     get_status,
     is_git_repo,
 )
-from gitstow.core.repo import MISSING_FOLDER_HINT, Repo, RepoStore
+from gitstow.core.repo import MISSING_FOLDER_HINT, Repo, RepoStore, inside_workspace
 from gitstow.core.url_parser import parse_git_url
 
 mcp = FastMCP(
@@ -593,6 +593,9 @@ def remove_repo(repo_key: str, delete_from_disk: bool = False) -> str:
 
     ws = _get_workspace_for_repo(repo, settings)
     path = Path(_repo_path(repo, settings)) if ws else None
+    if delete_from_disk and path and path.exists() and not inside_workspace(path, ws.get_path()):
+        return json.dumps({"success": False,
+                           "error": f"refusing to delete path outside workspace: {path.resolve()}"})
     store.remove(repo_key, workspace=repo.workspace)
 
     deleted = False

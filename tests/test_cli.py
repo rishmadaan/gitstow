@@ -304,6 +304,72 @@ class TestAddFindsRecordByRemote:
         assert not (ws_dir / "org").exists()
 
 
+class TestDotDotNeverLeavesTheWorkspace:
+    """A URL with a '..' segment cannot make gitstow track a folder outside its workspace.
+
+    The workspace is tmp_path/ws, so '..' points at tmp_path/Documents (never the real home)."""
+
+    URL = "https://github.com/../Documents"
+
+    def _seed(self, tmp_path, monkeypatch):
+        ws_dir = TestAddParallelAndConflicts()._setup(tmp_path, monkeypatch)
+        outside = tmp_path / "Documents"
+        (outside / ".git").mkdir(parents=True)  # looks like a repo already on disk
+        (outside / "keep.txt").write_bytes(b"precious\n")
+        return ws_dir, outside
+
+    def _tracked(self, tmp_path):
+        from gitstow.core.repo import RepoStore
+        return [r.global_key for r in RepoStore(path=tmp_path / "repos.yaml").list_all()]
+
+    def test_add_is_a_parse_error(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        _ws, outside = self._seed(tmp_path, monkeypatch)
+        with patch("gitstow.cli.add.git_clone") as clone:
+            result = runner.invoke(app, ["add", self.URL, "--json"])
+
+        assert result.exit_code != 0
+        assert "may not contain '.', '..' or empty path segments" in " ".join(result.output.split())
+        assert clone.call_count == 0
+        assert self._tracked(tmp_path) == []
+        assert (outside / "keep.txt").read_bytes() == b"precious\n"
+
+    def test_cli_collection_import_refuses_it(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        _ws, outside = self._seed(tmp_path, monkeypatch)
+        coll = tmp_path / "coll.txt"
+        coll.write_text(self.URL + "\n")
+        with patch("gitstow.cli.export_cmd.git_clone") as clone:
+            result = runner.invoke(app, ["collection", "import", str(coll)])
+
+        out = " ".join(result.output.split())  # Rich wraps long lines
+        assert "may not contain '.', '..' or empty path segments" in out
+        assert "Done: 0 imported, 1 failed" in out
+        assert clone.call_count == 0
+        assert self._tracked(tmp_path) == []
+        assert (outside / "keep.txt").read_bytes() == b"precious\n"
+
+    def test_dashboard_collection_import_refuses_it(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from unittest.mock import patch
+
+        from gitstow.web.server import create_app
+
+        _ws, outside = self._seed(tmp_path, monkeypatch)
+        client = TestClient(create_app(), base_url="http://127.0.0.1")
+        with patch("gitstow.web.routes.collection.git_clone") as clone:
+            r = client.post("/collection/import", follow_redirects=False,
+                            files={"file": ("coll.txt", (self.URL + "\n").encode(), "text/plain")})
+
+        assert r.status_code == 303
+        assert r.headers["location"] == "/?imported=0&failed=1"
+        assert clone.call_count == 0
+        assert self._tracked(tmp_path) == []
+        assert (outside / "keep.txt").read_bytes() == b"precious\n"
+
+
 class TestTrackedButFolderMissing:
     """A tracked repo whose folder was deleted: every add surface names the way out, clones nothing."""
 
