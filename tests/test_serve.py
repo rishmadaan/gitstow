@@ -2042,3 +2042,28 @@ class TestNoWorkspacesConfigured:
         saved = load_config().workspaces
         assert [(w.label, w.path) for w in saved] == [("oss", str(target))]
 
+
+
+class TestRowNumbersAgree:
+    def test_refresh_number_matches_dashboard_with_orphan_first(
+        self, client, configured, workspace_dir, monkeypatch,
+    ):
+        import re
+
+        store = RepoStore()
+        # An orphaned-workspace record earlier in the store: the dashboard hides it.
+        store.add(Repo(owner="old", name="thing", remote_url="u", workspace="gone"))
+        _make_repo_on_disk(workspace_dir, "acme", "widget")
+        store.add(Repo(owner="acme", name="widget", remote_url="u", workspace="test-ws"))
+        monkeypatch.setattr("gitstow.web.routes.dashboard.get_status", lambda p: _fake_status())
+        monkeypatch.setattr("gitstow.web.routes.repos.get_status", lambda p: _fake_status())
+        monkeypatch.setattr(
+            "gitstow.web.routes.repos.git_pull",
+            lambda p: PullResult(success=True, already_up_to_date=True),
+        )
+
+        page = client.get("/")
+        refreshed = client.post("/repos/test-ws/acme/widget/pull")
+
+        assert re.findall(r'class="row-num" title="Row (\S+)"', page.text) == ["01"]
+        assert re.findall(r'class="row-num" title="Row (\S+)"', refreshed.text) == ["01"]

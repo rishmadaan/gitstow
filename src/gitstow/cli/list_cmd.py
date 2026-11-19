@@ -78,11 +78,12 @@ def list_repos(
         repo_ws_pairs = [(r, ws) for r, ws in repo_ws_pairs if q in r.key.lower()]
 
     if not repo_ws_pairs:
-        if not quiet:
-            console.print("[dim]No repos found.[/dim]")
         if output_json:
             json.dump([], sys.stdout, indent=2)
             print()
+        elif not quiet:
+            console.print("[dim]No repos found.[/dim]")
+            print_untracked_hint(settings, store, ws_label)
         return
 
     # Quiet mode: one key per line (for shell completions and scripting)

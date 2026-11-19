@@ -34,6 +34,7 @@ from gitstow.web.routes.dashboard import (
     _present,
     _pull_tooltip,
     _relative_time,
+    _row_number,
     _workspace_slot,
 )
 from gitstow.web.server import render
@@ -121,12 +122,7 @@ async def pull_single(workspace: str, key: str, request: Request):
         store.update(repo.key, workspace=repo.workspace, last_pulled=now_iso)
         repo = store.get(key, workspace=workspace)
 
-    # Compute original row number for the partial
-    all_repos = store.list_all()
-    num = next(
-        (i + 1 for i, r in enumerate(all_repos) if r.global_key == repo.global_key),
-        0,
-    )
+    num = _row_number(settings, store, repo)
     sorted_labels = sorted(w.label for w in settings.get_workspaces())
     ctx = _row_context(repo, settings, sorted_labels, num)
 
@@ -156,11 +152,7 @@ async def fetch_single(workspace: str, key: str, request: Request):
         store.update(repo.key, workspace=repo.workspace, last_fetched=now_iso)
         repo = store.get(key, workspace=workspace)
 
-    all_repos = store.list_all()
-    num = next(
-        (i + 1 for i, r in enumerate(all_repos) if r.global_key == repo.global_key),
-        0,
-    )
+    num = _row_number(settings, store, repo)
     sorted_labels = sorted(w.label for w in settings.get_workspaces())
     ctx = _row_context(repo, settings, sorted_labels, num)
     return render(request, "partials/repo_row.html", repo=ctx)
@@ -481,11 +473,7 @@ def _render_row_for(key: str, workspace: str, request: Request):
     repo = store.get(key, workspace=workspace)
     if repo is None:
         raise HTTPException(status_code=404, detail="repo not found")
-    all_repos = store.list_all()
-    num = next(
-        (i + 1 for i, r in enumerate(all_repos) if r.global_key == repo.global_key),
-        0,
-    )
+    num = _row_number(settings, store, repo)
     sorted_labels = sorted(w.label for w in settings.get_workspaces())
     ctx = _row_context(repo, settings, sorted_labels, num)
     return render(request, "partials/repo_row.html", repo=ctx)

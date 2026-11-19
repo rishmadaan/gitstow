@@ -888,6 +888,52 @@ class TestReconciliationHints:
         assert "untracked" not in result.output.lower()
 
 
+class TestHintWhenNothingTracked:
+    """All repos on disk untracked: list/status still nudge toward workspace scan."""
+
+    def _setup(self, tmp_path, monkeypatch):
+        from gitstow.core.config import Settings, Workspace, save_config
+
+        config_file = tmp_path / "config.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", tmp_path / "repos.yaml")
+        ws_dir = tmp_path / "ws"
+        (ws_dir / "b" / "untracked" / ".git").mkdir(parents=True)
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+
+    @pytest.mark.parametrize("cmd", ["list", "status"])
+    def test_hint_on_empty_result(self, cmd, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        result = runner.invoke(app, [cmd])
+        assert result.exit_code == 0
+        assert "1 untracked repo in ws" in result.stderr
+        assert "gitstow workspace scan ws" in result.stderr
+
+    @pytest.mark.parametrize("cmd", ["list", "status"])
+    def test_json_stays_pure_and_quiet_stays_silent(self, cmd, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        result = runner.invoke(app, [cmd, "--json"])
+        assert json.loads(result.stdout) == []
+        assert "untracked" not in result.output
+        quiet = runner.invoke(app, [cmd, "--quiet"])
+        assert quiet.output == ""
+
+    def test_status_dirty_filter_empty_still_hints(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+        from gitstow.core.git import RepoStatus
+        from gitstow.core.repo import Repo, RepoStore
+
+        self._setup(tmp_path, monkeypatch)
+        ws_dir = tmp_path / "ws"
+        (ws_dir / "a" / "clean" / ".git").mkdir(parents=True)
+        RepoStore(path=tmp_path / "repos.yaml").add(Repo(owner="a", name="clean", remote_url="u", workspace="ws"))
+        with patch("gitstow.cli.status.get_status", return_value=RepoStatus(branch="main")):
+            result = runner.invoke(app, ["status", "--dirty"])
+        assert "No repos match the filter" in result.stdout
+        assert "gitstow workspace scan ws" in result.stderr
+
+
 class TestImportRoundTrip:
     def _two_ws(self, tmp_path, monkeypatch):
         from gitstow.core.config import Settings, Workspace, save_config
@@ -1034,6 +1080,34 @@ class TestOpenEditorPreference:
             _open_in_editor("/some/path")
         assert mock_run.called        # vim needs the terminal — foreground
         assert not mock_popen.called
+
+
+class TestOpenBlankEditorEnv:
+    def test_blank_visual_falls_through_to_editor(self, monkeypatch):
+        from unittest.mock import patch
+        from gitstow.cli.open_cmd import _open_in_editor
+
+        monkeypatch.setenv("VISUAL", "  ")
+        monkeypatch.setenv("EDITOR", "vim")
+        with patch("gitstow.cli.open_cmd.subprocess.run") as mock_run, \
+             patch("gitstow.cli.open_cmd.subprocess.Popen") as mock_popen:
+            _open_in_editor("/some/path")
+        assert mock_run.call_args.args[0] == ["vim", "/some/path"]
+        assert not mock_popen.called
+
+    def test_both_blank_uses_fallback_chain(self, monkeypatch):
+        from unittest.mock import patch
+        from gitstow.cli.open_cmd import _open_in_editor
+
+        monkeypatch.setenv("VISUAL", "  ")
+        monkeypatch.setenv("EDITOR", "\t")
+        with patch("gitstow.cli.open_cmd.subprocess.run") as mock_run, \
+             patch("gitstow.cli.open_cmd.subprocess.Popen") as mock_popen, \
+             patch("gitstow.cli.open_cmd.shutil.which",
+                   side_effect=lambda name: "/usr/bin/code" if name == "code" else None):
+            _open_in_editor("/some/path")
+        assert mock_popen.call_args.args[0] == ["code", "/some/path"]
+        assert not mock_run.called
 
 
 class TestUiExtra:

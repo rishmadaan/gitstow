@@ -155,6 +155,21 @@ def _pull_tooltip(variant: str, status_class: str, behind: int, label: str = "")
     return "Pull available — already up to date with the last fetch."
 
 
+def _dashboard_repos(settings, store) -> list:
+    """The repos the dashboard shows, in row order: those whose workspace is configured."""
+    labels = {w.label for w in settings.get_workspaces()}
+    return [r for r in store.list_all() if r.workspace in labels]
+
+
+def _row_number(settings, store, repo) -> int:
+    """A repo's 1-based dashboard row number (0 if the dashboard doesn't show it)."""
+    return next(
+        (i for i, r in enumerate(_dashboard_repos(settings, store), start=1)
+         if r.global_key == repo.global_key),
+        0,
+    )
+
+
 async def _build_repos_data(settings, store) -> tuple[list, dict]:
     """Gather the rendered row data + aggregate counts.
 
@@ -167,7 +182,7 @@ async def _build_repos_data(settings, store) -> tuple[list, dict]:
     ws_by_label = {w.label: w for w in workspaces}
     ws_sorted = sorted(ws_by_label.keys())
 
-    repos = [r for r in store.list_all() if r.workspace in ws_by_label]
+    repos = _dashboard_repos(settings, store)
 
     # Phase 1 — probe existing git dirs in parallel; missing dirs are skipped.
     probe: list[tuple[str, object]] = []
