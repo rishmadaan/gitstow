@@ -442,6 +442,20 @@ class TestCollectionListsATargetTwice:
                             files={"file": ("coll.yaml", body, "text/yaml")})
         return r, calls
 
+    @pytest.mark.parametrize("n, tail", [(10, []), (12, ["and 2 more"])])
+    def test_dashboard_banner_says_how_many_reasons_were_left_out(self, tmp_path, monkeypatch, n, tail):
+        self._setup(tmp_path, monkeypatch)
+        body = "".join(f"- https://github.com/acme/w{i}:x\n" for i in range(n)).encode()
+
+        r, calls = self._dashboard(body)
+        flash = _flash(r.headers["location"]).split(" | ")
+
+        assert flash[0] == f"imported=0 failed={n}"
+        assert [w.split(": Cannot use")[0] for w in flash[1:11]] == [
+            f"https://github.com/acme/w{i}:x" for i in range(10)]
+        assert flash[11:] == tail
+        assert calls == []
+
     def test_cli_same_repo_twice_clones_once_and_keeps_the_first_entry(self, tmp_path, monkeypatch):
         ws_dir = self._setup(tmp_path, monkeypatch)
 

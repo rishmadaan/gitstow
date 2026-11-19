@@ -187,7 +187,11 @@ async def import_collection(
 
     # Redirect to dashboard with a flash-style count in URL (simple)
     # shortcut: the reasons ride in the redirect URL, so only the first 10 are kept
-    # (each cut to 300 characters); move them to server-side state if imports grow large.
-    query = urlencode({"imported": succeeded, "failed": len(why),
-                       "why": [w[:300] for w in why[:10]]}, doseq=True)
+    # (each cut to 300 characters, then "and N more"); move them to server-side state if
+    # imports grow large. A crafted link can therefore show any text under "Import
+    # complete": accepted for this localhost/tailnet tool, since the page escapes it.
+    reasons = [w[:300] for w in why[:10]]
+    if len(why) > 10:
+        reasons.append(f"and {len(why) - 10} more")
+    query = urlencode({"imported": succeeded, "failed": len(why), "why": reasons}, doseq=True)
     return RedirectResponse(url=f"/?{query}", status_code=303)
