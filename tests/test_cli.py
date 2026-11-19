@@ -685,17 +685,20 @@ class TestImportClassifiesEveryEntryAlike:
         first = self._setup(tmp_path, monkeypatch)
         body = ("version: 1\nrepos:\n"
                 "  widget:\n    remote_url: git@github.com:acme/widget.git\n"    # flat key, same repo
-                "  acme/widget-two:\n    remote_url: https://github.com/acme/widget-three\n")
+                "  acme/widget-two:\n    remote_url: https://github.com/acme/widget-three\n"
+                "  acme/widget:\n    remote_url: https://github.com/acme/other\n")  # a tracked key, another repo
 
         out, clones = self._run(surface, tmp_path, "coll.yaml", body)
 
-        assert clones == 1
+        assert clones == 2
         if surface == "cli":
             assert "acme/widget: already tracked as acme/widget" in out
             assert "✗ acme/widget-three: network down" in out and "widget-two" not in out
-            assert "Done: 0 imported, 1 skipped, 1 failed" in out
+            assert "✗ acme/other: network down" in out and "conflict" not in out
+            assert "Done: 0 imported, 1 skipped, 2 failed" in out
         else:
-            assert out == "imported=0 failed=1 | acme/widget-three: clone failed: network down"
+            assert out == ("imported=0 failed=2 | acme/widget-three: clone failed: network down | "
+                           "acme/other: clone failed: network down")
         assert RepoStore().get("acme/widget", workspace="ws") == first
 
     def test_dry_run_lists_each_entry_once_with_its_decision(self, tmp_path, monkeypatch):
