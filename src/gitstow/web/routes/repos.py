@@ -25,7 +25,7 @@ from gitstow.core.git import get_status, is_git_repo
 from gitstow.core.git import pull as git_pull
 from gitstow.core.operations import move_repo
 from gitstow.core.parallel import run_parallel
-from gitstow.core.repo import MISSING_FOLDER_HINT, Repo, RepoStore, inside_workspace
+from gitstow.core.repo import MISSING_FOLDER_HINT, Repo, RepoStore, inside_workspace, target_for
 from gitstow.core.status_model import classify
 from gitstow.core.url_parser import parse_git_url
 from gitstow.web.routes.dashboard import (
@@ -375,18 +375,11 @@ async def add_repo(
             f"Could not parse URL: {exc}",
         )
 
-    # Compute on-disk target based on workspace layout
     ws_path = ws.get_path()
-    if ws.layout == "flat":
-        target = ws_path / parsed.repo
-        repo_owner = ""
-    else:
-        target = ws_path / parsed.owner / parsed.repo
-        repo_owner = parsed.owner
+    repo_owner, repo_key, target = target_for(parsed, ws.layout, ws_path)
 
     # Already tracked, by key or under another URL form's key: never clone a second
     # copy, and never re-register over its tags and frozen state.
-    repo_key = f"{repo_owner}/{parsed.repo}" if repo_owner else parsed.repo
     existing = store.find_tracked(repo_key, ws.label, parsed.clone_url, settings.default_host)
     if existing and not existing.get_path(ws_path).exists():
         return _render_add_form(request, settings, form_values,

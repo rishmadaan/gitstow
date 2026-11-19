@@ -19,7 +19,7 @@ from gitstow.core.config import load_config
 from gitstow.core.git import clone as git_clone
 from gitstow.core.git import get_remote_url, is_git_repo
 from gitstow.core.parallel import run_parallel_sync
-from gitstow.core.repo import MISSING_FOLDER_HINT, Repo, RepoStore
+from gitstow.core.repo import MISSING_FOLDER_HINT, Repo, RepoStore, target_for
 from gitstow.core.url_parser import parse_git_url, same_repo
 
 console = Console()
@@ -119,15 +119,7 @@ def add(
     seen_targets: dict = {}  # resolved target path → repo_key (dedup within this invocation)
 
     for parsed in parsed_urls:
-        # Determine target path based on workspace layout
-        if ws.layout == "flat":
-            target = root / parsed.repo
-            repo_owner = ""  # Flat layout stores no owner in path
-        else:
-            target = root / parsed.owner / parsed.repo
-            repo_owner = parsed.owner
-
-        repo_key = f"{repo_owner}/{parsed.repo}" if repo_owner else parsed.repo
+        repo_owner, repo_key, target = target_for(parsed, ws.layout, root)
 
         existing = store.find_tracked(repo_key, ws.label, parsed.clone_url, settings.default_host)
         matched_by_remote = existing is not None and existing.key != repo_key

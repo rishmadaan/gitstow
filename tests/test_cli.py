@@ -1076,18 +1076,46 @@ class TestRemoveContainment:
 
         ws_dir = tmp_path / "ws"; ws_dir.mkdir()
         outside = tmp_path / "outside-target"
-        (outside / ".git").mkdir(parents=True)
-        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="flat")]))
-        # A traversal-shaped name resolves outside the workspace root.
+        (outside / "widget" / ".git").mkdir(parents=True)
+        (outside / "widget" / "keep.txt").write_bytes(b"precious\n")
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+        # A user-placed symlink: the owner folder points out of the workspace.
+        (ws_dir / "acme").symlink_to(outside)
         store = RepoStore(path=repos_file)
-        store.add(Repo(owner="", name="../outside-target", remote_url="u", workspace="ws"))
+        store.add(Repo(owner="acme", name="widget", remote_url="u", workspace="ws"))
+
+        result = CliRunner().invoke(app, ["remove", "acme/widget", "--yes", "--delete"])
+
+        assert result.exit_code == 1
+        assert (outside / "widget" / "keep.txt").read_bytes() == b"precious\n"  # nothing was deleted
+        # A refused delete must not untrack either — guard runs before store.remove
+        assert RepoStore(path=repos_file).get("acme/widget", workspace="ws") is not None
+
+    def test_traversing_record_is_set_aside_never_deleted(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"; ws_dir.mkdir()
+        outside = tmp_path / "outside-target"
+        (outside / ".git").mkdir(parents=True)
+        (outside / "keep.txt").write_bytes(b"precious\n")
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="flat")]))
+        # As a pre-0.9.0 gitstow (or a hand edit) left it.
+        text = "ws:\n  ../outside-target:\n    remote_url: u\n"
+        repos_file.write_text(text)
 
         result = CliRunner().invoke(app, ["remove", "../outside-target", "--yes", "--delete"])
 
         assert result.exit_code == 1
-        assert outside.exists()  # nothing was deleted
-        # A refused delete must not untrack either — guard runs before store.remove
-        assert RepoStore(path=repos_file).get("../outside-target", workspace="ws") is not None
+        assert (outside / "keep.txt").read_bytes() == b"precious\n"
+        assert ws_dir.is_dir()
+        assert repos_file.read_text() == text  # set aside, kept verbatim
 
 
 class TestOrphanedWorkspaceRecords:

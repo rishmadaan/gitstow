@@ -24,7 +24,7 @@ from gitstow.core.collection_io import (
 )
 from gitstow.core.config import NO_WORKSPACES_HINT, load_config
 from gitstow.core.git import clone as git_clone
-from gitstow.core.repo import Repo, RepoStore
+from gitstow.core.repo import Repo, RepoStore, target_for
 from gitstow.core.url_parser import parse_git_url
 
 router = APIRouter()
@@ -160,15 +160,8 @@ async def import_collection(
             continue
 
         root = entry_ws.get_path()
-        if entry_ws.layout == "flat":
-            target = root / parsed.repo
-            repo_owner = ""
-        else:
-            target = root / parsed.owner / parsed.repo
-            repo_owner = parsed.owner
-
+        repo_owner, key, target = target_for(parsed, entry_ws.layout, root)
         all_tags = list(dict.fromkeys(list(e.get("tags", [])) + list(entry_ws.auto_tags)))
-        key = f"{repo_owner}/{parsed.repo}" if repo_owner else parsed.repo
         store.load()  # another writer (or an earlier entry of this file) may have added it
         refusal = (duplicate_in_file(seen, entry_ws.label, key, parsed.clone_url, settings.default_host)
                    or tracked_conflict(store, entry_ws.label, key, parsed.clone_url, settings.default_host))

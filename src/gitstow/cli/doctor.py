@@ -93,6 +93,10 @@ def doctor(
             orphaned_ws[label] = count
     checks["orphaned_workspaces"] = orphaned_ws
 
+    # 5. Records set aside on load: a key that is not a safe folder path in its workspace
+    set_aside = store.rejected()
+    checks["set_aside_records"] = [{"workspace": ws, "key": key} for ws, key in set_aside]
+
     if output_json:
         json.dump(checks, sys.stdout, indent=2)
         print()
@@ -161,6 +165,18 @@ def doctor(
         console.print(
             "       [dim]Clear with 'gitstow workspace remove <label>', or re-add the workspace "
             "with 'gitstow workspace add <path> --label <label>'.[/dim]"
+        )
+
+    if set_aside:
+        console.print(f"\n     [yellow]⚠ {len(set_aside)} repos.yaml entr{'ies' if len(set_aside) != 1 else 'y'} "
+                      "set aside (key is not a safe folder path inside its workspace; every command ignores "
+                      f"{'them' if len(set_aside) != 1 else 'it'}):[/yellow]")
+        for label, key in set_aside:
+            console.print(f"       {escape(f'[{label}]')} {escape(repr(key))}")
+        console.print(
+            f"       [dim]gitstow keeps {'them' if len(set_aside) != 1 else 'it'} unchanged in {escape(str(repos_file))}. "
+            "Delete each entry there, then add the repo again with 'gitstow add <url>' "
+            "(or 'gitstow workspace scan <label>' for a folder already on disk).[/dim]"
         )
 
     # 4. SSH connectivity hint

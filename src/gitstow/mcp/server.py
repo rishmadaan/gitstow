@@ -31,7 +31,7 @@ from gitstow.core.git import (
     get_status,
     is_git_repo,
 )
-from gitstow.core.repo import MISSING_FOLDER_HINT, Repo, RepoStore, inside_workspace
+from gitstow.core.repo import MISSING_FOLDER_HINT, Repo, RepoStore, inside_workspace, target_for
 from gitstow.core.url_parser import parse_git_url
 
 mcp = FastMCP(
@@ -163,15 +163,7 @@ def add_repo(
     except ValueError as e:
         return json.dumps({"success": False, "error": str(e)})
 
-    # Determine layout
-    if ws.layout == "flat":
-        target = root / parsed.repo
-        repo_owner = ""
-    else:
-        target = root / parsed.owner / parsed.repo
-        repo_owner = parsed.owner
-
-    repo_key = f"{repo_owner}/{parsed.repo}" if repo_owner else parsed.repo
+    repo_owner, repo_key, target = target_for(parsed, ws.layout, root)
     all_tags = list(tags or []) + list(ws.auto_tags)
 
     # Already tracked, by key or under another URL form's key

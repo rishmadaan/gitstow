@@ -25,6 +25,7 @@ from urllib.parse import urlparse
 _HAS_SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
 _SCP_LIKE = re.compile(r"^([^@]+@)?([^:]+):(.+)$")
 _LOOKS_LIKE_HOST = re.compile(r"(?:[A-Za-z0-9][-A-Za-z0-9]*\.)+[A-Za-z]{2,}(?::\d{1,5})?$")
+_UNSAFE_IN_SEGMENT = re.compile(r"[/\\:\x00-\x1f\x7f]")
 
 # Hosts whose repo path is always exactly owner/repo — never nested groups.
 _TWO_SEGMENT_HOSTS = {"github.com", "bitbucket.org", "codeberg.org", "gitea.com"}
@@ -52,6 +53,18 @@ class ParsedURL:
     def key(self) -> str:
         """owner/repo — used as folder path and unique identifier."""
         return f"{self.owner}/{self.repo}"
+
+
+def valid_segment(segment: str) -> bool:
+    """Whether one owner/repo path segment is a safe folder name on every platform.
+
+    Non-empty; no `/`, `\\` or `:` (path separators and Windows drive letters) and no
+    control character; and not only dots and spaces, because Windows drops trailing
+    dots and spaces, so `...` or `.. ` would name the parent or owner folder. Every
+    repo key gitstow turns into a folder passes this, wherever it came from: a URL
+    (parse_git_url), repos.yaml (RepoStore.load) or a folder on disk (discovery).
+    """
+    return bool(segment) and not _UNSAFE_IN_SEGMENT.search(segment) and bool(segment.strip(". "))
 
 
 def parse_git_url(
@@ -115,6 +128,15 @@ def parse_git_url(
     # Strip .git suffix
     path = path.removesuffix(".git")
 
+    # owner/repo becomes a folder path under the workspace. Every raw segment is
+    # checked before anything drops empty ones or truncates a browse link, so
+    # `acme//widget`, `..`, `\\Documents` or `D:` can never turn into a path outside it.
+    if path and not all(valid_segment(seg) for seg in path.split("/")):
+        raise ValueError(
+            f"Cannot use '{original}': owner/repo may not contain '.', '..' or empty path segments, "
+            "a segment of only dots and spaces, or a \\, : or control character"
+        )
+
     # Azure DevOps SSH (git@ssh.dev.azure.com:v3/org/project/repo) names the
     # same repo as the HTTPS form: normalise the host and drop the "v3" segment.
     if host == "ssh.dev.azure.com":
@@ -137,13 +159,6 @@ def parse_git_url(
         raise ValueError(
             f"Cannot extract owner/repo from '{original}'. "
             f"Expected format: owner/repo or https://host/owner/repo"
-        )
-
-    # owner/repo becomes a folder path under the workspace: a "." or ".." segment
-    # would point it outside (https://github.com/../Documents), an empty one is malformed.
-    if any(seg in ("", ".", "..") for seg in f"{owner}/{repo}".split("/")):
-        raise ValueError(
-            f"Cannot use '{original}': owner/repo may not contain '.', '..' or empty path segments"
         )
 
     # Step 5: Build the clone URL

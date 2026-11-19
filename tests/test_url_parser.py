@@ -259,6 +259,23 @@ class TestPathSegmentsStayInsideTheWorkspace:
         "https://dev.azure.com/org//_git/repo",
         "https://dev.azure.com/org/proj/_git/..",
         "git@ssh.dev.azure.com:v3/org/../repo",
+        # round 5: only dots and spaces (Windows trims them to the parent), empty segments
+        # dropped before the old check ran, and every Windows separator, drive and UNC form
+        "https://github.com/owner/...",
+        "https://github.com/acme/.. ",
+        "https://github.com/acme//widget",
+        "https://gitlab.com/group//sub/repo",
+        "https://github.com/acme/\\Documents",
+        "https://github.com/acme/..\\..\\Documents",
+        "https://gitlab.com/a\\..\\..\\b/repo",
+        "https://github.com/D:/widget",
+        "https://github.com/acme/D:x",
+        "https://github.com/C:/x",
+        "git@github.com:acme/\\\\srv\\share",
+        "https://dev.azure.com/org/proj/_git/a\\b",
+        "https://dev.azure.com/org/proj/_git/..\\..\\x",
+        "https://github.com/acme/widget:stream",
+        "https://github.com/acme/wid\x07get",
     ])
     def test_dot_and_empty_segments_raise(self, url):
         with pytest.raises(ValueError, match=r"may not contain '\.', '\.\.' or empty path segments"):
@@ -271,7 +288,10 @@ class TestPathSegmentsStayInsideTheWorkspace:
         ("git@ssh.dev.azure.com:v3/org/proj/repo", "org/proj/repo"),
         ("https://github.com/owner/repo.name", "owner/repo.name"),
         ("https://github.com/owner/.dotfiles", "owner/.dotfiles"),
-        ("https://github.com/owner/...", "owner/..."),
+        ("https://github.com/owner/widget.", "owner/widget."),
+        ("https://dev.azure.com/org/My%20Project/_git/repo", "org/My%20Project/repo"),
+        ("https://gitea.example/über/repo", "über/repo"),
+        ("https://github.com/owner/wid get", "owner/wid get"),
     ])
     def test_dots_inside_a_name_still_parse(self, url, key):
         assert parse_git_url(url).key == key

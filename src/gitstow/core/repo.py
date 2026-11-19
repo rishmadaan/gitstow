@@ -19,7 +19,12 @@ import yaml
 
 from gitstow.core.locking import file_lock
 from gitstow.core.paths import get_repos_file
-from gitstow.core.url_parser import same_repo
+from gitstow.core.url_parser import ParsedURL, same_repo, valid_segment
+
+
+def _check_key(key: str) -> None:
+    if not all(valid_segment(seg) for seg in key.split("/")):
+        raise ValueError(f"'{key}' is not a safe folder path inside a workspace")
 
 
 @dataclass
@@ -35,6 +40,11 @@ class Repo:
     added: str = ""         # ISO date (YYYY-MM-DD)
     last_pulled: str = ""   # ISO datetime
     last_fetched: str = ""  # ISO datetime
+
+    def __post_init__(self) -> None:
+        # The key becomes a folder under the workspace: no Repo that could point
+        # elsewhere (.., an absolute path, a drive letter) can exist.
+        _check_key(f"{self.owner}/{self.name}" if self.owner else self.name)
 
     @property
     def key(self) -> str:
@@ -67,7 +77,8 @@ class Repo:
 
     @classmethod
     def from_dict(cls, key: str, data: dict, workspace: str = "") -> Repo:
-        """Deserialize from YAML entry."""
+        """Deserialize from YAML entry. Raises ValueError for a key that is not a safe folder path."""
+        _check_key(key)  # before splitting: "/abs" would otherwise lose its empty first segment
         parts = key.split("/", 1)
         owner = parts[0] if len(parts) > 1 else ""
         name = parts[1] if len(parts) > 1 else parts[0]
@@ -84,8 +95,22 @@ class Repo:
         )
 
 
+def target_for(parsed: ParsedURL, layout: str, root: Path) -> tuple[str, str, Path]:
+    """(owner, key, folder) a parsed URL takes in a workspace of `layout` rooted at `root`.
+
+    Derived through a Repo, so the segment rule holds: every clone or register target
+    comes from here, never from joining URL parts by hand.
+    """
+    repo = Repo(owner="" if layout == "flat" else parsed.owner, name=parsed.repo,
+                remote_url=parsed.clone_url)
+    return repo.owner, repo.key, repo.get_path(root)
+
+
 def inside_workspace(path: Path, workspace_root: Path) -> bool:
-    """Whether `path` resolves strictly inside `workspace_root`: the check every delete path runs."""
+    """Whether `path` resolves strictly inside `workspace_root`: the check every delete or move runs.
+
+    Resolved, because a symlink inside the workspace can still point out of it.
+    """
     resolved, root = path.resolve(), workspace_root.resolve()
     return resolved != root and resolved.is_relative_to(root)
 
@@ -130,6 +155,9 @@ class RepoStore:
     def __init__(self, path: Path | None = None):
         self._path = path or get_repos_file()
         self._repos: dict[str, Repo] = {}  # keyed by global_key (workspace:key)
+        # Records whose key is not a safe folder path: hidden from every command,
+        # written back verbatim (nothing lost), named by `gitstow doctor`.
+        self._rejected: dict[str, dict[str, object]] = {}
         self._loaded = False
         self._in_bulk = False
 
@@ -140,6 +168,7 @@ class RepoStore:
     def load(self) -> None:
         """Load repos from repos.yaml, handling both legacy and new formats."""
         self._repos = {}
+        self._rejected = {}
         if not self._path.exists():
             self._loaded = True
             return
@@ -151,8 +180,7 @@ class RepoStore:
             # Legacy flat format — wrap under "oss" workspace and re-save
             for key, repo_data in data.items():
                 if isinstance(repo_data, dict):
-                    repo = Repo.from_dict(key, repo_data, workspace="oss")
-                    self._repos[repo.global_key] = repo
+                    self._load_one("oss", key, repo_data)
             self._loaded = True
             self._write()  # migrate to new format on disk (atomic; lock-free is fine here)
             return
@@ -163,10 +191,22 @@ class RepoStore:
                 continue
             for key, repo_data in ws_repos.items():
                 if isinstance(repo_data, dict):
-                    repo = Repo.from_dict(key, repo_data, workspace=ws_label)
-                    self._repos[repo.global_key] = repo
+                    self._load_one(ws_label, key, repo_data)
 
         self._loaded = True
+
+    def _load_one(self, ws_label: str, key: object, repo_data: dict) -> None:
+        try:
+            repo = Repo.from_dict(str(key), repo_data, workspace=ws_label)
+        except ValueError:
+            self._rejected.setdefault(ws_label, {})[key] = repo_data
+            return
+        self._repos[repo.global_key] = repo
+
+    def rejected(self) -> list[tuple[str, str]]:
+        """(workspace, key) of every record set aside because its key is not a safe folder path."""
+        self._ensure_loaded()
+        return sorted((ws, str(key)) for ws, entries in self._rejected.items() for key in entries)
 
     def _lock_path(self) -> Path:
         return self._path.with_suffix(".lock")
@@ -182,6 +222,10 @@ class RepoStore:
             if ws not in by_workspace:
                 by_workspace[ws] = {}
             by_workspace[ws][repo.key] = repo.to_dict()
+        for ws, entries in self._rejected.items():
+            ws_entries = by_workspace.setdefault(ws, {})
+            ws_entries.update(entries)
+            by_workspace[ws] = {k: ws_entries[k] for k in sorted(ws_entries, key=str)}
 
         data = {k: by_workspace[k] for k in sorted(by_workspace)}
         tmp = self._path.with_name(self._path.name + ".tmp")

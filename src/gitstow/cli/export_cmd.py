@@ -23,7 +23,7 @@ from gitstow.core.collection_io import (
 )
 from gitstow.core.config import load_config
 from gitstow.core.git import clone as git_clone
-from gitstow.core.repo import Repo, RepoStore
+from gitstow.core.repo import Repo, RepoStore, target_for
 
 export_app = typer.Typer(
     help="Export and import repo collections.",
@@ -240,14 +240,7 @@ def import_collection(
             failed += 1
             continue
 
-        if entry_ws.layout == "flat":
-            target = root / parsed.repo
-            repo_owner = ""
-        else:
-            target = root / parsed.owner / parsed.repo
-            repo_owner = parsed.owner
-
-        key = f"{repo_owner}/{parsed.repo}" if repo_owner else parsed.repo
+        repo_owner, key, target = target_for(parsed, entry_ws.layout, root)
         store.load()  # another writer (or an earlier entry of this file) may have added it
         refusal = (duplicate_in_file(seen, entry_ws.label, key, parsed.clone_url, settings.default_host)
                    or tracked_conflict(store, entry_ws.label, key, parsed.clone_url, settings.default_host))
