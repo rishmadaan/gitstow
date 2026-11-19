@@ -183,13 +183,25 @@ def clone(
         )
 
 
+# A user's autostash or pull.rebase config would stash local edits, fast-forward
+# and re-apply them, which can leave conflict markers in a modified file while git
+# exits 0. `-c` beats every config file, and git older than 2.27 (no
+# --no-autostash on pull) simply ignores keys it does not know.
+_SAFE_PULL_ARGS = [
+    "-c", "merge.autoStash=false",
+    "-c", "rebase.autoStash=false",
+    "-c", "pull.rebase=false",
+    "pull", "--ff-only",
+]
+
+
 def pull(repo_path: Path) -> PullResult:
     """Pull latest changes (fast-forward only).
 
     Returns PullResult with success/error status.
     """
     try:
-        result = _run_git(["pull", "--ff-only"], cwd=repo_path, timeout=120)
+        result = _run_git(_SAFE_PULL_ARGS, cwd=repo_path, timeout=120)
         output = result.stdout.strip()
         stderr = result.stderr.strip()
 

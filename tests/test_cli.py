@@ -1837,6 +1837,81 @@ class TestPullForce(RealGitPullFixture):
         assert (self.clone / "y.txt").read_text() == "y v2\n"
 
 
+class TestPullIgnoresAutostashConfig(RealGitPullFixture):
+    """A forced pull must refuse, not autostash, whatever the repo's own git config says."""
+
+    def _stash_list(self):
+        import subprocess
+        return subprocess.run(["git", "stash", "list"], cwd=self.clone,
+                              capture_output=True, text=True, check=True).stdout
+
+    def _index(self):
+        import subprocess
+        return subprocess.run(["git", "diff", "--cached"], cwd=self.clone,
+                              capture_output=True, check=True).stdout
+
+    def _force_pull(self):
+        from gitstow.cli.pull import _pull_one_repo
+        from gitstow.core.config import Workspace
+        from gitstow.core.repo import Repo
+        return _pull_one_repo(
+            Repo(owner="", name="proj", remote_url="", workspace="ws"),
+            Workspace(path=str(self.clone.parent), label="ws", layout="flat"),
+            force=True,
+        )
+
+    @pytest.mark.parametrize("config", [
+        [("merge.autoStash", "true")],
+        [("pull.rebase", "true"), ("rebase.autoStash", "true")],
+        # branch.<name>.rebase outranks pull.rebase, so only rebase.autoStash=false guards this one.
+        [("branch.main.rebase", "true"), ("rebase.autoStash", "true")],
+    ], ids=["merge-autostash", "rebase-autostash", "branch-rebase-autostash"])
+    def test_overlapping_unstaged_edit_is_refused_untouched(self, tmp_path, monkeypatch, config):
+        self._setup(tmp_path, monkeypatch)
+        for key, value in config:
+            _git("config", key, value, cwd=self.clone)
+        before = self.head()
+        (self.clone / "x.txt").write_bytes(b"my local edit\n")
+        self.push_change("x.txt", "x v2 from upstream\n")
+
+        row = self._force_pull()
+
+        assert row["status"] == "error", row
+        assert (self.clone / "x.txt").read_bytes() == b"my local edit\n"
+        assert self._stash_list() == ""
+        assert self.head() == before
+
+    def test_overlapping_staged_edit_is_refused_untouched(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        _git("config", "merge.autoStash", "true", cwd=self.clone)
+        before = self.head()
+        (self.clone / "x.txt").write_bytes(b"my staged edit\n")
+        _git("add", "x.txt", cwd=self.clone)
+        index_before = self._index()
+        self.push_change("x.txt", "x v2 from upstream\n")
+
+        row = self._force_pull()
+
+        assert row["status"] == "error", row
+        assert (self.clone / "x.txt").read_bytes() == b"my staged edit\n"
+        assert self._index() == index_before
+        assert self._stash_list() == ""
+        assert self.head() == before
+
+    def test_non_overlapping_edit_still_fast_forwards_under_pull_rebase(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        _git("config", "pull.rebase", "true", cwd=self.clone)
+        (self.clone / "x.txt").write_bytes(b"my local edit\n")
+        self.push_change("y.txt", "y v2\n")
+
+        row = self._force_pull()
+
+        assert row["status"] == "pulled", row
+        assert (self.clone / "x.txt").read_bytes() == b"my local edit\n"
+        assert (self.clone / "y.txt").read_text() == "y v2\n"
+        assert self._stash_list() == ""
+
+
 class TestFrozenSplitFromUpstream(RealGitPullFixture):
     """--include-frozen on a frozen repo that diverged / has no upstream: a clean skip, no doomed pull."""
 
