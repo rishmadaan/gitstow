@@ -592,7 +592,7 @@ If a single-row **Pull** or **Fetch** fails (git refuses to overwrite a local fi
 - Your `~/.gitstow/repos.yaml` registry (catches `gitstow add` from another terminal)
 - `git status` on each tracked repo (catches new local commits, branch switches, dirty files)
 
-It does **NOT** run `git fetch`. Ahead/behind counts won't update without a pull or manual fetch. It pauses while a row shows a Pull or Fetch error, so the message stays until you dismiss it.
+It does **NOT** run `git fetch`. Ahead/behind counts won't update without a pull or manual fetch. It pauses while a row on screen shows a Pull or Fetch error, so the message stays while that row is shown; once you dismiss it or filter the row out, refresh resumes and the next refresh clears it.
 
 ### `gitstow update`
 

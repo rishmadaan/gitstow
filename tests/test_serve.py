@@ -2176,4 +2176,4 @@ class TestSingleRowFailureShown:
                                                          monkeypatch):
         self._seed(workspace_dir, monkeypatch)
         r = client.get("/")
-        assert '<tbody hx-get="/dashboard/rows"\n             hx-trigger="every 30s [!document.querySelector(\'.row-error\')]"' in r.text
+        assert '<tbody hx-get="/dashboard/rows"\n             hx-trigger="every 30s [!document.querySelector(\'tr:not([hidden]) .row-error\')]"' in r.text
