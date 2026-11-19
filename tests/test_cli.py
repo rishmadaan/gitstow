@@ -187,6 +187,87 @@ class TestAddParallelAndConflicts:
         assert {r["status"] for r in payload["results"]} == {"cloned"}
 
 
+class TestAddNeverDeletesLocalRepo:
+    """`add` must never clone over, or delete, a local repo that has no remote."""
+
+    def _local_repo(self, target):
+        import subprocess
+        target.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(target)], check=True)
+        (target / "sentinel.txt").write_text("my local work\n")
+        subprocess.run(["git", "-C", str(target), "add", "sentinel.txt"], check=True)
+        subprocess.run(
+            ["git", "-C", str(target), "-c", "user.name=t", "-c", "user.email=t@t",
+             "commit", "-q", "-m", "local"],
+            check=True,
+        )
+
+    def test_local_repo_without_remote_is_not_cloned_or_deleted(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        ws_dir = TestAddParallelAndConflicts()._setup(tmp_path, monkeypatch)
+        target = ws_dir / "owner" / "repo"
+        self._local_repo(target)
+
+        with patch("gitstow.cli.add.git_clone", return_value=(False, "clone failed")) as clone:
+            result = runner.invoke(app, ["add", "owner/repo", "--retry", "1", "--json"])
+
+        payload = json.loads(result.output)
+        assert result.exit_code == 1
+        row = payload["results"][0]
+        assert row["status"] == "error"
+        assert "local git repo with no origin remote" in row["error"]
+        assert f"git -C {target} remote add origin https://github.com/owner/repo.git" in row["error"]
+        assert clone.call_count == 0
+        assert (target / "sentinel.txt").read_text() == "my local work\n"
+
+    def test_clone_worker_retry_never_deletes_preexisting_folder(self, tmp_path):
+        from unittest.mock import patch
+
+        from gitstow.cli.add import _clone_worker
+        from gitstow.core.url_parser import parse_git_url
+
+        target = tmp_path / "owner" / "repo"
+        target.mkdir(parents=True)
+        (target / "sentinel.txt").write_text("keep me\n")
+
+        with patch("gitstow.cli.add.git_clone", return_value=(False, "clone failed")) as clone:
+            out = _clone_worker(
+                parse_git_url("owner/repo"), target, "owner/repo",
+                retry=1, shallow=False, branch=None, recursive=False, timeout=30,
+            )
+
+        assert out == {"repo": "owner/repo", "success": False, "error": "clone failed"}
+        assert clone.call_count == 1  # no retry into a folder we did not create
+        assert (target / "sentinel.txt").read_text() == "keep me\n"
+
+    def test_clone_worker_retry_still_cleans_its_own_partial_clone(self, tmp_path):
+        from unittest.mock import patch
+
+        from gitstow.cli.add import _clone_worker
+        from gitstow.core.url_parser import parse_git_url
+
+        target = tmp_path / "owner" / "repo"
+        seen = []
+
+        def flaky_clone(url, target, **kw):
+            seen.append(target.exists())
+            if len(seen) == 1:
+                (target / "partial").mkdir(parents=True)
+                return False, "network blip"
+            (target / ".git").mkdir(parents=True)
+            return True, ""
+
+        with patch("gitstow.cli.add.git_clone", side_effect=flaky_clone):
+            out = _clone_worker(
+                parse_git_url("owner/repo"), target, "owner/repo",
+                retry=1, shallow=False, branch=None, recursive=False, timeout=30,
+            )
+
+        assert out["success"] is True
+        assert seen == [False, False]  # its own partial clone was removed before the retry
+
+
 class TestManageWorkspaceResolution:
     def _seed_two_workspaces(self, tmp_path, monkeypatch):
         from gitstow.core.config import Settings, Workspace, save_config

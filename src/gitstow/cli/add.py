@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import sys
 
 import typer
@@ -194,19 +196,33 @@ def add(
                 if show:
                     err_console.print(f"  [red]✗[/red] {repo_key}: remote mismatch ({remote})")
                 continue
-            if remote:
-                repo = Repo(
-                    owner=repo_owner,
-                    name=parsed.repo,
-                    remote_url=remote,
-                    workspace=ws.label,
-                    tags=list(tags),
-                )
-                store.add(repo)
-                results.append({"repo": repo_key, "status": "registered"})
+            if not remote:
+                # Local-only repo: never queue it for cloning — a failed clone's
+                # retry cleanup would delete the user's work.
+                results.append({
+                    "repo": repo_key,
+                    "status": "error",
+                    "error": (
+                        f"{target} is a local git repo with no origin remote. To track it, add the remote "
+                        f"inside it (git -C {target} remote add origin {parsed.clone_url}) "
+                        f"and run the same gitstow add again."
+                    ),
+                })
                 if show:
-                    console.print(f"  [green]✓[/green] {repo_key} registered (already on disk)")
+                    err_console.print(f"  [red]✗[/red] {repo_key}: local git repo with no origin remote (not cloned over)")
                 continue
+            repo = Repo(
+                owner=repo_owner,
+                name=parsed.repo,
+                remote_url=remote,
+                workspace=ws.label,
+                tags=list(tags),
+            )
+            store.add(repo)
+            results.append({"repo": repo_key, "status": "registered"})
+            if show:
+                console.print(f"  [green]✓[/green] {repo_key} registered (already on disk)")
+            continue
 
         # Path exists but is not a git repo
         if target.exists() and not is_git_repo(target):
@@ -218,33 +234,15 @@ def add(
         to_clone.append((parsed, target, repo_owner, repo_key))
 
     # Phase 2 — clone concurrently (semaphore = parallel_limit), retry inside the worker
-    def _clone_worker(parsed, target, repo_key):
-        target.parent.mkdir(parents=True, exist_ok=True)
-        success, error = False, ""
-        for attempt in range(1 + retry):
-            if attempt > 0:
-                # Clean up partial clone before retrying
-                import shutil
-                if target.exists():
-                    shutil.rmtree(target, ignore_errors=True)
-            success, error = git_clone(
-                url=parsed.clone_url,
-                target=target,
-                shallow=shallow,
-                branch=branch,
-                recursive=recursive,
-                timeout=settings.clone_timeout,
-            )
-            if success:
-                break
-        return {"repo": repo_key, "success": success, "error": error}
-
     if to_clone:
         if show:
             plural = "s" if len(to_clone) != 1 else ""
             console.print(f"  [dim]Cloning {len(to_clone)} repo{plural} → {ws.label}...[/dim]")
         tasks = [
-            (key, lambda p=parsed, t=target, k=key: _clone_worker(p, t, k))
+            (key, lambda p=parsed, t=target, k=key: _clone_worker(
+                p, t, k, retry=retry, shallow=shallow, branch=branch,
+                recursive=recursive, timeout=settings.clone_timeout,
+            ))
             for parsed, target, _owner, key in to_clone
         ]
         clone_results = run_parallel_sync(tasks, max_concurrent=settings.parallel_limit)
@@ -314,6 +312,35 @@ def add(
 
     if any(r["status"] == "error" for r in results):
         raise typer.Exit(code=1)
+
+
+def _clone_worker(parsed, target, repo_key, *, retry, shallow, branch, recursive, timeout):
+    """Clone one target, retrying up to `retry` times.
+
+    The retry cleanup deletes only a folder this worker's own clone created:
+    a target that existed before the first attempt is never removed.
+    """
+    existed_before = os.path.lexists(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    success, error = False, ""
+    for attempt in range(1 + retry):
+        if attempt > 0:
+            if existed_before:
+                break  # not ours to delete — fail with the clone error
+            # Clean up partial clone before retrying
+            if target.exists():
+                shutil.rmtree(target, ignore_errors=True)
+        success, error = git_clone(
+            url=parsed.clone_url,
+            target=target,
+            shallow=shallow,
+            branch=branch,
+            recursive=recursive,
+            timeout=timeout,
+        )
+        if success:
+            break
+    return {"repo": repo_key, "success": success, "error": error}
 
 
 def _clone_error_hint(error: str) -> str:
