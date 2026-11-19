@@ -136,7 +136,7 @@ class TestCloneTimeout:
 def _pull_steps(merge_stdout="", merge_rc=0):
     """`_run_git` results for one pull, in call order: symbolic-ref, fetch, rev-parse, merge."""
     return [
-        MagicMock(returncode=0, stdout="main\n", stderr=""),
+        MagicMock(returncode=0, stdout="refs/heads/main\n", stderr=""),
         MagicMock(returncode=0, stdout="", stderr=""),
         MagicMock(returncode=0, stdout="abc\n", stderr=""),
         MagicMock(returncode=merge_rc, stdout=merge_stdout, stderr=""),
@@ -152,7 +152,7 @@ class TestPull:
         assert result.already_up_to_date is False
         assert result.output == "Updating abc123..def456\n1 file changed"
         assert [c.args[0] for c in mock_run.call_args_list] == [
-            ["symbolic-ref", "--short", "-q", "HEAD"],
+            ["symbolic-ref", "-q", "HEAD"],
             ["fetch", "--prune"],
             ["rev-parse", "--verify", "-q", "@{upstream}"],
             ["-c", "merge.autoStash=false", "-c", "branch.main.mergeOptions=",

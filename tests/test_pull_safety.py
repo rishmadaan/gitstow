@@ -349,3 +349,188 @@ class TestBranchState:
                              lambda: pulled(clone))
 
         assert (ok, msg) == (False, "no upstream configured for branch 'local-only'")
+
+
+# --- ref shapes: the override must hit the branch's true config key ------------------
+# git keys branch.<name>.* on HEAD's full ref minus `refs/heads/`. A display name
+# (`symbolic-ref --short`, `--abbrev-ref`) differs whenever another ref shares the
+# name, so each shape below makes the short form and the true name disagree.
+
+def _tag(clone, branch):
+    git("tag", branch, cwd=clone)
+    return clone
+
+
+def _ref_beside(clone, branch):
+    git("update-ref", f"refs/{branch}", "HEAD", cwd=clone)
+    return clone
+
+
+def _branch_main_too(clone, branch):
+    git("update-ref", "refs/heads/main", "HEAD", cwd=clone)
+    git("config", "branch.main.mergeOptions", "--no-ff", cwd=clone)
+    return clone
+
+
+def _worktree_with_tag(clone, branch):
+    git("checkout", "-q", "--detach", cwd=clone)
+    wt = clone.parent / "wt"
+    git("worktree", "add", "-q", str(wt), branch, cwd=clone)
+    git("tag", branch, cwd=wt)
+    return wt
+
+
+# name: (branch, prep(clone, branch) -> the working folder to pull, built fresh per cell)
+REF_SHAPES = {
+    "plain": ("main", None, False),
+    "tag named like the branch": ("main", _tag, False),
+    "ref refs/<branch>": ("main", _ref_beside, False),
+    "on heads/main, branch main exists": ("heads/main", _branch_main_too, False),
+    "feat/x + tag": ("feat/x", _tag, False),
+    "unicode + tag": ("ünï-分支", _tag, False),
+    "a=b + tag": ("a=b", _tag, False),
+    "linked worktree + tag": ("wt-b", _worktree_with_tag, True),  # absolute paths: no copying
+}
+SHAPE_OPTIONS = [None, "--autostash", "--squash", f"--file={os.devnull}", "--strategy=ours",
+                 "--strategy=subtree", "--overwrite-ignore"]
+EQUALS_REFUSAL = ("branch 'a=b' has merge options (branch.a=b.mergeOptions) that gitstow "
+                  "cannot switch off for a branch name containing '='; pull it with git")
+
+
+def build_shape(root: Path, shape: str, state):
+    branch, prep, _fresh = REF_SHAPES[shape]
+    _up, pusher, clone = make_repos(root, branch=branch)
+    work = prep(clone, branch) if prep else clone
+    files, expect = state(pusher, work)
+    push(pusher, branch=branch)
+    return work, files, expect, git("rev-parse", "HEAD", cwd=pusher).stdout.strip()
+
+
+@pytest.fixture(scope="module")
+def shape_templates(hermetic_git, tmp_path_factory):
+    """{(shape, state name): (clone, files, expect, upstream)} for every copyable shape."""
+    jobs = [(shape, state, tmp_path_factory.mktemp("shape"))  # mktemp is not thread-safe
+            for shape, (_b, _p, fresh) in REF_SHAPES.items() if not fresh for state in STATES]
+
+    def one(job):
+        shape, state, root = job
+        return (shape, state.__name__), build_shape(root, shape, state)
+
+    with ThreadPoolExecutor(max_workers=min(16, (os.cpu_count() or 4) * 2)) as pool:
+        return dict(pool.map(one, jobs))
+
+
+def shape_cell(templates, shape, opt, state, work: Path) -> list[str]:
+    branch, _prep, fresh = REF_SHAPES[shape]
+    root = Path(tempfile.mkdtemp(dir=work))
+    try:
+        if fresh:
+            clone, files, expect, upstream = build_shape(root, shape, state)
+        else:
+            tclone, files, expect, upstream = templates[(shape, state.__name__)]
+            clone = root / "clone"
+            shutil.copytree(tclone, clone, symlinks=True)
+        if opt is not None:
+            git("config", f"branch.{branch}.mergeOptions", opt, cwd=clone)
+        before = snapshot(clone, files)
+        result = pull(clone)
+        problems = pull_problems(before, snapshot(clone, files), upstream, result.success)
+        if "=" in branch and opt is not None:
+            if result.error != EQUALS_REFUSAL:
+                problems.append(f"expected the '=' refusal, got success={result.success}: {result.error[:80]}")
+        elif result.success != (expect == "ff"):
+            problems.append(f"expected {expect}, got success={result.success}: {result.error[:80]}")
+        return problems
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def shape_sweep(templates, options, work) -> list[str]:
+    jobs = [(shape, opt, state) for shape in REF_SHAPES for opt in options for state in STATES]
+
+    def one(job):
+        shape, opt, state = job
+        problems = shape_cell(templates, shape, opt, state, work)
+        return f"[{shape}] x [{opt}] x [{state.__name__}]: {problems}" if problems else None
+
+    with ThreadPoolExecutor(max_workers=min(16, (os.cpu_count() or 4) * 2)) as pool:
+        return [line for line in pool.map(one, jobs) if line]
+
+
+def test_ref_shapes_x_dangerous_options_every_state(shape_templates, tmp_path):
+    """8 ref shapes x 7 option rows on the true key x 8 states = 448 cells."""
+    assert shape_sweep(shape_templates, SHAPE_OPTIONS, tmp_path) == []
+
+
+@pytest.mark.slow
+def test_ref_shapes_x_every_merge_option(shape_templates, tmp_path):
+    assert shape_sweep(shape_templates, [None, *merge_options()], tmp_path) == []
+
+
+class TestRefNames:
+    def test_r3_c1_tag_named_main_with_autostash_refuses_untouched(self, hermetic_git, tmp_path):
+        """Round-3 review reproduction: a tag also named `main` once sent the override to
+        branch.heads/main and left conflict markers plus a stash behind a 'success'."""
+        _up, pusher, clone = make_repos(tmp_path)
+        git("tag", "main", cwd=clone)
+        git("config", "branch.main.mergeOptions", "--autostash", cwd=clone)
+        (clone / "x.txt").write_bytes(b"MY LOCAL EDIT\n")
+        (pusher / "x.txt").write_text("UPSTREAM EDIT\n")
+        push(pusher)
+        before = git("rev-parse", "HEAD", cwd=clone).stdout.strip()
+
+        ok, _msg = check_pull(clone, ["x.txt"], git("rev-parse", "HEAD", cwd=pusher).stdout.strip(),
+                              lambda: pulled(clone))
+
+        assert not ok
+        assert (clone / "x.txt").read_bytes() == b"MY LOCAL EDIT\n"
+        assert git("rev-parse", "HEAD", cwd=clone).stdout.strip() == before
+        assert git("stash", "list", cwd=clone).stdout == ""
+
+    def test_head_outside_refs_heads_is_not_a_branch(self, hermetic_git, tmp_path):
+        _up, pusher, clone = make_repos(tmp_path)
+        git("update-ref", "refs/foo/bar", "HEAD", cwd=clone)
+        git("symbolic-ref", "HEAD", "refs/foo/bar", cwd=clone)
+        git("config", "branch.refs/foo/bar.mergeOptions", "--autostash", cwd=clone)
+        (clone / "x.txt").write_bytes(b"MY LOCAL EDIT\n")
+        (pusher / "x.txt").write_text("UPSTREAM EDIT\n")
+        push(pusher)
+        refs = git("for-each-ref", cwd=clone).stdout
+        head = git("rev-parse", "HEAD", cwd=clone).stdout.strip()
+
+        ok, msg = check_pull(clone, ["x.txt"], head, lambda: pulled(clone))
+
+        assert (ok, msg) == (False, "not on a branch (HEAD points at refs/foo/bar): check out a branch, then pull")
+        assert git("for-each-ref", cwd=clone).stdout == refs
+        assert git("symbolic-ref", "HEAD", cwd=clone).stdout.strip() == "refs/foo/bar"
+
+    def test_lookalike_upstream_names_do_not_redirect_the_merge(self, hermetic_git, tmp_path):
+        """A local branch and a tag called origin/main on a non-upstream commit: the merge
+        still lands exactly on the pusher's HEAD (@{upstream} resolves by full name)."""
+        _up, pusher, clone = make_repos(tmp_path)
+        git("checkout", "-q", "-b", "tmp-evil", cwd=clone)
+        (clone / "evil.txt").write_text("not upstream\n")
+        git("add", "evil.txt", cwd=clone)
+        git("commit", "-q", "-m", "evil", cwd=clone)
+        git("checkout", "-q", "main", cwd=clone)
+        git("branch", "-q", "origin/main", "tmp-evil", cwd=clone)
+        git("tag", "origin/main", "tmp-evil", cwd=clone)
+        git("branch", "-q", "-D", "tmp-evil", cwd=clone)
+        (pusher / "y.txt").write_text("y v2 upstream\n")
+        push(pusher)
+        upstream = git("rev-parse", "HEAD", cwd=pusher).stdout.strip()
+
+        ok, msg = check_pull(clone, [], upstream, lambda: pulled(clone))
+
+        assert ok, msg
+        assert git("rev-parse", "HEAD", cwd=clone).stdout.strip() == upstream
+        assert not (clone / "evil.txt").exists()
+
+
+def test_no_display_name_feeds_a_git_key():
+    """Structure: nothing in src/gitstow derives a name from `symbolic-ref --short` or `--abbrev-ref`."""
+    src = Path(__file__).resolve().parent.parent / "src" / "gitstow"
+    hits = [f"{p}:{n}" for p in src.rglob("*.py")
+            for n, line in enumerate(p.read_text().splitlines(), 1)
+            if "--abbrev-ref" in line or ("symbolic-ref" in line and "--short" in line)]
+    assert hits == []

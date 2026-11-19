@@ -243,11 +243,18 @@ def pull(repo_path: Path) -> PullResult:
     missing upstream, or merge options it cannot switch off.
     """
     try:
-        head = _run_git(["symbolic-ref", "--short", "-q", "HEAD"], cwd=repo_path)
-        branch = head.stdout.strip()
-        if not branch:  # -q: silent on a detached HEAD, stderr only for a real failure
+        # The full ref, never `--short`: the short form is a display name (a tag also
+        # called `main` makes it `heads/main`), while git keys branch config on the
+        # full ref minus `refs/heads/`.
+        head = _run_git(["symbolic-ref", "-q", "HEAD"], cwd=repo_path)
+        ref = head.stdout.strip()
+        if not ref:  # -q: silent on a detached HEAD, stderr only for a real failure
             return PullResult(success=False, error=head.stderr.strip()
                               or "not on a branch (detached HEAD): check out a branch, then pull")
+        if not ref.startswith("refs/heads/"):
+            return PullResult(success=False, error=(
+                f"not on a branch (HEAD points at {ref}): check out a branch, then pull"))
+        branch = ref[len("refs/heads/"):]
         # `-c key=value` splits at the first '=', so the mergeOptions override cannot
         # name a branch containing '='; refuse only when there is something to override.
         if "=" in branch and _run_git(
