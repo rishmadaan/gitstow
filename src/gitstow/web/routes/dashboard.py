@@ -8,7 +8,7 @@ from __future__ import annotations
 import functools
 from datetime import datetime
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
 
 from gitstow.core.config import load_config
@@ -276,6 +276,7 @@ async def dashboard(
     request: Request,
     imported: int | None = None,
     failed: int | None = None,
+    why: list[str] = Query(default=[]),
 ):
     settings = load_config()
     store = RepoStore()
@@ -321,6 +322,7 @@ async def dashboard(
         subtitle=" · ".join(bits),
         eyebrow_date=eyebrow_date,
         flash=flash,
+        flash_reasons=why if imported is not None else [],
     )
 
 

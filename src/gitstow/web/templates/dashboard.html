@@ -8,6 +8,11 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
   <article class="notice-banner" style="margin-bottom: 1.5rem;">
     <strong>Import complete</strong>
     <p>{{ flash }}</p>
+    {% if flash_reasons %}
+    <ul>
+      {% for reason in flash_reasons %}<li>{{ reason }}</li>{% endfor %}
+    </ul>
+    {% endif %}
   </article>
   {% endif %}
 

@@ -4,12 +4,14 @@
 """Shared parsing + workspace routing for collection import — the single implementation behind CLI `collection import` and the web dashboard's upload."""
 
 import json
+from dataclasses import dataclass
+from pathlib import Path
 
 import yaml
 
 from gitstow.core.config import Settings, Workspace
-from gitstow.core.repo import Repo, RepoStore
-from gitstow.core.url_parser import same_repo
+from gitstow.core.repo import Repo, RepoStore, target_for
+from gitstow.core.url_parser import ParsedURL, parse_git_url, same_repo
 
 EXPORT_FORMAT_VERSION = 1
 
@@ -137,3 +139,51 @@ def register_unless_tracked(store: RepoStore, repo: Repo, default_host: str) -> 
         if refusal is None:
             store.add(repo)
     return refusal
+
+
+@dataclass
+class EntryPlan:
+    """What one import entry would do. Exactly one of: `error` (unusable entry), `refusal`
+    (skip or conflict), or neither (clone, or register the folder already at `target`)."""
+
+    workspace: Workspace
+    note: str | None
+    url: str
+    parsed: ParsedURL | None = None
+    owner: str = ""
+    key: str = ""
+    target: Path | None = None
+    refusal: Refusal | None = None
+    error: str | None = None
+
+    @property
+    def label(self) -> str:
+        """How the entry is named in output: its derived key once parsed, else its URL."""
+        return self.key or self.url or "(entry without a URL)"
+
+
+def classify_entry(store: RepoStore, seen: dict, entry: dict, settings: Settings,
+                   fallback: Workspace) -> EntryPlan:
+    """The one decision for an import entry, on both surfaces (CLI and dashboard).
+
+    Used once per entry for the summary and dry run, and again just before cloning or
+    registering (after `store.load()`). The key comes from parsing the entry's URL through
+    `target_for`, never from the entry's own `key` field, so an exported file, a JSON file
+    and a plain URL list are judged alike, whatever layout they were exported from.
+    """
+    ws, note = resolve_entry_workspace(entry, settings, fallback)
+    url = entry.get("url") or entry.get("remote_url", "")
+    plan = EntryPlan(workspace=ws, note=note, url=url)
+    if not url:
+        plan.error = "no URL in this entry"
+        return plan
+    try:
+        plan.parsed = parse_git_url(url, default_host=settings.default_host, prefer_ssh=settings.prefer_ssh)
+    except ValueError as exc:
+        plan.error = str(exc)
+        return plan
+    plan.owner, plan.key, plan.target = target_for(plan.parsed, ws.layout, ws.get_path())
+    clone_url = plan.parsed.clone_url
+    plan.refusal = (duplicate_in_file(seen, ws.label, plan.key, clone_url, settings.default_host)
+                    or tracked_conflict(store, ws.label, plan.key, clone_url, settings.default_host))
+    return plan

@@ -15,15 +15,13 @@ from rich.console import Console
 from rich.markup import escape
 
 from gitstow.core.collection_io import (
-    duplicate_in_file,
+    classify_entry,
     parse_collection_file,
     register_unless_tracked,
-    resolve_entry_workspace,
-    tracked_conflict,
 )
 from gitstow.core.config import load_config
 from gitstow.core.git import clone as git_clone
-from gitstow.core.repo import Repo, RepoStore, target_for
+from gitstow.core.repo import Repo, RepoStore
 
 export_app = typer.Typer(
     help="Export and import repo collections.",
@@ -170,44 +168,41 @@ def import_collection(
     ws_list = resolve_workspaces(settings, ws_label)
     ws = ws_list[0]
 
-    # Resolve each entry's target workspace, then check which already exist
-    # there (workspace-aware — the same key in another workspace doesn't block).
-    new_repos = []
-    existing = []
-    for entry in repos_to_import:
-        entry_ws, note = resolve_entry_workspace(entry, settings, fallback=ws)
-        entry["_resolved_ws"] = entry_ws
-        entry["_ws_note"] = note
-        url = entry.get("url") or entry.get("remote_url", "")
-        # By key, else by remote identity (another URL form): never clone a second copy.
-        if store.find_tracked(entry.get("key", ""), entry_ws.label, url, settings.default_host):
-            existing.append(entry)
-        else:
-            new_repos.append(entry)
+    # One decision per entry (classify_entry), the same one the dashboard makes and the
+    # one each entry gets again just before it is cloned or registered.
+    summary_seen: dict = {}
+    plans = [classify_entry(store, summary_seen, entry, settings, ws) for entry in repos_to_import]
+    would_add = [pl for pl in plans if not pl.error and not pl.refusal]
+    would_skip = [pl for pl in plans if pl.refusal and pl.refusal[0] == "skip"]
+    stopped = [pl for pl in plans if pl.error or (pl.refusal and pl.refusal[0] == "conflict")]
 
     console.print(f"\n  Found {len(repos_to_import)} repos in file")
-    if existing:
-        console.print(f"  [dim]{len(existing)} already tracked (will skip)[/dim]")
-    console.print(f"  {len(new_repos)} new repos to import\n")
+    if would_skip:
+        console.print(f"  [dim]{len(would_skip)} already tracked (will skip)[/dim]")
+    if stopped:
+        console.print(f"  [dim]{len(stopped)} cannot be imported (conflict or unusable entry)[/dim]")
+    console.print(f"  {len(would_add)} new repos to import\n")
 
     if dry_run:
-        for entry in new_repos:
-            entry_ws = entry["_resolved_ws"]
-            key_display = entry.get("key", entry.get("url", "unknown"))
-            console.print(f"    [dim]Would add:[/dim] {key_display} [dim]→ {entry_ws.label}[/dim]")
-            if entry["_ws_note"]:
-                console.print(f"      [dim]{entry['_ws_note']}[/dim]")
+        for pl in plans:
+            if pl.error:
+                console.print(f"    [red]Cannot add:[/red] {escape(pl.label)}: {escape(pl.error)}")
+            elif pl.refusal:
+                kind, reason = pl.refusal
+                verb = "Would skip:" if kind == "skip" else "[red]Conflict:[/red]"
+                console.print(f"    [dim]{verb}[/dim] {escape(pl.label)}: {escape(reason)}")
+            else:
+                console.print(f"    [dim]Would add:[/dim] {escape(pl.label)} [dim]→ {pl.workspace.label}[/dim]")
+            if pl.note:
+                console.print(f"      [dim]{pl.note}[/dim]")
         console.print("\n  [dim]Dry run — nothing was changed.[/dim]\n")
         return
 
-    if not new_repos:
+    if not would_add and not stopped:
         console.print("  [dim]Nothing new to import.[/dim]\n")
         return
 
-    # Build add commands
     from datetime import datetime
-
-    from gitstow.core.url_parser import parse_git_url
 
     succeeded = 0
     skipped = 0
@@ -224,32 +219,25 @@ def import_collection(
             failed += 1
             err_console.print(f"  [red]✗[/red] {escape(key)}: conflict: {escape(reason)}")
 
-    for entry in new_repos:
-        url = entry.get("url") or entry.get("remote_url", "")
-        entry_ws = entry["_resolved_ws"]
-        if entry["_ws_note"]:
-            console.print(f"  [dim]{entry['_ws_note']}[/dim]")
-        root = entry_ws.get_path()
+    for entry in repos_to_import:
+        store.load()  # another writer (or an earlier entry of this file) may have added it
+        plan = classify_entry(store, seen, entry, settings, ws)
+        if plan.note:
+            console.print(f"  [dim]{plan.note}[/dim]")
+        if plan.error:
+            err_console.print(f"  [red]✗[/red] {escape(plan.label)}: {escape(plan.error)}")
+            failed += 1
+            continue
+        if plan.refusal:
+            refused(plan.key, plan.refusal)
+            continue
+        parsed, key, target, entry_ws = plan.parsed, plan.key, plan.target, plan.workspace
         entry_tags = entry.get("tags", []) + tags + list(entry_ws.auto_tags)
         frozen = entry.get("frozen", False)
 
-        try:
-            parsed = parse_git_url(url, default_host=settings.default_host, prefer_ssh=settings.prefer_ssh)
-        except ValueError as e:
-            err_console.print(f"  [red]✗[/red] {url}: {e}")
-            failed += 1
-            continue
-
-        repo_owner, key, target = target_for(parsed, entry_ws.layout, root)
-        store.load()  # another writer (or an earlier entry of this file) may have added it
-        refusal = (duplicate_in_file(seen, entry_ws.label, key, parsed.clone_url, settings.default_host)
-                   or tracked_conflict(store, entry_ws.label, key, parsed.clone_url, settings.default_host))
-        if refusal:
-            refused(key, refusal)
-            continue
-
         if target.exists():
-            repo = Repo(owner=repo_owner, name=parsed.repo, remote_url=url, workspace=entry_ws.label, tags=entry_tags, frozen=frozen)
+            repo = Repo(owner=plan.owner, name=parsed.repo, remote_url=plan.url, workspace=entry_ws.label,
+                        tags=entry_tags, frozen=frozen)
             refusal = register_unless_tracked(store, repo, settings.default_host)
             if refusal:
                 refused(key, refusal)
@@ -265,7 +253,7 @@ def import_collection(
         )
         if success:
             repo = Repo(
-                owner=repo_owner,
+                owner=plan.owner,
                 name=parsed.repo,
                 remote_url=parsed.clone_url,
                 workspace=entry_ws.label,

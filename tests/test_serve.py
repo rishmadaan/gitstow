@@ -876,6 +876,23 @@ class TestCollection:
         assert "imported=1" in r.headers["location"]
         assert captured["timeout"] == 777
 
+    def test_import_banner_names_each_failed_entry(self, client, configured):
+        """The redirect's reasons reach the page, escaped, one list item each."""
+        from urllib.parse import urlencode
+        why = ["acme/widget: conflict: acme/widget is already tracked in 'ws' with remote <x>",
+               "foo/bar: clone failed: network down"]
+        r = client.get("/?" + urlencode({"imported": 1, "failed": 2, "why": why}, doseq=True))
+
+        assert r.status_code == 200
+        assert "imported 1 repo · 2 failed" in r.text
+        assert ("<li>acme/widget: conflict: acme/widget is already tracked in &#39;ws&#39; "
+                "with remote &lt;x&gt;</li>") in r.text
+        assert "<li>foo/bar: clone failed: network down</li>" in r.text
+
+    def test_reasons_without_an_import_show_nothing(self, client, configured):
+        r = client.get("/?why=injected")
+        assert "injected" not in r.text
+
     def test_import_empty(self, client, configured):
         files = {"file": ("empty.txt", b"", "text/plain")}
         r = client.post(

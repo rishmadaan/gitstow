@@ -364,10 +364,20 @@ class TestDotDotNeverLeavesTheWorkspace:
                             files={"file": ("coll.txt", (self.URL + "\n").encode(), "text/plain")})
 
         assert r.status_code == 303
-        assert r.headers["location"] == "/?imported=0&failed=1"
+        assert _flash(r.headers["location"]) == (
+            f"imported=0 failed=1 | {self.URL}: Cannot use '{self.URL}': owner/repo may not contain "
+            "'.', '..' or empty path segments, a segment of only dots and spaces, or a \\, : or control character")
         assert clone.call_count == 0
         assert self._tracked(tmp_path) == []
         assert (outside / "keep.txt").read_bytes() == b"precious\n"
+
+
+def _flash(location: str) -> str:
+    """The dashboard's import redirect as one line: 'imported=N failed=M | reason | reason'."""
+    from urllib.parse import parse_qs, urlsplit
+    q = parse_qs(urlsplit(location).query)
+    assert urlsplit(location).path == "/", location
+    return " | ".join([f"imported={q['imported'][0]} failed={q['failed'][0]}", *q.get("why", [])])
 
 
 class TestCollectionListsATargetTwice:
@@ -477,7 +487,9 @@ class TestCollectionListsATargetTwice:
         r, calls = self._dashboard(self._then(other))
 
         key = "acme/widget" if layout == "structured" else "widget"
-        assert r.headers["location"] == "/?imported=1&failed=1"
+        assert _flash(r.headers["location"]) == (
+            f"imported=1 failed=1 | {key}: conflict: this file also lists https://github.com/acme/widget.git "
+            "for the same folder in 'ws'; import one of them into another workspace")
         assert len(calls) == 1
         assert self._records(tmp_path) == [(key, "https://github.com/acme/widget.git", ["keep"], True)]
 
@@ -501,7 +513,9 @@ class TestCollectionListsATargetTwice:
                     "https://github.com/other/widget.git") in out
         else:
             r, calls = self._dashboard(body)
-            assert r.headers["location"] == "/?imported=0&failed=1"
+            assert _flash(r.headers["location"]) == (
+                "imported=0 failed=1 | widget: conflict: widget is already tracked in 'ws' with remote "
+                "https://github.com/acme/widget.git, but this entry asks for https://github.com/other/widget.git")
         assert calls == []
         assert self._records(tmp_path) == [("widget", "https://github.com/acme/widget.git", ["keep"], True)]
 
@@ -540,9 +554,9 @@ class TestCollectionListsATargetTwice:
 
         from gitstow.web.server import create_app
         with patch("gitstow.web.routes.collection.git_clone", side_effect=clone):
-            return TestClient(create_app(), base_url="http://127.0.0.1").post(
+            return _flash(TestClient(create_app(), base_url="http://127.0.0.1").post(
                 "/collection/import", follow_redirects=False,
-                files={"file": ("coll.yaml", body, "text/yaml")}).headers["location"]
+                files={"file": ("coll.yaml", body, "text/yaml")}).headers["location"])
 
     @pytest.mark.parametrize("surface", ["cli", "dashboard"])
     def test_tracked_record_with_missing_folder_blocks_the_clone(self, tmp_path, monkeypatch, surface):
@@ -553,8 +567,8 @@ class TestCollectionListsATargetTwice:
         out = self._import(surface, tmp_path, b"- https://github.com/other/widget\n", self._fake_clone(calls))
 
         assert calls == []
-        assert ("widget: conflict: widget is already tracked" in out if surface == "cli"
-                else out == "/?imported=0&failed=1")
+        assert "widget: conflict: widget is already tracked" in out
+        assert surface == "cli" or out.startswith("imported=0 failed=1 | ")
         assert self._records(tmp_path) == [("widget", "https://github.com/acme/widget.git", ["keep"], False)]
 
     @pytest.mark.parametrize("surface", ["cli", "dashboard"])
@@ -573,8 +587,11 @@ class TestCollectionListsATargetTwice:
                            b"- https://github.com/acme/first\n- https://github.com/acme/second\n", clone)
 
         assert calls == ["https://github.com/acme/first.git"]
-        assert ("second: conflict: second is already tracked" in out if surface == "cli"
-                else out == "/?imported=0&failed=2")
+        assert "second: conflict: second is already tracked" in out
+        assert surface == "cli" or out == ("imported=0 failed=2 | first: clone failed: network down | "
+                                           "second: conflict: second is already tracked in 'ws' with remote "
+                                           "https://gitlab.com/them/second.git, but this entry asks for "
+                                           "https://github.com/acme/second.git")
         assert self._records(tmp_path) == [("second", "https://gitlab.com/them/second.git", ["theirs"], False)]
 
     @pytest.mark.parametrize("surface", ["cli", "dashboard"])
@@ -588,9 +605,124 @@ class TestCollectionListsATargetTwice:
 
         out = self._import(surface, tmp_path, b"- url: https://github.com/acme/widget\n  tags: [mine]\n", clone)
 
-        assert ("widget: conflict: widget is already tracked" in out if surface == "cli"
-                else out == "/?imported=0&failed=1")
+        assert "widget: conflict: widget is already tracked" in out
+        assert surface == "cli" or out.startswith("imported=0 failed=1 | ")
         assert self._records(tmp_path) == [("widget", "https://gitlab.com/them/widget.git", ["theirs"], False)]
+
+
+class TestImportClassifiesEveryEntryAlike:
+    """R4-C2: one classify_entry() judges every import entry by the key its URL parses to,
+    whatever the file format; the entry's own `key` field never decides anything."""
+
+    GITLAB = "https://gitlab.com/acme/widget.git"
+    CONFLICT = ("acme/widget: conflict: acme/widget is already tracked in 'ws' with remote "
+                "https://github.com/acme/widget.git, but this entry asks for https://gitlab.com/acme/widget.git")
+    FORMATS = {
+        "exported YAML": ("coll.yaml", f"version: 1\nrepos:\n  acme/widget:\n    remote_url: {GITLAB}\n"),
+        "exported JSON": ("coll.json", json.dumps({"version": 1, "repos": [
+            {"key": "acme/widget", "remote_url": GITLAB}]})),
+        "plain URL list": ("coll.txt", "https://gitlab.com/acme/widget\n"),
+    }
+
+    def _setup(self, tmp_path, monkeypatch):
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", tmp_path / "repos.yaml")
+        ws_dir = tmp_path / "ws"
+        (ws_dir / "acme" / "widget" / ".git").mkdir(parents=True)
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+        RepoStore().add(Repo(owner="acme", name="widget", remote_url="https://github.com/acme/widget.git",
+                             workspace="ws", tags=["keep"], frozen=True, added="2026-01-01"))
+        return RepoStore().get("acme/widget", workspace="ws")
+
+    def _run(self, surface, tmp_path, name, body):
+        from unittest.mock import patch
+        failing = {"side_effect": lambda *a, **kw: (False, "network down")}
+        if surface == "cli":
+            coll = tmp_path / name
+            coll.write_text(body)
+            with patch("gitstow.cli.export_cmd.git_clone", **failing) as clone:
+                out = " ".join(runner.invoke(app, ["collection", "import", str(coll)]).output.split())
+        else:
+            from fastapi.testclient import TestClient
+
+            from gitstow.web.server import create_app
+            with patch("gitstow.web.routes.collection.git_clone", **failing) as clone:
+                out = _flash(TestClient(create_app(), base_url="http://127.0.0.1").post(
+                    "/collection/import", follow_redirects=False,
+                    files={"file": (name, body.encode(), "text/plain")}).headers["location"])
+        return out, clone.call_count
+
+    @pytest.mark.parametrize("surface", ["cli", "dashboard"])
+    @pytest.mark.parametrize("fmt", list(FORMATS))
+    def test_a_different_remote_at_the_same_folder_is_a_conflict_in_every_format(
+            self, tmp_path, monkeypatch, surface, fmt):
+        from gitstow.core.repo import RepoStore
+
+        first = self._setup(tmp_path, monkeypatch)
+        name, body = self.FORMATS[fmt]
+
+        out, clones = self._run(surface, tmp_path, name, body)
+
+        if surface == "cli":
+            assert self.CONFLICT in out
+            assert "Done: 0 imported, 1 failed" in out
+        else:
+            assert out == f"imported=0 failed=1 | {self.CONFLICT}"
+        assert clones == 0
+        assert RepoStore().list_all() == [first]  # the first record, every field unchanged
+
+    @pytest.mark.parametrize("surface", ["cli", "dashboard"])
+    def test_the_entry_key_field_never_decides(self, tmp_path, monkeypatch, surface):
+        """An exported key that disagrees with its URL (another layout, a hand edit): the same repo
+        is skipped by its parsed key, a new repo is cloned at its parsed key."""
+        from gitstow.core.repo import RepoStore
+
+        first = self._setup(tmp_path, monkeypatch)
+        body = ("version: 1\nrepos:\n"
+                "  widget:\n    remote_url: git@github.com:acme/widget.git\n"    # flat key, same repo
+                "  acme/widget-two:\n    remote_url: https://github.com/acme/widget-three\n")
+
+        out, clones = self._run(surface, tmp_path, "coll.yaml", body)
+
+        assert clones == 1
+        if surface == "cli":
+            assert "acme/widget: already tracked as acme/widget" in out
+            assert "✗ acme/widget-three: network down" in out and "widget-two" not in out
+            assert "Done: 0 imported, 1 skipped, 1 failed" in out
+        else:
+            assert out == "imported=0 failed=1 | acme/widget-three: clone failed: network down"
+        assert RepoStore().get("acme/widget", workspace="ws") == first
+
+    def test_dry_run_lists_each_entry_once_with_its_decision(self, tmp_path, monkeypatch):
+        from gitstow.core.config import Settings, Workspace, save_config
+
+        config_file = tmp_path / "config.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", tmp_path / "repos.yaml")
+        (tmp_path / "ws").mkdir()
+        save_config(Settings(workspaces=[Workspace(path=str(tmp_path / "ws"), label="ws", layout="structured")]))
+        coll = tmp_path / "coll.yaml"
+        coll.write_bytes(b"- https://github.com/acme/widget\n- git@github.com:acme/widget.git\n"
+                         b"- https://gitlab.com/acme/widget\n- https://github.com/../x\n")
+
+        result = runner.invoke(app, ["collection", "import", str(coll), "--dry-run"])
+
+        out = " ".join(result.output.split())
+        assert result.exit_code == 0, result.output
+        assert out.count("Would add:") == 1 and "Would add: acme/widget → ws" in out
+        assert ("Would skip: acme/widget: listed twice in this file (https://github.com/acme/widget.git), "
+                "imported once") in out
+        assert ("Conflict: acme/widget: this file also lists https://github.com/acme/widget.git for the "
+                "same folder in 'ws'; import one of them into another workspace") in out
+        assert "Cannot add: https://github.com/../x: Cannot use" in out
+        assert "1 new repos to import" in out
+        assert not (tmp_path / "repos.yaml").exists()
 
 
 class TestTrackedButFolderMissing:
