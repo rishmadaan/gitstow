@@ -613,6 +613,20 @@ class TestRemove:
         r = client.post("/repos/test-ws/foo/bar/delete")
         assert r.status_code == 404
 
+    def test_delete_refuses_a_target_behind_a_symlinked_owner(self, client, configured, workspace_dir):
+        """A user-placed symlink: the owner folder points out of the workspace (both inside tmp)."""
+        outside = workspace_dir.parent / "elsewhere"
+        (outside / "bar").mkdir(parents=True)
+        (outside / "bar" / "keep.txt").write_bytes(b"precious\n")
+        (workspace_dir / "foo").symlink_to(outside)
+        RepoStore().add(Repo(owner="foo", name="bar", remote_url="url", workspace="test-ws"))
+
+        r = client.post("/repos/test-ws/foo/bar/delete", follow_redirects=False)
+
+        assert (outside / "bar" / "keep.txt").read_bytes() == b"precious\n"
+        assert r.status_code == 400
+        assert RepoStore().get("foo/bar", workspace="test-ws") is not None
+
 
 # ---------- freeze / tag ----------
 
