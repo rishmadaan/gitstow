@@ -210,6 +210,11 @@ def add(
                 })
                 if show:
                     err_console.print(f"  [red]✗[/red] {repo_key}: local git repo with no origin remote (not cloned over)")
+                    err_console.print(
+                        f"      [dim]Hint: git -C {target} remote add origin {parsed.clone_url}, "
+                        f"then run this add again.[/dim]",
+                        soft_wrap=True,
+                    )
                 continue
             repo = Repo(
                 owner=repo_owner,

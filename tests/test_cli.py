@@ -221,6 +221,18 @@ class TestAddNeverDeletesLocalRepo:
         assert clone.call_count == 0
         assert (target / "sentinel.txt").read_text() == "my local work\n"
 
+    def test_human_mode_names_the_fix(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        ws_dir = TestAddParallelAndConflicts()._setup(tmp_path, monkeypatch)
+        target = ws_dir / "owner" / "repo"
+        self._local_repo(target)
+        with patch("gitstow.cli.add.git_clone") as clone:
+            result = runner.invoke(app, ["add", "owner/repo"])
+        assert result.exit_code == 1
+        assert f"git -C {target} remote add origin https://github.com/owner/repo.git" in result.stderr
+        assert clone.call_count == 0
+
     def test_clone_worker_retry_never_deletes_preexisting_folder(self, tmp_path):
         from unittest.mock import patch
 
