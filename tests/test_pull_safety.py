@@ -534,3 +534,206 @@ def test_no_display_name_feeds_a_git_key():
             for n, line in enumerate(p.read_text().splitlines(), 1)
             if "--abbrev-ref" in line or ("symbolic-ref" in line and "--short" in line)]
     assert hits == []
+
+
+# --- branch names as BYTES (round 5) ---------------------------------------------------
+# git keys branch.<name>.* on the ref's exact bytes. A name that is not valid UTF-8
+# (b"topic-\xff") or that ends in Unicode whitespace ("main　") once sent the
+# override to another key. Names are generated as bytes and every ref and config
+# write goes through bytes argv: a generator over printable text is what missed them.
+
+posix_only = pytest.mark.skipif(os.name == "nt", reason="non-UTF-8 ref names cannot be passed exactly on Windows")
+
+
+def bgit(*args, cwd=None):
+    argv = [a if isinstance(a, bytes) else os.fsencode(a) for a in ("git", *IDENT, *args)]
+    r = subprocess.run(argv, cwd=cwd, capture_output=True, check=False)
+    if r.returncode != 0:
+        raise RuntimeError(f"git {args}: {r.stderr!r}")
+    return r
+
+
+def rename_branch(clone: Path, name: bytes) -> None:
+    """Put the clone on branch `name` (exact bytes), tracking origin/main, with no `main` left."""
+    bgit("update-ref", b"refs/heads/" + name, "HEAD", cwd=clone)
+    bgit("symbolic-ref", "HEAD", b"refs/heads/" + name, cwd=clone)
+    bgit("config", b"branch." + name + b".remote", "origin", cwd=clone)
+    bgit("config", b"branch." + name + b".merge", "refs/heads/main", cwd=clone)
+    bgit("update-ref", "-d", "refs/heads/main", cwd=clone)
+
+
+_NAME_ALPHA = [c for c in [*range(0x21, 0x7f), *range(0x80, 0x100)] if c not in b" ~^:?*[\\\x7f"]
+# over-sampled pieces: Unicode whitespace str.strip() eats, '=', '@', '.', invalid UTF-8
+_NAME_PIECES = [b"=", b"@", b"{", b".", b"/", b'"', b"#", b";", b"\xc2\xa0", b"\xc2\x85",
+                b"\xe3\x80\x80", b"\xe2\x80\xa8", b"\xe2\x80\x89", b"\xff", b"\xc3", b"\xed\xa0\x80",
+                b"\xef\xbf\xbd", b"main", b"heads/", b"HEAD"]
+
+
+def byte_names(n: int, seed: int) -> list[bytes]:
+    """n distinct random byte names that `git check-ref-format` accepts as a branch."""
+    import random
+    rnd = random.Random(seed)
+    out: list[bytes] = []
+    while len(out) < n:
+        name = b"".join(rnd.choice(_NAME_PIECES) if rnd.random() < 0.45 else bytes([rnd.choice(_NAME_ALPHA)])
+                        for _ in range(rnd.randint(1, 6)))
+        if name in out or name == b"main":
+            continue
+        if subprocess.run([b"git", b"check-ref-format", b"refs/heads/" + name], check=False).returncode == 0:
+            out.append(name)
+    return out
+
+
+FIXED_BYTE_NAMES = [b"topic-\xff", "main　".encode(), "main ".encode(),
+                    "main\u0085".encode(), b"a=b"]
+BYTE_NAME_OPTIONS = ["--autostash", "--squash", "-s ours", "-s subtree"]
+FUZZ_OPTIONS = [*BYTE_NAME_OPTIONS, "--overwrite-ignore", "--no-ff", "--no-commit"]
+
+
+def byte_name_cell(templates, name: bytes, opt: str, state: str, work: Path) -> list[str]:
+    tclone, files, expect, upstream = templates[state]
+    root = Path(tempfile.mkdtemp(dir=work))
+    try:
+        clone = root / "clone"
+        shutil.copytree(tclone, clone, symlinks=True)
+        rename_branch(clone, name)
+        bgit("config", b"branch." + name + b".mergeOptions", opt, cwd=clone)
+        before = snapshot(clone, files)
+        result = pull(clone)
+        problems = pull_problems(before, snapshot(clone, files), upstream, result.success)
+        if b"=" in name:
+            if result.success or "has merge options" not in result.error:
+                problems.append(f"expected the '=' refusal, got success={result.success}: {result.error[:80]}")
+        elif result.success != (expect == "ff"):
+            problems.append(f"expected {expect}, got success={result.success}: {result.error[:80]}")
+        return problems
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def byte_name_sweep(templates, names, options, work) -> list[str]:
+    jobs = [(n, o, s) for n in names for o in options for s in templates]
+
+    def one(job):
+        name, opt, state = job
+        problems = byte_name_cell(templates, name, opt, state, work)
+        return f"[{name!r}] x [{opt}] x [{state}]: {problems}" if problems else None
+
+    with ThreadPoolExecutor(max_workers=min(16, (os.cpu_count() or 4) * 2)) as pool:
+        return [line for line in pool.map(one, jobs) if line]
+
+
+@posix_only
+def test_byte_named_branches_x_dangerous_options_every_state(templates, tmp_path):
+    """(5 fixed + 8 seeded random byte names) x 4 merge options on the true key x 8 states."""
+    names = FIXED_BYTE_NAMES + byte_names(8, seed=5)
+    assert byte_name_sweep(templates, names, BYTE_NAME_OPTIONS, tmp_path) == []
+
+
+@posix_only
+@pytest.mark.slow
+def test_byte_name_fuzz_80_names(templates, tmp_path):
+    assert byte_name_sweep(templates, byte_names(80, seed=1), FUZZ_OPTIONS, tmp_path) == []
+
+
+@posix_only
+def test_non_utf8_branch_r4_c1_reproduction(hermetic_git, tmp_path):
+    """Round-4 review reproduction: b"topic-\\xff" with mergeOptions=--autostash and an
+    overlapping edit once returned success with conflict markers and a stash entry."""
+    _up, pusher, clone = make_repos(tmp_path)
+    rename_branch(clone, b"topic-\xff")
+    bgit("config", b"branch.topic-\xff.mergeOptions", "--autostash", cwd=clone)
+    (clone / "x.txt").write_bytes(b"MY LOCAL EDIT\n")
+    (pusher / "x.txt").write_text("UPSTREAM EDIT\n")
+    push(pusher)
+    before = git("rev-parse", "HEAD", cwd=clone).stdout.strip()
+
+    ok, _msg = check_pull(clone, ["x.txt"], git("rev-parse", "HEAD", cwd=pusher).stdout.strip(),
+                          lambda: pulled(clone))
+
+    assert not ok
+    assert (clone / "x.txt").read_bytes() == b"MY LOCAL EDIT\n"
+    assert git("rev-parse", "HEAD", cwd=clone).stdout.strip() == before
+    assert git("stash", "list", cwd=clone).stdout == ""
+
+
+# --- pull.twohead: merge reads it, and two strategies never fast-forward -------------
+
+TWOHEAD_ROWS = [(f"pull.twohead={s}", [("pull.twohead", s)]) for s in ("ours", "subtree", "resolve", "octopus")]
+
+
+def test_pull_twohead_every_state_exactly_as_expected(templates, tmp_path):
+    assert sweep(templates, TWOHEAD_ROWS, tmp_path, check_expected=True) == []
+
+
+def test_pull_twohead_subtree_never_overwrites_an_ignored_file(templates, tmp_path):
+    tclone, files, _expect, upstream = templates["ignored_collision"]
+    clone = tmp_path / "clone"
+    shutil.copytree(tclone, clone, symlinks=True)
+    git("config", "pull.twohead", "subtree", cwd=clone)
+
+    ok, _msg = check_pull(clone, files, upstream, lambda: pulled(clone))
+
+    assert not ok
+    assert (clone / "secret.env").read_bytes() == b"MY LOCAL SECRET\n"
+
+
+def test_pull_twohead_ours_never_makes_a_merge_commit(templates, tmp_path):
+    tclone, files, _expect, upstream = templates["clean_behind"]
+    clone = tmp_path / "clone"
+    shutil.copytree(tclone, clone, symlinks=True)
+    git("config", "pull.twohead", "ours", cwd=clone)
+
+    ok, msg = check_pull(clone, files, upstream, lambda: pulled(clone))
+
+    assert ok, msg
+    assert git("rev-parse", "HEAD", cwd=clone).stdout.strip() == upstream
+    assert (clone / "y.txt").read_text() == "y v2 upstream\n"
+
+
+# --- git never climbs out of the tracked folder ----------------------------------------
+
+@pytest.mark.parametrize("broken", ["empty .git folder", ".git file pointing nowhere"])
+def test_broken_git_inside_another_repo_never_touches_that_repo(hermetic_git, tmp_path, broken):
+    """A workspace inside a folder that is itself a repo; a tracked folder's `.git` is broken.
+    git must not climb to the outer repo and fast-forward it."""
+    _up, pusher, outer = make_repos(tmp_path)
+    (pusher / "y.txt").write_text("y v2 upstream\n")
+    push(pusher)
+    child = outer / "ws" / "acme" / "widget"
+    child.mkdir(parents=True)
+    if broken == "empty .git folder":
+        (child / ".git").mkdir()
+    else:
+        (child / ".git").write_text(f"gitdir: {tmp_path / 'nowhere'}\n")
+    files = sorted(p.name for p in outer.iterdir())
+    head = git("rev-parse", "HEAD", cwd=outer).stdout.strip()
+    ybytes = (outer / "y.txt").read_bytes()
+
+    result = pull(child)
+
+    assert not result.success
+    assert git("rev-parse", "HEAD", cwd=outer).stdout.strip() == head
+    assert (outer / "y.txt").read_bytes() == ybytes
+    assert sorted(p.name for p in outer.iterdir()) == files
+
+
+# --- canary: a new merge.* or pull.* setting in a newer git needs a look ---------------
+
+# Known on git 2.43. pull() pins merge.autoStash, pull.twohead and the branch's
+# mergeOptions, and passes --ff-only (beats merge.ff); pull.* other than twohead is read
+# by `git pull`, which gitstow does not run, or (pull.octopus) never reached.
+KNOWN_MERGE_PULL_KEYS = {
+    "merge.<driver>.driver", "merge.<driver>.name", "merge.<driver>.recursive", "merge.autoStash",
+    "merge.branchdesc", "merge.conflictStyle", "merge.defaultToUpstream", "merge.directoryRenames",
+    "merge.ff", "merge.guitool", "merge.log", "merge.renameLimit", "merge.renames",
+    "merge.renormalize", "merge.stat", "merge.suppressDest", "merge.tool", "merge.verbosity",
+    "merge.verifySignatures", "pull.ff", "pull.octopus", "pull.rebase", "pull.twohead",
+}
+
+
+def test_canary_merge_and_pull_settings_are_all_known():
+    keys = subprocess.run(["git", "help", "--config"], capture_output=True, text=True, check=False).stdout.split()
+    found = {k for k in keys if k.startswith(("merge.", "pull."))}
+    assert "pull.twohead" in found  # the listing itself still works
+    assert found - KNOWN_MERGE_PULL_KEYS == set(), "new merge/pull setting: check pull() still holds"

@@ -2670,6 +2670,51 @@ class TestPullFetchThenMerge(RealGitPullFixture):
         assert self.head() == before
 
 
+@pytest.mark.skipif(os.name == "nt", reason="non-UTF-8 ref names cannot be passed exactly on Windows")
+class TestNonUtf8BranchMessage(RealGitPullFixture):
+    """A branch named b"a=b-\xff" with merge options set is refused; the message reaches the
+    terminal and JSON with U+FFFD in place of the byte, never a UnicodeEncodeError."""
+
+    NAME = b"a=b-\xff"
+
+    def _branch(self, tmp_path, monkeypatch):
+        import subprocess
+
+        self._setup(tmp_path, monkeypatch)
+        name = self.NAME
+        for args in ([b"update-ref", b"refs/heads/" + name, b"HEAD"],
+                     [b"symbolic-ref", b"HEAD", b"refs/heads/" + name],
+                     [b"config", b"branch." + name + b".remote", b"origin"],
+                     [b"config", b"branch." + name + b".merge", b"refs/heads/main"],
+                     [b"config", b"branch." + name + b".mergeOptions", b"--autostash"],
+                     [b"update-ref", b"-d", b"refs/heads/main"]):
+            subprocess.run([b"git", *args], cwd=self.clone, check=True, capture_output=True)
+        self.push_change("y.txt", "y v2\n")
+
+    def test_json(self, tmp_path, monkeypatch):
+        self._branch(tmp_path, monkeypatch)
+
+        result, row = self.cli_pull(["pull", "proj", "--json"], ["x.txt", "y.txt"])
+
+        assert result.exit_code == 1 and isinstance(result.exception, SystemExit), repr(result.exception)
+        assert row["status"] == "error", row
+        assert row["detail"] == ("branch 'a=b-\ufffd' has merge options (branch.a=b-\ufffd.mergeOptions) "
+                                 "that gitstow cannot switch off for a branch name containing '='; "
+                                 "pull it with git")
+
+    def test_terminal(self, tmp_path, monkeypatch):
+        self._branch(tmp_path, monkeypatch)
+
+        def run():
+            out = runner.invoke(app, ["pull", "proj"])
+            assert out.exit_code == 1 and isinstance(out.exception, SystemExit), repr(out.exception)
+            return False, out.output
+        _ok, output = self.checked(["x.txt", "y.txt"], run)
+
+        assert "a=b-\ufffd" in output
+        assert "has merge options" in output
+
+
 class TestFrozenSplitFromUpstream(RealGitPullFixture):
     """--include-frozen on a frozen repo that diverged / has no upstream: a clean skip, no doomed pull."""
 

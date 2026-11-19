@@ -98,14 +98,23 @@ _REPO_LOCATING_VARS = frozenset({
 })
 
 
-def _cwd_only_env() -> dict[str, str]:
-    """The caller's environment without the variables that pick a repo, so `cwd` alone decides."""
-    return {k: v for k, v in os.environ.items() if k not in _REPO_LOCATING_VARS}
+def _cwd_only_env(cwd: Path | None = None) -> dict[str, str]:
+    """The caller's environment without the variables that pick a repo, so `cwd` alone decides.
+
+    With a `cwd`, GIT_CEILING_DIRECTORIES is its resolved parent: git never climbs out
+    of the folder it was pointed at. Without it, a tracked folder whose `.git` is broken
+    or empty, inside another repo (a workspace under a folder that is itself a repo),
+    would make git act on that outer repo instead.
+    """
+    env = {k: v for k, v in os.environ.items() if k not in _REPO_LOCATING_VARS}
+    if cwd is not None:
+        env["GIT_CEILING_DIRECTORIES"] = str(Path(cwd).resolve().parent)
+    return env
 
 
-def _git_env() -> dict[str, str]:
+def _git_env(cwd: Path | None = None) -> dict[str, str]:
     """Env for every subprocess this module runs (see `_run_git` for why)."""
-    return {**_cwd_only_env(), "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"}
+    return {**_cwd_only_env(cwd), "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"}
 
 
 def _run_git(
@@ -134,7 +143,7 @@ def _run_git(
         check=False,
         capture_output=True,
         timeout=timeout,
-        env=_git_env(),
+        env=_git_env(cwd),
         **text_kwargs,
     )
 
@@ -227,9 +236,18 @@ def clone(
 # and re-apply them (conflict markers, exit 0), and branch.<name>.mergeOptions
 # can inject any merge option (--autostash, --squash, -s ours, ...). `-c` beats
 # every config file; neither override needs a particular git version.
+# merge also reads pull.twohead: a strategy there that never fast-forwards (ours,
+# subtree) switches off --ff-only with it (subtree overwrote an ignored file, ours
+# made a merge commit discarding upstream). `recursive` exists in every git and
+# fast-forwards (newer gits run it as ort). The complete set of keys merge reads
+# that can change this outcome: merge.autoStash, branch.<name>.mergeOptions and
+# pull.twohead (pinned here); merge.ff (argv --ff-only wins); pull.octopus (never
+# reached with one upstream head). tests/test_pull_safety.py pins the merge.* and
+# pull.* names so a newer git's new key gets a look.
 def _safe_merge_args(branch: str) -> list[str]:
     return [
         "-c", "merge.autoStash=false",
+        "-c", "pull.twohead=recursive",
         "-c", f"branch.{branch}.mergeOptions=",
         "merge", "--no-stat", "--ff-only", "--no-overwrite-ignore", "@{upstream}",
     ]
@@ -245,22 +263,31 @@ def pull(repo_path: Path) -> PullResult:
     try:
         # The full ref, never `--short`: the short form is a display name (a tag also
         # called `main` makes it `heads/main`), while git keys branch config on the
-        # full ref minus `refs/heads/`.
-        head = _run_git(["symbolic-ref", "-q", "HEAD"], cwd=repo_path)
-        ref = head.stdout.strip()
+        # full ref minus `refs/heads/`, byte for byte. So it is read as bytes and only
+        # the final newline is dropped: `.strip()` would eat Unicode spaces a ref may
+        # end with, and a lossy decode would name another branch's config key.
+        head = _run_git(["symbolic-ref", "-q", "HEAD"], cwd=repo_path, binary=True)
+        ref = head.stdout.removesuffix(b"\n")
         if not ref:  # -q: silent on a detached HEAD, stderr only for a real failure
-            return PullResult(success=False, error=head.stderr.strip()
+            return PullResult(success=False, error=head.stderr.decode("utf-8", "replace").strip()
                               or "not on a branch (detached HEAD): check out a branch, then pull")
-        if not ref.startswith("refs/heads/"):
+        if not ref.startswith(b"refs/heads/"):
             return PullResult(success=False, error=(
-                f"not on a branch (HEAD points at {ref}): check out a branch, then pull"))
-        branch = ref[len("refs/heads/"):]
+                f"not on a branch (HEAD points at {ref.decode('utf-8', 'replace')}): "
+                "check out a branch, then pull"))
+        raw = ref[len(b"refs/heads/"):]
+        shown = raw.decode("utf-8", "replace")  # messages only; never passed to git
+        try:
+            branch = os.fsdecode(raw)  # POSIX: surrogateescape, the exact bytes reach argv again
+        except UnicodeDecodeError:  # Windows: a non-UTF-8 name cannot be passed exactly
+            return PullResult(success=False, error=(
+                f"branch '{shown}' has a name gitstow cannot pass to git exactly; pull it with git"))
         # `-c key=value` splits at the first '=', so the mergeOptions override cannot
         # name a branch containing '='; refuse only when there is something to override.
         if "=" in branch and _run_git(
                 ["config", "--get", f"branch.{branch}.mergeOptions"], cwd=repo_path).stdout.strip():
             return PullResult(success=False, error=(
-                f"branch '{branch}' has merge options (branch.{branch}.mergeOptions) that gitstow "
+                f"branch '{shown}' has merge options (branch.{shown}.mergeOptions) that gitstow "
                 "cannot switch off for a branch name containing '='; pull it with git"))
         fetched = _run_git(["fetch", "--prune"], cwd=repo_path, timeout=120)
         if fetched.returncode != 0:
@@ -270,7 +297,7 @@ def pull(repo_path: Path) -> PullResult:
             if _run_git(["config", "--get", f"branch.{branch}.merge"], cwd=repo_path).stdout.strip():
                 return PullResult(success=False,
                                   error="the upstream branch no longer exists on the remote")
-            return PullResult(success=False, error=f"no upstream configured for branch '{branch}'")
+            return PullResult(success=False, error=f"no upstream configured for branch '{shown}'")
         result = _run_git(_safe_merge_args(branch), cwd=repo_path, timeout=120)
         output = result.stdout.strip()
         stderr = result.stderr.strip()
@@ -573,7 +600,7 @@ def get_file_diff(
             cwd=repo_path,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
-            env=_git_env(),
+            env=_git_env(repo_path),
         )
     except FileNotFoundError:
         return ""
@@ -615,7 +642,7 @@ def run_interactive_diff(repo_path: Path, staged: bool = False) -> int:
     git's terminal diff would be worse than letting git do it.
     """
     args = ["git", "diff"] + (["--cached"] if staged else [])
-    return subprocess.run(args, cwd=repo_path, check=False, env=_cwd_only_env()).returncode
+    return subprocess.run(args, cwd=repo_path, check=False, env=_cwd_only_env(repo_path)).returncode
 
 
 def get_remote_url(repo_path: Path) -> str | None:
@@ -741,7 +768,7 @@ def search_repo(
             timeout=30,
             encoding="utf-8",
             errors="replace",
-            env=_git_env(),
+            env=_git_env(repo_path),
         )
     except (OSError, ValueError, subprocess.TimeoutExpired):  # missing binary, NUL in pattern, slow repo
         return []

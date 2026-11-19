@@ -136,7 +136,7 @@ class TestCloneTimeout:
 def _pull_steps(merge_stdout="", merge_rc=0):
     """`_run_git` results for one pull, in call order: symbolic-ref, fetch, rev-parse, merge."""
     return [
-        MagicMock(returncode=0, stdout="refs/heads/main\n", stderr=""),
+        MagicMock(returncode=0, stdout=b"refs/heads/main\n", stderr=b""),  # read as bytes
         MagicMock(returncode=0, stdout="", stderr=""),
         MagicMock(returncode=0, stdout="abc\n", stderr=""),
         MagicMock(returncode=merge_rc, stdout=merge_stdout, stderr=""),
@@ -155,7 +155,8 @@ class TestPull:
             ["symbolic-ref", "-q", "HEAD"],
             ["fetch", "--prune"],
             ["rev-parse", "--verify", "-q", "@{upstream}"],
-            ["-c", "merge.autoStash=false", "-c", "branch.main.mergeOptions=",
+            ["-c", "merge.autoStash=false", "-c", "pull.twohead=recursive",
+             "-c", "branch.main.mergeOptions=",
              "merge", "--no-stat", "--ff-only", "--no-overwrite-ignore", "@{upstream}"],
         ]
 
@@ -170,8 +171,8 @@ class TestPull:
     def test_pull_failure(self, mock_run):
         mock_run.return_value = MagicMock(
             returncode=128,
-            stdout="",
-            stderr="fatal: not a git repo",
+            stdout=b"",
+            stderr=b"fatal: not a git repo",
         )
         result = pull(Path("/tmp/repo"))
         assert result.success is False
