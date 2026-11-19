@@ -82,11 +82,13 @@ gitstow add anthropic/claude-code --update
 **Behavior:**
 - Repos are added to the first configured workspace, or the workspace specified with `-w`. With none configured, `add` exits 1 with `No workspaces configured…` and clones nothing
 - If the repo is already tracked: skips (or pulls with `--update`)
-- If the path exists on disk but isn't tracked: registers it automatically
+- If the same repo is already tracked in that workspace under another URL form (HTTPS vs SSH, or an Azure repo first added by its SSH `v3/` URL): reports it as already tracked under its stored name and folder, never clones a second copy; `--update` pulls that existing folder
+- If the path exists on disk as a git repo whose `origin` remote matches, but isn't tracked: registers it automatically
+- If the path exists on disk as a git repo with **no** `origin` remote (one you `git init`ed yourself): errors and never clones over it, printing the command to run inside it (`git -C <folder> remote add origin <url>`); run the same `gitstow add` again afterwards to register it
 - If the path exists on disk with a **different** remote than the one requested: errors with a remote-mismatch message instead of silently registering — move the directory or pick another workspace
 - If the path exists but isn't a git repo: errors
 - Equivalent URLs passed twice in the same invocation (e.g. HTTPS and SSH forms of the same repo) are deduplicated — only the first is cloned, the rest are reported as duplicates
-- Multiple URLs are cloned concurrently (bounded by `parallel_limit`, default 6), with per-clone retry via `--retry`
+- Multiple URLs are cloned concurrently (bounded by `parallel_limit`, default 6), with per-clone retry via `--retry`. Each clone first creates its own target folder; if that folder appeared in the meantime (another process got there first), that repo fails and the folder is left untouched. A clone that fails for good leaves no folder behind
 
 ---
 
