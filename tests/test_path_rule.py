@@ -157,10 +157,10 @@ def test_list_and_status_show_only_the_good_record(legacy):
 def test_bulk_pull_force_never_touches_the_outside_repo(legacy):
     result = runner.invoke(app, ["pull", "--force", "--json"])
 
+    assert legacy["snap"]() == legacy["before"]
     assert result.exit_code == 0, result.output
     rows = json.loads(result.stdout)["results"]
     assert [(r["repo"], r["status"]) for r in rows] == [("acme/widget", "pulled")]
-    assert legacy["snap"]() == legacy["before"]
     assert git("rev-parse", "HEAD", cwd=legacy["ws"] / "acme" / "widget") == git(
         "rev-parse", "HEAD", cwd=legacy["tmp"] / "pusher")
 
@@ -168,9 +168,9 @@ def test_bulk_pull_force_never_touches_the_outside_repo(legacy):
 def test_exec_never_runs_in_the_outside_repo(legacy):
     result = runner.invoke(app, ["exec", "--json", "--", "git", "config", "gitstow.test.touched", "yes"])
 
-    assert result.exit_code == 0, result.output
     assert subprocess.run(["git", "config", "gitstow.test.touched"], cwd=legacy["outside"],
                           capture_output=True, text=True, check=False).stdout == ""
+    assert result.exit_code == 0, result.output
     assert git("config", "gitstow.test.touched", cwd=legacy["ws"] / "acme" / "widget") == "yes"
     assert legacy["snap"]() == legacy["before"]
 
@@ -182,10 +182,10 @@ def test_remove_delete_and_move_never_reach_outside(legacy, key_index):
     removed = runner.invoke(app, ["remove", key, "--delete", "--yes"])
     moved = runner.invoke(app, ["repo", "move", key, "b"])
 
-    assert removed.exit_code != 0 and moved.exit_code != 0, (removed.output, moved.output)
     assert legacy["snap"]() == legacy["before"]
     assert (legacy["ws"] / "acme" / "widget" / ".git").is_dir()
     assert legacy["ws"].is_dir()
+    assert removed.exit_code != 0 and moved.exit_code != 0, (removed.output, moved.output)
     assert not (legacy["tmp"] / "b").exists() or list((legacy["tmp"] / "b").iterdir()) == []
     _set_aside_survives(legacy)
 
@@ -195,8 +195,8 @@ def test_migrate_root_never_moves_the_outside_repo(legacy):
 
     result = runner.invoke(app, ["-w", "ws", "config", "migrate-root", str(deeper), "--yes"])
 
-    assert result.exit_code == 0, result.output
     assert legacy["snap"]() == legacy["before"]
+    assert result.exit_code == 0, result.output
     assert (deeper / "acme" / "widget" / ".git").is_dir()  # the good record moved
     assert sorted(p.relative_to(legacy["tmp"]).as_posix() for p in (legacy["tmp"] / "deep").rglob("*")
                   if p.name != ".git" and ".git" not in p.parts) == [
@@ -271,10 +271,10 @@ def test_migrate_root_refuses_a_repo_behind_a_symlinked_owner(tmp_path, monkeypa
 
     result = runner.invoke(app, ["config", "migrate-root", str(deeper), "--yes"])
 
-    assert result.exit_code == 0, result.output
-    assert "acme/victim: resolves outside the workspace; left where it is" in " ".join(result.output.split())
     assert (elsewhere / "victim" / "mine.txt").read_bytes() == b"SENTINEL\n"
     assert not (deeper / "acme").exists()
+    assert result.exit_code == 0, result.output
+    assert "acme/victim: resolves outside the workspace; left where it is" in " ".join(result.output.split())
     assert (deeper / "real" / "repo" / ".git").is_dir()
 
 
