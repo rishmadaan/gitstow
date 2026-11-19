@@ -305,6 +305,30 @@ class TestAddNeverDeletesLocalRepo:
         assert f"git -C {target} remote add origin https://github.com/owner/repo.git" in result.stderr
         assert clone.call_count == 0
 
+    def test_fix_command_is_quoted_for_a_path_with_a_space(self, tmp_path, monkeypatch):
+        import shlex
+        from unittest.mock import patch
+
+        from gitstow.core.config import Settings, Workspace, save_config
+
+        TestAddParallelAndConflicts()._setup(tmp_path, monkeypatch)
+        ws_dir = tmp_path / "my repos"
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+        target = ws_dir / "owner" / "repo"
+        self._local_repo(target)
+        expected = ["git", "-C", str(target), "remote", "add", "origin", "https://github.com/owner/repo.git"]
+
+        with patch("gitstow.cli.add.git_clone") as clone:
+            as_json = runner.invoke(app, ["add", "owner/repo", "--json"])
+            human = runner.invoke(app, ["add", "owner/repo"], env={"COLUMNS": "400"})
+
+        error = json.loads(as_json.stdout)["results"][0]["error"]
+        fix = error.split("(", 1)[1].split(")", 1)[0]
+        assert shlex.split(fix) == expected
+        hint = human.stderr.split("Hint: ", 1)[1].split(", then run", 1)[0]
+        assert shlex.split(hint) == expected
+        assert clone.call_count == 0
+
     @pytest.mark.parametrize("foreign", ["folder", "empty-folder", "dangling-symlink"])
     def test_clone_worker_refuses_a_target_that_appeared_after_phase_1(self, tmp_path, foreign):
         """Another process created the target between classification and the worker."""

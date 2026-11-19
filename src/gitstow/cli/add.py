@@ -6,11 +6,13 @@
 from __future__ import annotations
 
 import json
+import shlex
 import shutil
 import sys
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from gitstow.cli.helpers import resolve_workspaces
 from gitstow.core.config import load_config
@@ -212,20 +214,19 @@ def add(
             if not remote:
                 # Local-only repo: never queue it for cloning — a failed clone's
                 # retry cleanup would delete the user's work.
+                fix = f"git -C {shlex.quote(str(target))} remote add origin {shlex.quote(parsed.clone_url)}"
                 results.append({
                     "repo": repo_key,
                     "status": "error",
                     "error": (
                         f"{target} is a local git repo with no origin remote. To track it, add the remote "
-                        f"inside it (git -C {target} remote add origin {parsed.clone_url}) "
-                        f"and run the same gitstow add again."
+                        f"inside it ({fix}) and run the same gitstow add again."
                     ),
                 })
                 if show:
                     err_console.print(f"  [red]✗[/red] {repo_key}: local git repo with no origin remote (not cloned over)")
                     err_console.print(
-                        f"      [dim]Hint: git -C {target} remote add origin {parsed.clone_url}, "
-                        f"then run this add again.[/dim]",
+                        f"      [dim]Hint: {escape(fix)}, then run this add again.[/dim]",
                         soft_wrap=True,
                     )
                 continue
