@@ -89,7 +89,7 @@ gitstow add anthropic/claude-code --update
 - If the path exists but isn't a git repo: errors
 - Equivalent URLs passed twice in the same invocation (e.g. HTTPS and SSH forms of the same repo) are deduplicated — only the first is cloned, the rest are reported as duplicates
 - Multiple URLs are cloned concurrently (bounded by `parallel_limit`, default 6), with per-clone retry via `--retry`. Each clone runs in a hidden staging folder beside the target (`.gitstow-clone-…`) and is moved into place only when complete; if something appeared at the target in the meantime (another process got there first), that repo fails with `already exists … left untouched` and whatever is there is kept (on Linux and macOS an empty folder at the target is simply replaced; on Windows that clone stops with `already exists`). A clone that fails for good leaves no repo folder behind (an empty owner folder it created may stay). If gitstow is killed mid-clone, a hidden `.gitstow-clone-…` folder may be left beside the target; it is safe to delete
-- A URL whose owner or repo would not be a safe folder name (a `.`, `..` or empty path segment, a segment of only dots and spaces, or a `\`, `:` or control character) is refused as invalid, so a repo always lands inside its workspace
+- A URL whose owner or repo would not be a safe folder name (a `.`, `..` or empty path segment, a segment of only dots and spaces, or a `\`, `:` or control character; a control character anywhere in the URL, such as a pasted tab, is refused rather than dropped) is refused as invalid, so a repo always lands inside its workspace
 - **Limits:** clones and pulls follow symlinks you place inside a workspace (a delete or move refuses a folder that resolves outside it). gitstow does not check for two repos that map to one folder on a case-insensitive file system (`Acme/Widget` and `acme/widget`) or because Windows drops a trailing dot (`widget.` and `widget`), and a Windows reserved name (`con`, `nul`) makes the clone fail
 
 ---
@@ -148,7 +148,7 @@ gitstow pull anthropic/claude-code --force
 - Repos with only untracked files ARE pulled — an ff-only pull can't lose them
 - Uses `--ff-only` — won't create merge commits
 - Never overwrites your local edits or ignored files, whatever your git settings for stashing, rebasing or merge options: a pull that would replace a modified file, or an ignored local file (like a `.env`) that upstream has started tracking, is refused and reported as an error with the files left as they were. Autostash settings (`merge.autoStash`, `rebase.autoStash`), rebase settings (`pull.rebase`, `branch.<name>.rebase`), per-branch merge options (`branch.<name>.mergeOptions`) and a merge strategy set in `pull.twohead` are not used. A branch whose name contains `=` and that has merge options set is refused (pull it with git)
-- git only ever looks at the repo's own folder: a tracked folder whose `.git` is broken or empty is reported as an error, never treated as part of a repo around it
+- gitstow only ever changes the repo's own folder: a tracked folder whose `.git` is broken or empty is reported as an error, never treated as part of a repo around it. gitstow tells git not to look above the folder, and before it fetches or merges it checks that git sees the folder as the top of its own repository, and otherwise leaves it untouched ("… is not the top of its own git repository; left untouched"). `gitstow fetch` makes the same check
 - **Limits:** a pull only fast-forwards, and refuses when that would overwrite a modified, staged, untracked or ignored file. It does not stop programs you have told git to run during a pull, such as hooks (`post-merge`), clean/smudge filters (Git LFS) or helpers chosen through your environment (`GIT_EXEC_PATH`); those run as you configured them and can change files. Editing files while a pull runs can also race with it. `--prune` removes remote-tracking refs that are gone upstream, and with custom refspecs it can remove tags too
 - A branch whose upstream was deleted on the remote is reported as "the upstream branch no longer exists on the remote". A detached HEAD is skipped as a local-only repo here; where a single repo is pulled directly (the dashboard's row Pull, `gitstow add --update`) it is reported as "not on a branch"
 - Runs in parallel (configurable, default 6 concurrent)
@@ -302,6 +302,8 @@ gitstow migrate <path> [paths...]
 ```
 
 Reads the remote URL from the repo, determines the owner/repo, moves the directory into your gitstow root, and registers it.
+
+The repo you name can live anywhere, but its destination must stay inside the workspace: if the destination resolves outside it (for example through a symlinked owner folder), the repo is left where it is and reported as an error.
 
 ```bash
 gitstow migrate ~/old-projects/some-repo
@@ -505,7 +507,7 @@ gitstow collection import <file> [flags]
 - An entry whose folder is already used by a different repo (another host, or another owner in a flat workspace), either earlier in the file or already tracked, is not imported: `gitstow collection import` reports it as a conflict with the reason, and the dashboard's import banner lists it with the reason
 - Every entry is judged by its URL, whatever the file format: an exported YAML or JSON file is treated like a URL list (the `key` stored in an exported file is not used)
 - `--dry-run` lists every entry once with what it would do: add, skip (with the reason), conflict, or cannot add
-- A URL whose owner or repo would not be a safe folder name (a `.`, `..` or empty path segment, a segment of only dots and spaces, or a `\`, `:` or control character) is refused as invalid
+- A URL whose owner or repo would not be a safe folder name (a `.`, `..` or empty path segment, a segment of only dots and spaces, or a `\`, `:` or control character; a control character anywhere in the URL, such as a pasted tab, is refused rather than dropped) is refused as invalid
 
 ---
 
@@ -686,7 +688,7 @@ gitstow doctor
 gitstow doctor --json
 ```
 
-It also lists any repos.yaml entry that was set aside (`set_aside_records` in `--json`): a key that is not a safe folder path inside its workspace, such as `../outside` or an absolute path, which versions before 0.9.0 accepted. Every command ignores such an entry and gitstow keeps it unchanged in repos.yaml; delete it there, then add the repo again (`gitstow add <url>`, or `gitstow workspace scan <label>` for a folder already on disk).
+It also lists any repos.yaml entry that was set aside (`set_aside_records` in `--json`): a key that is not a safe folder path inside its workspace, such as `../outside` or an absolute path, which versions before 0.9.0 accepted. Every command ignores such an entry and gitstow keeps it unchanged in repos.yaml; delete it there, then add the repo again (`gitstow add <url>`, or `gitstow workspace scan <label>` for a folder already on disk). While any entry is set aside, `gitstow list` and `gitstow status` print a one-line reminder on stderr (not with `--json` or `--quiet`).
 
 ### `gitstow install-skill`
 
