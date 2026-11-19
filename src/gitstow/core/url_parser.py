@@ -9,7 +9,8 @@ Supports:
   - Shorthand: owner/repo (assumes default_host)
   - Host-prefixed: github.com/owner/repo
   - Nested groups: gitlab.com/group/subgroup/repo
-  - Azure DevOps: dev.azure.com/org/project/_git/repo
+  - Azure DevOps: dev.azure.com/org/project/_git/repo,
+    git@ssh.dev.azure.com:v3/org/project/repo, org.visualstudio.com/project/_git/repo
 
 Resolution algorithm adopted from ghq (3.5k stars) with improvements.
 """
@@ -23,7 +24,7 @@ from urllib.parse import urlparse
 # Patterns
 _HAS_SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
 _SCP_LIKE = re.compile(r"^([^@]+@)?([^:]+):(.+)$")
-_LOOKS_LIKE_HOST = re.compile(r"[A-Za-z0-9][-A-Za-z0-9]*\.[A-Za-z]{2,}(?::\d{1,5})?$")
+_LOOKS_LIKE_HOST = re.compile(r"(?:[A-Za-z0-9][-A-Za-z0-9]*\.)+[A-Za-z]{2,}(?::\d{1,5})?$")
 
 # Hosts whose repo path is always exactly owner/repo — never nested groups.
 _TWO_SEGMENT_HOSTS = {"github.com", "bitbucket.org", "codeberg.org", "gitea.com"}
@@ -114,8 +115,14 @@ def parse_git_url(
     # Strip .git suffix
     path = path.removesuffix(".git")
 
+    # Azure DevOps SSH (git@ssh.dev.azure.com:v3/org/project/repo) names the
+    # same repo as the HTTPS form: normalise the host and drop the "v3" segment.
+    if host == "ssh.dev.azure.com":
+        host = "dev.azure.com"
+        path = path.removeprefix("v3/")
+
     # Azure DevOps: dev.azure.com/org/project/_git/repo
-    if "dev.azure.com" in host or "visualstudio.com" in host:
+    if _is_azure(host):
         parts = path.split("/")
         if "_git" in parts:
             git_idx = parts.index("_git")
@@ -170,6 +177,10 @@ def _extract_owner_repo(host: str, path: str) -> tuple[str, str]:
     return "/".join(parts[:-1]), parts[-1]
 
 
+def _is_azure(host: str) -> bool:
+    return host == "dev.azure.com" or host.endswith(".visualstudio.com")
+
+
 def _build_clone_url(
     host: str,
     owner: str,
@@ -178,6 +189,13 @@ def _build_clone_url(
     prefer_ssh: bool,
 ) -> str:
     """Build the clone URL from components."""
+    if _is_azure(host):
+        # Azure's documented clone forms: {org}/{project}/_git/{repo} and v3/{org}/{project}/{repo}.
+        if (prefer_ssh or scheme == "ssh") and host == "dev.azure.com":
+            return f"git@ssh.dev.azure.com:v3/{owner}/{repo}"
+        # shortcut: visualstudio.com always clones over HTTPS — its SSH host differs
+        # per organisation; build the SSH form if someone asks for it.
+        return f"https://{host}/{owner}/_git/{repo}"
     if prefer_ssh or scheme == "ssh":
         return f"git@{host}:{owner}/{repo}.git"
     else:

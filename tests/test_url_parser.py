@@ -127,6 +127,43 @@ class TestAzureDevOps:
         assert result.repo == "repo"
 
 
+class TestAzureAndMultiDotHosts:
+    """Schemeless multi-dot hosts parse as hosts; Azure clone URLs use Azure's own forms."""
+
+    AZ_HTTPS = "https://dev.azure.com/org/project/_git/repo"
+    AZ_SSH = "git@ssh.dev.azure.com:v3/org/project/repo"
+    VS_HTTPS = "https://org.visualstudio.com/project/_git/repo"
+
+    @pytest.mark.parametrize("url, prefer_ssh, host, owner, repo, clone_url", [
+        ("dev.azure.com/org/project/_git/repo", False, "dev.azure.com", "org/project", "repo", AZ_HTTPS),
+        (AZ_HTTPS, False, "dev.azure.com", "org/project", "repo", AZ_HTTPS),
+        (AZ_HTTPS + ".git", False, "dev.azure.com", "org/project", "repo", AZ_HTTPS),
+        ("https://org@dev.azure.com/org/project/_git/repo", False, "dev.azure.com", "org/project", "repo", AZ_HTTPS),
+        (AZ_HTTPS, True, "dev.azure.com", "org/project", "repo", AZ_SSH),
+        ("dev.azure.com/org/project/_git/repo", True, "dev.azure.com", "org/project", "repo", AZ_SSH),
+        (AZ_SSH, False, "dev.azure.com", "org/project", "repo", AZ_SSH),
+        (AZ_SSH, True, "dev.azure.com", "org/project", "repo", AZ_SSH),
+        (VS_HTTPS, False, "org.visualstudio.com", "project", "repo", VS_HTTPS),
+        ("org.visualstudio.com/project/_git/repo", False, "org.visualstudio.com", "project", "repo", VS_HTTPS),
+        (VS_HTTPS, True, "org.visualstudio.com", "project", "repo", VS_HTTPS),
+        ("git.example.co.uk/group/repo", False, "git.example.co.uk", "group", "repo",
+         "https://git.example.co.uk/group/repo.git"),
+        ("git.example.co.uk/group/sub/repo", False, "git.example.co.uk", "group/sub", "repo",
+         "https://git.example.co.uk/group/sub/repo.git"),
+        ("owner/repo", False, "github.com", "owner", "repo", "https://github.com/owner/repo.git"),
+        ("owner/repo", True, "github.com", "owner", "repo", "git@github.com:owner/repo.git"),
+        ("my-org/my.repo", False, "github.com", "my-org", "my.repo", "https://github.com/my-org/my.repo.git"),
+    ])
+    def test_table(self, url, prefer_ssh, host, owner, repo, clone_url):
+        result = parse_git_url(url, prefer_ssh=prefer_ssh)
+        assert (result.host, result.owner, result.repo, result.clone_url) == (host, owner, repo, clone_url)
+
+    def test_azure_ssh_and_https_are_the_same_repo(self):
+        from gitstow.cli.add import _same_repo
+        assert _same_repo(self.AZ_SSH, self.AZ_HTTPS, "github.com")
+        assert parse_git_url(self.AZ_SSH).key == parse_git_url(self.AZ_HTTPS).key == "org/project/repo"
+
+
 class TestPreferSSH:
     """SSH preference"""
 
