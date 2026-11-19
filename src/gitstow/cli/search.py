@@ -59,6 +59,7 @@ def search(
       gitstow search "def main" --glob "*.py"
       gitstow search "import React" --tag frontend
       gitstow search -w active "error" -i --files
+      gitstow search -- -foo                  # pattern starting with "-"
     """
     settings = load_config()
     store = RepoStore()
