@@ -52,6 +52,8 @@ def _pull_one_repo(repo: Repo, ws: Workspace, force: bool = False) -> dict:
             "status": "skipped",
             "detail": f"Local changes ({state.local_summary})",
         }
+    # remote_state, not pull_action: the frozen filter already ran upstream (a frozen
+    # repo gets here only under --include-frozen), so frozen must not mask these skips.
     if state.remote_state == "diverged":
         return {
             "repo": repo.key,

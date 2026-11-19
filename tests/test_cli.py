@@ -1823,3 +1823,56 @@ class TestPullForce(RealGitPullFixture):
         assert row["status"] == "pulled"
         assert (self.clone / "x.txt").read_bytes() == b"my local edit\n"
         assert (self.clone / "y.txt").read_text() == "y v2\n"
+
+
+class TestFrozenSplitFromUpstream(RealGitPullFixture):
+    """--include-frozen on a frozen repo that diverged / has no upstream: a clean skip, no doomed pull."""
+
+    def _diverge(self):
+        (self.clone / "y.txt").write_text("local commit\n")
+        _git("commit", "-q", "-am", "local", cwd=self.clone)
+        self.push_change("x.txt", "x v2\n")
+        _git("fetch", "-q", cwd=self.clone)
+
+    def test_cli_frozen_diverged(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        self._setup(tmp_path, monkeypatch, frozen=True)
+        self._diverge()
+        with patch("gitstow.cli.pull.git_pull") as spy:
+            result = runner.invoke(app, ["pull", "--include-frozen", "--json"])
+        row = json.loads(result.stdout)["results"][0]
+        assert row == {"repo": "proj", "status": "skipped",
+                       "detail": "Diverged from remote — resolve manually (rebase or merge)"}
+        assert result.exit_code == 0
+        assert not spy.called
+
+    def test_cli_frozen_no_upstream(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        self._setup(tmp_path, monkeypatch, frozen=True)
+        _git("checkout", "-q", "-b", "local-only", cwd=self.clone)
+        with patch("gitstow.cli.pull.git_pull") as spy:
+            result = runner.invoke(app, ["pull", "--include-frozen", "--json"])
+        row = json.loads(result.stdout)["results"][0]
+        assert row == {"repo": "proj", "status": "skipped",
+                       "detail": "Local-only repo — no upstream configured"}
+        assert result.exit_code == 0
+        assert not spy.called
+
+    def test_mcp_frozen_diverged_and_no_upstream(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+        from gitstow.mcp.server import pull_repos
+
+        self._setup(tmp_path, monkeypatch, frozen=True)
+        self._diverge()
+        with patch("gitstow.cli.pull.git_pull") as spy:
+            diverged = json.loads(pull_repos(include_frozen=True))
+            _git("checkout", "-q", "-b", "local-only", cwd=self.clone)
+            no_upstream = json.loads(pull_repos(include_frozen=True))
+        assert diverged["results"] == [{"repo": "proj", "status": "skipped",
+                                        "detail": "Diverged from remote — resolve manually (rebase or merge)"}]
+        assert diverged["errors"] == 0
+        assert no_upstream["results"] == [{"repo": "proj", "status": "skipped",
+                                           "detail": "Local-only repo — no upstream configured"}]
+        assert not spy.called
