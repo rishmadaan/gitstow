@@ -153,7 +153,7 @@ def doctor(
 
     if not workspaces:
         console.print("     [dim]Nothing to check — no workspaces configured.[/dim]")
-    elif not total_orphaned and not total_missing:
+    elif not total_orphaned and not total_missing and not set_aside:
         console.print(f"\n     [green]✓ All repos in sync across {len(workspaces)} workspace(s)[/green]")
 
     if orphaned_ws:
@@ -175,7 +175,8 @@ def doctor(
             console.print(f"       {escape(f'[{label}]')} {escape(repr(key))}")
         console.print(
             f"       [dim]gitstow keeps {'them' if len(set_aside) != 1 else 'it'} unchanged in {escape(str(repos_file))}. "
-            "Delete each entry there, then add the repo again with 'gitstow add <url>' "
+            f"Delete {'each entry' if len(set_aside) != 1 else 'the entry'} there, then add the repo "
+            "again with 'gitstow add <url>' "
             "(or 'gitstow workspace scan <label>' for a folder already on disk).[/dim]"
         )
 

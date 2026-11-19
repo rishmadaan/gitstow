@@ -152,6 +152,38 @@ def test_list_and_status_show_only_the_good_record(legacy):
         assert result.exit_code == 0, result.output
         rows = json.loads(result.stdout)
         assert [r[field] for r in rows] == ["acme/widget"], rows
+        assert "set aside" not in result.stderr
+
+
+def test_human_list_and_status_say_records_were_set_aside(legacy):
+    for argv in (["list"], ["status"]):
+        result = runner.invoke(app, argv)
+        assert result.exit_code == 0, result.output
+        assert "widget" in result.stdout
+        assert f"{len(legacy['keys'])} repos.yaml entries set aside; see gitstow doctor" in result.stderr
+    assert "set aside" not in runner.invoke(app, ["list", "--quiet"]).output
+    assert "set aside" not in runner.invoke(app, ["-w", "b", "list"]).output  # none in that workspace
+
+
+def test_one_set_aside_record_reads_singular_and_doctor_is_not_in_sync(tmp_path, monkeypatch):
+    from gitstow.core.config import Settings, Workspace, save_config
+
+    config_file, repos_file = tmp_path / "config.yaml", tmp_path / "repos.yaml"
+    monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+    monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+    monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+    (tmp_path / "ws").mkdir()
+    save_config(Settings(workspaces=[Workspace(path=str(tmp_path / "ws"), label="ws", layout="flat")]))
+    repos_file.write_text(yaml.safe_dump({"ws": {"./widget": {"remote_url": "u"}}}))
+
+    listed = runner.invoke(app, ["list"])
+    doctor = " ".join(runner.invoke(app, ["doctor"]).output.split())
+
+    assert "1 repos.yaml entry set aside; see gitstow doctor" in listed.stderr
+    assert "All repos in sync" not in doctor
+    assert "1 repos.yaml entry set aside" in doctor
+    assert "every command ignores it" in doctor
+    assert "Delete the entry there, then add the repo again" in doctor
 
 
 def test_bulk_pull_force_never_touches_the_outside_repo(legacy):
@@ -222,6 +254,7 @@ def test_a_save_keeps_every_set_aside_record_and_doctor_names_them(legacy):
     for key in legacy["keys"]:
         assert repr(key) in human.replace("\n       ", ""), key
     assert "Delete each entry there, then add the repo again" in flat
+    assert "All repos in sync" not in flat
 
 
 # --- discovery skips folder names that fail the rule -----------------------------------------

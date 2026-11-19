@@ -217,10 +217,19 @@ def print_untracked_hint(
     store: RepoStore,
     workspace_label: str | None = None,
 ) -> None:
-    """Human-mode footer: point at untracked repos on disk (cheap walk, no git calls)."""
+    """Human-mode footer: point at untracked repos on disk (cheap walk, no git calls),
+    and at repos.yaml entries set aside on load, which every command otherwise hides."""
     from gitstow.core.discovery import discover_repos
 
-    for ws in resolve_workspaces(settings, workspace_label):
+    workspaces = resolve_workspaces(settings, workspace_label)
+    labels = {ws.label for ws in workspaces}
+    set_aside = sum(1 for label, _ in store.rejected() if label in labels)
+    if set_aside:
+        err_console.print(
+            f"  [dim]{set_aside} repos.yaml entr{'y' if set_aside == 1 else 'ies'} set aside; "
+            "see gitstow doctor[/dim]"
+        )
+    for ws in workspaces:
         root = ws.get_path()
         if not root.is_dir():
             continue
