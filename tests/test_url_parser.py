@@ -282,6 +282,10 @@ class TestPathSegmentsStayInsideTheWorkspace:
         "https://github.com/acme/wid\nget",
         "acme/wid\tget",
         "git@github.com:acme/wid\nget.git",
+        # a browse tail is not checked, but the repo path before it still is
+        "https://github.com/acme//widget/blob/main/a:b.py",
+        "https://github.com/acme/\\Documents/tree/main",
+        "https://gitlab.com/group//sub/repo/-/blob/main/a:b.py",
     ])
     def test_dot_and_empty_segments_raise(self, url):
         with pytest.raises(ValueError, match=r"may not contain '\.', '\.\.' or empty path segments"):
@@ -298,6 +302,10 @@ class TestPathSegmentsStayInsideTheWorkspace:
         ("https://dev.azure.com/org/My%20Project/_git/repo", "org/My%20Project/repo"),
         ("https://gitea.example/über/repo", "über/repo"),
         ("https://github.com/owner/wid get", "owner/wid get"),
+        # ':' or '\\' in a browse link's file path: that tail never becomes a folder
+        ("https://github.com/owner/repo/blob/main/a:b.py", "owner/repo"),
+        ("https://github.com/owner/repo/tree/main/dir\\file", "owner/repo"),
+        ("https://gitlab.com/group/sub/repo/-/blob/main/a:b.py", "group/sub/repo"),
     ])
     def test_dots_inside_a_name_still_parse(self, url, key):
         assert parse_git_url(url).key == key

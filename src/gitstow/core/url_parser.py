@@ -137,10 +137,11 @@ def parse_git_url(
     # Strip .git suffix
     path = path.removesuffix(".git")
 
-    # owner/repo becomes a folder path under the workspace. Every raw segment is
-    # checked before anything drops empty ones or truncates a browse link, so
-    # `acme//widget`, `..`, `\\Documents` or `D:` can never turn into a path outside it.
-    if path and not all(valid_segment(seg) for seg in path.split("/")):
+    # owner/repo becomes a folder path under the workspace. Every raw segment of the
+    # repo path is checked before anything drops empty ones, so `acme//widget`, `..`,
+    # `\\Documents` or `D:` can never turn into a path outside it. A browse link's tail
+    # (…/blob/main/a:b.py) is cut off later and never becomes a folder, so it is not checked.
+    if path and not all(valid_segment(seg) for seg in _before_browse_marker(host, path.split("/"))):
         raise ValueError(f"Cannot use '{original}': {_SEGMENT_RULE}")
 
     # Azure DevOps SSH (git@ssh.dev.azure.com:v3/org/project/repo) names the
@@ -196,16 +197,7 @@ def _extract_owner_repo(host: str, path: str) -> tuple[str, str]:
     truncates browse-UI suffixes (…/repo/tree/main/… → …/repo), and caps
     known single-owner hosts at exactly two segments.
     """
-    parts = [p for p in path.split("/") if p]
-
-    # Word markers only make sense on hosts with fixed owner/repo depth.
-    # Nested-group hosts (GitLab-style) separate browse UI with "/-/", and a
-    # real subgroup repo may legitimately be named "src" or "wiki".
-    markers = _DEEP_LINK_MARKERS if host in _TWO_SEGMENT_HOSTS else {"-"}
-    for i, seg in enumerate(parts):
-        if i >= 2 and seg in markers:
-            parts = parts[:i]
-            break
+    parts = _before_browse_marker(host, [p for p in path.split("/") if p])
 
     if host in _TWO_SEGMENT_HOSTS and len(parts) > 2:
         parts = parts[:2]
@@ -213,6 +205,20 @@ def _extract_owner_repo(host: str, path: str) -> tuple[str, str]:
     if len(parts) < 2:
         return "", parts[0] if parts else ""
     return "/".join(parts[:-1]), parts[-1]
+
+
+def _before_browse_marker(host: str, parts: list[str]) -> list[str]:
+    """`parts` up to the first browse-UI marker after owner/repo (…/repo/tree/main/… → …/repo).
+
+    Word markers only make sense on hosts with fixed owner/repo depth. Nested-group
+    hosts (GitLab-style) separate browse UI with "/-/", and a real subgroup repo may
+    legitimately be named "src" or "wiki".
+    """
+    markers = _DEEP_LINK_MARKERS if host in _TWO_SEGMENT_HOSTS else {"-"}
+    for i, seg in enumerate(parts):
+        if i >= 2 and seg in markers:
+            return parts[:i]
+    return parts
 
 
 def _is_azure(host: str) -> bool:
