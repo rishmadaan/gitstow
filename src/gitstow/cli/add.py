@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import sys
 
@@ -322,19 +321,25 @@ def add(
 def _clone_worker(parsed, target, repo_key, *, retry, shallow, branch, recursive, timeout):
     """Clone one target, retrying up to `retry` times.
 
-    The retry cleanup deletes only a folder this worker's own clone created:
-    a target that existed before the first attempt is never removed.
+    The worker first claims the target with an exclusive mkdir, so the only
+    folder it ever cleans up is one it created itself. If the target already
+    exists (another process got there first), it is refused and left untouched.
     """
-    existed_before = os.path.lexists(target)
     target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        target.mkdir()
+    except FileExistsError:
+        return {"repo": repo_key, "success": False,
+                "error": f"{target} appeared while cloning; left untouched"}
     success, error = False, ""
     for attempt in range(1 + retry):
         if attempt > 0:
-            if existed_before:
-                break  # not ours to delete — fail with the clone error
-            # Clean up partial clone before retrying
-            if target.exists():
-                shutil.rmtree(target, ignore_errors=True)
+            # Empty our own claimed folder of the partial clone, keeping the claim.
+            for child in target.iterdir():
+                if child.is_dir() and not child.is_symlink():
+                    shutil.rmtree(child, ignore_errors=True)
+                else:
+                    child.unlink(missing_ok=True)
         success, error = git_clone(
             url=parsed.clone_url,
             target=target,
@@ -345,6 +350,9 @@ def _clone_worker(parsed, target, repo_key, *, retry, shallow, branch, recursive
         )
         if success:
             break
+    if not success:
+        # Ours to remove; an empty leftover would make the next add fail as "not a git repo".
+        shutil.rmtree(target, ignore_errors=True)
     return {"repo": repo_key, "success": success, "error": error}
 
 

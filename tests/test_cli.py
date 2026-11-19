@@ -233,15 +233,22 @@ class TestAddNeverDeletesLocalRepo:
         assert f"git -C {target} remote add origin https://github.com/owner/repo.git" in result.stderr
         assert clone.call_count == 0
 
-    def test_clone_worker_retry_never_deletes_preexisting_folder(self, tmp_path):
+    @pytest.mark.parametrize("foreign", ["folder", "empty-folder", "dangling-symlink"])
+    def test_clone_worker_refuses_a_target_that_appeared_after_phase_1(self, tmp_path, foreign):
+        """Another process created the target between classification and the worker."""
         from unittest.mock import patch
 
         from gitstow.cli.add import _clone_worker
         from gitstow.core.url_parser import parse_git_url
 
         target = tmp_path / "owner" / "repo"
-        target.mkdir(parents=True)
-        (target / "sentinel.txt").write_text("keep me\n")
+        target.parent.mkdir(parents=True)
+        if foreign == "dangling-symlink":
+            target.symlink_to(tmp_path / "nowhere")
+        else:
+            target.mkdir()
+            if foreign == "folder":
+                (target / "sentinel.txt").write_bytes(b"keep me\r\n")
 
         with patch("gitstow.cli.add.git_clone", return_value=(False, "clone failed")) as clone:
             out = _clone_worker(
@@ -249,9 +256,49 @@ class TestAddNeverDeletesLocalRepo:
                 retry=1, shallow=False, branch=None, recursive=False, timeout=30,
             )
 
-        assert out == {"repo": "owner/repo", "success": False, "error": "clone failed"}
-        assert clone.call_count == 1  # no retry into a folder we did not create
-        assert (target / "sentinel.txt").read_text() == "keep me\n"
+        assert out == {"repo": "owner/repo", "success": False,
+                       "error": f"{target} appeared while cloning; left untouched"}
+        assert clone.call_count == 0  # never cloned into, never cleaned up
+        if foreign == "dangling-symlink":
+            assert target.is_symlink()
+        else:
+            assert sorted(p.name for p in target.iterdir()) == (["sentinel.txt"] if foreign == "folder" else [])
+        if foreign == "folder":
+            assert (target / "sentinel.txt").read_bytes() == b"keep me\r\n"
+
+    def test_clone_worker_never_deletes_a_folder_another_process_won(self, tmp_path):
+        """Sol's race: another process creates the target while our clone runs; retry must not delete it."""
+        from unittest.mock import patch
+
+        from gitstow.cli.add import _clone_worker
+        from gitstow.core.url_parser import parse_git_url
+
+        target = tmp_path / "owner" / "repo"
+        foreign = {"tried": False, "won": False}
+
+        def clone_while_another_process_races(url, target, **kw):
+            if not foreign["tried"]:  # the other process tries once, with its own exclusive claim
+                foreign["tried"] = True
+                try:
+                    target.mkdir()
+                except FileExistsError:
+                    pass
+                else:
+                    foreign["won"] = True
+                    (target / "sentinel.txt").write_bytes(b"theirs\n")
+            return False, "destination path already exists"
+
+        with patch("gitstow.cli.add.git_clone", side_effect=clone_while_another_process_races):
+            _clone_worker(
+                parse_git_url("owner/repo"), target, "owner/repo",
+                retry=2, shallow=False, branch=None, recursive=False, timeout=30,
+            )
+
+        assert foreign["tried"]
+        if foreign["won"]:
+            assert (target / "sentinel.txt").read_bytes() == b"theirs\n"
+        else:
+            assert not target.exists()  # we held the claim throughout, then removed our own folder
 
     def test_clone_worker_retry_still_cleans_its_own_partial_clone(self, tmp_path):
         from unittest.mock import patch
@@ -263,11 +310,13 @@ class TestAddNeverDeletesLocalRepo:
         seen = []
 
         def flaky_clone(url, target, **kw):
-            seen.append(target.exists())
+            seen.append(sorted(p.name for p in target.iterdir()))
             if len(seen) == 1:
-                (target / "partial").mkdir(parents=True)
+                (target / "partial").mkdir()
+                (target / "partial" / "obj").write_text("half\n")
+                (target / "loose.txt").write_text("half\n")
                 return False, "network blip"
-            (target / ".git").mkdir(parents=True)
+            (target / ".git").mkdir()
             return True, ""
 
         with patch("gitstow.cli.add.git_clone", side_effect=flaky_clone):
@@ -277,7 +326,59 @@ class TestAddNeverDeletesLocalRepo:
             )
 
         assert out["success"] is True
-        assert seen == [False, False]  # its own partial clone was removed before the retry
+        assert seen == [[], []]  # each attempt runs in its own claimed, empty folder
+        assert sorted(p.name for p in target.iterdir()) == [".git"]
+
+    def test_clone_worker_real_git_clones_into_its_claimed_folder(self, tmp_path, monkeypatch):
+        """git clone must accept the empty folder the worker claimed; a real failure leaves none."""
+        from gitstow.cli.add import _clone_worker
+        from gitstow.core.url_parser import parse_git_url
+
+        monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "no-gitconfig"))
+        monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+        upstream = tmp_path / "up"
+        self._local_repo(upstream)
+        parsed = parse_git_url("owner/repo")
+
+        good = tmp_path / "ws" / "owner" / "repo"
+        parsed.clone_url = str(upstream)
+        out = _clone_worker(parsed, good, "owner/repo",
+                            retry=0, shallow=False, branch=None, recursive=False, timeout=30)
+        assert out["success"] is True, out
+        assert (good / "sentinel.txt").read_text() == "my local work\n"
+
+        bad = tmp_path / "ws" / "owner" / "missing"
+        parsed.clone_url = str(tmp_path / "no-such-upstream")
+        out = _clone_worker(parsed, bad, "owner/missing",
+                            retry=1, shallow=False, branch=None, recursive=False, timeout=30)
+        assert out["success"] is False
+        assert not bad.exists()
+
+    def test_clone_worker_final_failure_leaves_no_folder(self, tmp_path):
+        import os
+        from unittest.mock import patch
+
+        from gitstow.cli.add import _clone_worker
+        from gitstow.core.url_parser import parse_git_url
+
+        target = tmp_path / "owner" / "repo"
+        seen = []
+
+        def failing_clone(url, target, **kw):
+            seen.append(sorted(p.name for p in target.iterdir()))
+            (target / "partial").mkdir()
+            return False, "network blip"
+
+        with patch("gitstow.cli.add.git_clone", side_effect=failing_clone):
+            out = _clone_worker(
+                parse_git_url("owner/repo"), target, "owner/repo",
+                retry=1, shallow=False, branch=None, recursive=False, timeout=30,
+            )
+
+        assert out == {"repo": "owner/repo", "success": False, "error": "network blip"}
+        assert seen == [[], []]
+        assert not os.path.lexists(target)  # the next add would otherwise fail as "not a git repo"
+        assert (tmp_path / "owner").is_dir()  # the parent we may share is kept
 
 
 class TestManageWorkspaceResolution:
