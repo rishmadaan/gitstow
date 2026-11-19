@@ -87,9 +87,25 @@ class CommitInfo:
     author: str = ""
 
 
+# What `git rev-parse --local-env-vars` prints (git 2.43). A git hook or alias runs
+# gitstow with these set for *its* repo; left in, they override `cwd`, so a pull of
+# repo B would move repo A's branch and write A's files into B.
+_REPO_LOCATING_VARS = frozenset({
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT", "GIT_OBJECT_DIRECTORY", "GIT_DIR", "GIT_WORK_TREE",
+    "GIT_IMPLICIT_WORK_TREE", "GIT_GRAFT_FILE", "GIT_INDEX_FILE", "GIT_NO_REPLACE_OBJECTS",
+    "GIT_REPLACE_REF_BASE", "GIT_PREFIX", "GIT_SHALLOW_FILE", "GIT_COMMON_DIR",
+})
+
+
+def _cwd_only_env() -> dict[str, str]:
+    """The caller's environment without the variables that pick a repo, so `cwd` alone decides."""
+    return {k: v for k, v in os.environ.items() if k not in _REPO_LOCATING_VARS}
+
+
 def _git_env() -> dict[str, str]:
     """Env for every subprocess this module runs (see `_run_git` for why)."""
-    return {**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"}
+    return {**_cwd_only_env(), "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"}
 
 
 def _run_git(
@@ -592,7 +608,7 @@ def run_interactive_diff(repo_path: Path, staged: bool = False) -> int:
     git's terminal diff would be worse than letting git do it.
     """
     args = ["git", "diff"] + (["--cached"] if staged else [])
-    return subprocess.run(args, cwd=repo_path, check=False).returncode
+    return subprocess.run(args, cwd=repo_path, check=False, env=_cwd_only_env()).returncode
 
 
 def get_remote_url(repo_path: Path) -> str | None:
