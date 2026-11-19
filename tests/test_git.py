@@ -53,51 +53,63 @@ class TestIsGitRepo:
         assert is_git_repo(tmp_path) is True
 
 
+def _fake_git_clone(returncode=0, stderr=""):
+    """Stand-in for `git clone`: on success it creates the folder it was told to clone into."""
+    def run(args, *a, **kw):
+        if returncode == 0:
+            Path(args[-1]).mkdir()
+        return MagicMock(returncode=returncode, stderr=stderr)
+    return run
+
+
 class TestClone:
     @patch("gitstow.core.git._run_git")
-    def test_clone_success(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=0)
-        ok, err = clone("https://example.com/repo.git", Path("/tmp/repo"))
+    def test_clone_success(self, mock_run, tmp_path):
+        mock_run.side_effect = _fake_git_clone()
+        ok, err = clone("https://example.com/repo.git", tmp_path / "repo")
         assert ok is True
         assert err == ""
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["repo"]  # published, staging gone
 
     @patch("gitstow.core.git._run_git")
-    def test_clone_failure(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=128, stderr="fatal: repo not found")
-        ok, err = clone("https://example.com/repo.git", Path("/tmp/repo"))
+    def test_clone_failure(self, mock_run, tmp_path):
+        mock_run.side_effect = _fake_git_clone(128, "fatal: repo not found")
+        ok, err = clone("https://example.com/repo.git", tmp_path / "repo")
         assert ok is False
         assert "not found" in err
+        assert list(tmp_path.iterdir()) == []
 
     @patch("gitstow.core.git._run_git")
-    def test_clone_shallow(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=0)
-        clone("https://example.com/repo.git", Path("/tmp/repo"), shallow=True)
+    def test_clone_shallow(self, mock_run, tmp_path):
+        mock_run.side_effect = _fake_git_clone()
+        clone("https://example.com/repo.git", tmp_path / "repo", shallow=True)
         args = mock_run.call_args[0][0]
         assert "--depth" in args
         assert "1" in args
 
     @patch("gitstow.core.git._run_git")
-    def test_clone_branch(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=0)
-        clone("https://example.com/repo.git", Path("/tmp/repo"), branch="dev")
+    def test_clone_branch(self, mock_run, tmp_path):
+        mock_run.side_effect = _fake_git_clone()
+        clone("https://example.com/repo.git", tmp_path / "repo", branch="dev")
         args = mock_run.call_args[0][0]
         assert "--branch" in args
         assert "dev" in args
 
     @patch("gitstow.core.git._run_git")
-    def test_clone_recursive(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=0)
-        clone("https://example.com/repo.git", Path("/tmp/repo"), recursive=True)
+    def test_clone_recursive(self, mock_run, tmp_path):
+        mock_run.side_effect = _fake_git_clone()
+        clone("https://example.com/repo.git", tmp_path / "repo", recursive=True)
         args = mock_run.call_args[0][0]
         assert "--recurse-submodules" in args
 
     @patch("gitstow.core.git._run_git")
-    def test_clone_timeout(self, mock_run):
+    def test_clone_timeout(self, mock_run, tmp_path):
         import subprocess
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=300)
-        ok, err = clone("https://example.com/repo.git", Path("/tmp/repo"))
+        ok, err = clone("https://example.com/repo.git", tmp_path / "repo")
         assert ok is False
         assert "timed out" in err.lower()
+        assert list(tmp_path.iterdir()) == []  # the staging folder is removed on timeout too
 
 
 class TestDiskSize:
@@ -115,9 +127,9 @@ class TestDiskSize:
 
 class TestCloneTimeout:
     @patch("gitstow.core.git._run_git")
-    def test_clone_passes_timeout(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=0)
-        clone("https://example.com/r.git", Path("/tmp/r"), timeout=900)
+    def test_clone_passes_timeout(self, mock_run, tmp_path):
+        mock_run.side_effect = _fake_git_clone()
+        clone("https://example.com/r.git", tmp_path / "r", timeout=900)
         assert mock_run.call_args.kwargs["timeout"] == 900
 
 

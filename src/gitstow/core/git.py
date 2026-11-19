@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import tempfile
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -157,11 +158,22 @@ def clone(
     recursive: bool = False,
     timeout: int = 300,
 ) -> tuple[bool, str]:
-    """Clone a repository.
+    """Clone a repository into `target`, which is either absent or complete afterwards.
+
+    git clones into a private staging folder beside the target
+    (`<parent>/.gitstow-clone-<random>/`), then one `os.rename` publishes it.
+    The kernel refuses that rename onto a non-empty folder, a file or a symlink,
+    so whatever another process put at the target is never replaced (an empty
+    folder may be: nothing in it to lose). Cleanup only ever removes the staging
+    folder, which no one else knows about. A run killed mid-clone can leave the
+    hidden staging folder behind; discovery skips hidden folders.
 
     Returns:
         (success, error_message)
     """
+    target.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=".gitstow-clone-", dir=target.parent))
+    work = staging / target.name
     args = ["clone", "--progress"]
     if shallow:
         args.extend(["--depth", "1"])
@@ -169,18 +181,26 @@ def clone(
         args.extend(["--branch", branch, "--single-branch"])
     if recursive:
         args.append("--recurse-submodules")
-    args.extend(["--", url, str(target)])
+    args.extend(["--", url, str(work)])
 
     try:
         result = _run_git(args, timeout=timeout)
-        if result.returncode == 0:
-            return True, ""
-        return False, result.stderr.strip()
+        if result.returncode != 0:
+            return False, result.stderr.strip()
+        try:
+            os.rename(work, target)
+        except OSError as exc:
+            if os.path.lexists(target):
+                return False, f"{target} already exists (created after gitstow checked it); left untouched"
+            return False, f"could not move the clone into {target}: {exc.strerror}"
+        return True, ""
     except subprocess.TimeoutExpired:
         return False, (
             f"Clone timed out ({timeout // 60} minutes) — raise it with: "
             f"gitstow config set clone_timeout <seconds>"
         )
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
 
 
 # Fetch then merge, not `git pull`: pull cannot refuse to overwrite an ignored

@@ -6,8 +6,8 @@
 from __future__ import annotations
 
 import json
+import os
 import shlex
-import shutil
 import sys
 
 import typer
@@ -321,25 +321,11 @@ def add(
 def _clone_worker(parsed, target, repo_key, *, retry, shallow, branch, recursive, timeout):
     """Clone one target, retrying up to `retry` times.
 
-    The worker first claims the target with an exclusive mkdir, so the only
-    folder it ever cleans up is one it created itself. If the target already
-    exists (another process got there first), it is refused and left untouched.
+    `git_clone` stages each attempt privately and publishes by rename, so the
+    target is never touched by a failed attempt and nothing here cleans up.
     """
-    target.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        target.mkdir()
-    except FileExistsError:
-        return {"repo": repo_key, "success": False,
-                "error": f"{target} appeared while cloning; left untouched"}
     success, error = False, ""
-    for attempt in range(1 + retry):
-        if attempt > 0:
-            # Empty our own claimed folder of the partial clone, keeping the claim.
-            for child in target.iterdir():
-                if child.is_dir() and not child.is_symlink():
-                    shutil.rmtree(child, ignore_errors=True)
-                else:
-                    child.unlink(missing_ok=True)
+    for _attempt in range(1 + retry):
         success, error = git_clone(
             url=parsed.clone_url,
             target=target,
@@ -348,11 +334,8 @@ def _clone_worker(parsed, target, repo_key, *, retry, shallow, branch, recursive
             recursive=recursive,
             timeout=timeout,
         )
-        if success:
+        if success or os.path.lexists(target):  # a taken target refuses every retry too
             break
-    if not success:
-        # Ours to remove; an empty leftover would make the next add fail as "not a git repo".
-        shutil.rmtree(target, ignore_errors=True)
     return {"repo": repo_key, "success": success, "error": error}
 
 

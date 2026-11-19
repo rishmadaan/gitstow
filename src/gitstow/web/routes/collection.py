@@ -175,7 +175,6 @@ async def import_collection(
             succeeded += 1
             continue
 
-        target.parent.mkdir(parents=True, exist_ok=True)
         clone_fn = functools.partial(
             git_clone, parsed.clone_url, target, timeout=settings.clone_timeout,
         )

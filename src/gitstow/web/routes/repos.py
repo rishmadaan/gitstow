@@ -397,7 +397,6 @@ async def add_repo(
             )
     else:
         # Clone
-        target.parent.mkdir(parents=True, exist_ok=True)
         clone_fn = functools.partial(
             git_clone, parsed.clone_url, target, timeout=settings.clone_timeout,
         )

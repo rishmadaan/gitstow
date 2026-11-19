@@ -88,7 +88,7 @@ gitstow add anthropic/claude-code --update
 - If the path exists on disk with a **different** remote than the one requested: errors with a remote-mismatch message instead of silently registering — move the directory or pick another workspace
 - If the path exists but isn't a git repo: errors
 - Equivalent URLs passed twice in the same invocation (e.g. HTTPS and SSH forms of the same repo) are deduplicated — only the first is cloned, the rest are reported as duplicates
-- Multiple URLs are cloned concurrently (bounded by `parallel_limit`, default 6), with per-clone retry via `--retry`. Each clone first creates its own target folder; if that folder appeared in the meantime (another process got there first), that repo fails and the folder is left untouched. A clone that fails for good leaves no folder behind
+- Multiple URLs are cloned concurrently (bounded by `parallel_limit`, default 6), with per-clone retry via `--retry`. Each clone runs in a hidden staging folder beside the target (`.gitstow-clone-…`) and is moved into place only when complete; if something appeared at the target in the meantime (another process got there first), that repo fails with `already exists … left untouched` and whatever is there is kept. A clone that fails for good leaves no folder behind
 
 ---
 
