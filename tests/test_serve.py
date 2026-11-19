@@ -447,6 +447,46 @@ class TestAddRepo:
         assert called["clone"] == 0
         assert RepoStore().get("acme/widget", workspace="test-ws") is not None
 
+    @pytest.mark.parametrize("url", [
+        "git@ssh.dev.azure.com:v3/org/proj/repo",
+        "https://dev.azure.com/org/proj/_git/repo",
+    ])
+    def test_finds_record_tracked_under_another_url_form(
+            self, client, configured, workspace_dir, monkeypatch, url):
+        """A legacy Azure SSH record (keyed `v3/...` before 0.9.0) is found, not cloned again."""
+        RepoStore().add(Repo(owner="v3/org/proj", name="repo",
+                             remote_url="git@ssh.dev.azure.com:v3/org/proj/repo.git",
+                             workspace="test-ws", tags=["work"], frozen=True))
+        called = []
+        monkeypatch.setattr("gitstow.web.routes.repos.git_clone",
+                            lambda *a, **kw: called.append(a) or (True, ""))
+
+        r = client.post("/repos/add", data={"url": url, "workspace": "test-ws"},
+                        follow_redirects=False)
+
+        assert r.status_code == 200
+        assert "Already tracked as v3/org/proj/repo in workspace &#39;test-ws&#39;." in r.text
+        assert called == []
+        assert [(x.key, x.remote_url, x.tags, x.frozen) for x in RepoStore().list_all()] == [
+            ("v3/org/proj/repo", "git@ssh.dev.azure.com:v3/org/proj/repo.git", ["work"], True)]
+        assert not (workspace_dir / "org").exists()
+
+    def test_same_key_keeps_its_tags_and_frozen_state(self, client, configured, workspace_dir, monkeypatch):
+        """Re-adding a tracked repo by its own URL used to re-register it, wiping tags and frozen."""
+        _make_repo_on_disk(workspace_dir, "acme", "widget")
+        RepoStore().add(Repo(owner="acme", name="widget", remote_url="https://github.com/acme/widget.git",
+                             workspace="test-ws", tags=["keep"], frozen=True))
+        monkeypatch.setattr("gitstow.web.routes.repos.git_clone",
+                            lambda *a, **kw: pytest.fail("must not clone"))
+
+        r = client.post("/repos/add", data={"url": "acme/widget", "workspace": "test-ws"},
+                        follow_redirects=False)
+
+        assert r.status_code == 200
+        assert "Already tracked as acme/widget" in r.text
+        repo = RepoStore().get("acme/widget", workspace="test-ws")
+        assert (repo.tags, repo.frozen) == (["keep"], True)
+
 
 # ---------- pull ----------
 

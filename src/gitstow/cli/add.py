@@ -20,20 +20,10 @@ from gitstow.core.git import clone as git_clone
 from gitstow.core.git import get_remote_url, is_git_repo
 from gitstow.core.parallel import run_parallel_sync
 from gitstow.core.repo import Repo, RepoStore
-from gitstow.core.url_parser import parse_git_url
+from gitstow.core.url_parser import parse_git_url, same_repo
 
 console = Console()
 err_console = Console(stderr=True)
-
-
-def _same_repo(url_a: str, url_b: str, default_host: str) -> bool:
-    """Whether two remote URLs point at the same host/owner/repo (protocol-agnostic)."""
-    try:
-        pa = parse_git_url(url_a, default_host=default_host)
-        pb = parse_git_url(url_b, default_host=default_host)
-    except ValueError:
-        return False
-    return (pa.host, pa.owner, pa.repo) == (pb.host, pb.owner, pb.repo)
 
 
 def add(
@@ -139,17 +129,12 @@ def add(
 
         repo_key = f"{repo_owner}/{parsed.repo}" if repo_owner else parsed.repo
 
-        existing = store.get(repo_key, workspace=ws.label)
-        matched_by_remote = False
-        if not existing:
-            # Same repo tracked under another key (e.g. an Azure SSH `v3/` key from before
-            # 0.9.0): use that record and its folder, never clone a second copy.
-            existing = next((r for r in store.list_by_workspace(ws.label) if r.remote_url
-                             and _same_repo(r.remote_url, parsed.clone_url, settings.default_host)), None)
-            if existing:
-                matched_by_remote = True
-                asked_key, repo_key = repo_key, existing.key
-                target = existing.get_path(root)
+        existing = store.find_tracked(repo_key, ws.label, parsed.clone_url, settings.default_host)
+        matched_by_remote = existing is not None and existing.key != repo_key
+        if matched_by_remote:
+            # Use that record and its folder, never clone a second copy.
+            asked_key, repo_key = repo_key, existing.key
+            target = existing.get_path(root)
 
         # Dedup equivalent URLs within one invocation — the parallel phase must
         # never see two workers targeting the same directory (clone collision,
@@ -198,7 +183,7 @@ def add(
         # Path exists on disk but not tracked
         if target.exists() and is_git_repo(target):
             remote = get_remote_url(target)
-            if remote and not _same_repo(remote, parsed.clone_url, settings.default_host):
+            if remote and not same_repo(remote, parsed.clone_url, settings.default_host):
                 # Different remote → error and explain the conflict (never silently register).
                 results.append({
                     "repo": repo_key,

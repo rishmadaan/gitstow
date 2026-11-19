@@ -151,6 +151,16 @@ def parse_git_url(
     )
 
 
+def same_repo(url_a: str, url_b: str, default_host: str) -> bool:
+    """Whether two remote URLs point at the same host/owner/repo (protocol-agnostic)."""
+    try:
+        pa = parse_git_url(url_a, default_host=default_host)
+        pb = parse_git_url(url_b, default_host=default_host)
+    except ValueError:
+        return False
+    return (pa.host, pa.owner, pa.repo) == (pb.host, pb.owner, pb.repo)
+
+
 def _extract_owner_repo(host: str, path: str) -> tuple[str, str]:
     """Split a URL path into owner and repo.
 

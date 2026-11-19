@@ -174,16 +174,19 @@ def add_repo(
     repo_key = f"{repo_owner}/{parsed.repo}" if repo_owner else parsed.repo
     all_tags = list(tags or []) + list(ws.auto_tags)
 
-    # Check if already tracked
-    existing = store.get(repo_key, workspace=ws.label)
+    # Already tracked, by key or under another URL form's key
+    existing = store.find_tracked(repo_key, ws.label, parsed.clone_url, settings.default_host)
     if existing:
-        return json.dumps({
+        row = {
             "success": True,
             "status": "already_tracked",
-            "key": repo_key,
+            "key": existing.key,
             "workspace": ws.label,
-            "path": str(target),
-        })
+            "path": str(existing.get_path(root)),
+        }
+        if existing.key != repo_key:
+            row["detail"] = f"same repo as {repo_key}, already tracked as {existing.key}"
+        return json.dumps(row)
 
     # Already on disk but not tracked
     if target.exists() and is_git_repo(target):

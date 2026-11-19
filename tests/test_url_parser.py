@@ -159,8 +159,8 @@ class TestAzureAndMultiDotHosts:
         assert (result.host, result.owner, result.repo, result.clone_url) == (host, owner, repo, clone_url)
 
     def test_azure_ssh_and_https_are_the_same_repo(self):
-        from gitstow.cli.add import _same_repo
-        assert _same_repo(self.AZ_SSH, self.AZ_HTTPS, "github.com")
+        from gitstow.core.url_parser import same_repo
+        assert same_repo(self.AZ_SSH, self.AZ_HTTPS, "github.com")
         assert parse_git_url(self.AZ_SSH).key == parse_git_url(self.AZ_HTTPS).key == "org/project/repo"
 
 

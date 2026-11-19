@@ -19,6 +19,7 @@ import yaml
 
 from gitstow.core.locking import file_lock
 from gitstow.core.paths import get_repos_file
+from gitstow.core.url_parser import same_repo
 
 
 @dataclass
@@ -242,6 +243,17 @@ class RepoStore:
         if global_key:
             return self._repos.get(global_key)
         return None
+
+    def find_tracked(self, key: str, workspace: str, remote_url: str,
+                     default_host: str) -> Repo | None:
+        """The record for this repo in `workspace`: by key, else by remote identity.
+
+        The second lookup finds the same repo tracked under another key (e.g. an
+        Azure SSH `v3/...` key from before 0.9.0), so an add never clones a second copy.
+        """
+        return self.get(key, workspace=workspace) or next(
+            (r for r in self.list_by_workspace(workspace)
+             if r.remote_url and same_repo(r.remote_url, remote_url, default_host)), None)
 
     def find_all(self, key: str) -> list[Repo]:
         """Find all repos matching a key across all workspaces."""

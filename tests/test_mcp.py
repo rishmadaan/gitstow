@@ -185,3 +185,37 @@ def test_list_workspaces_and_get_config_still_answer_with_empties(isolated):
 
     assert json.loads(list_workspaces()) == []
     assert json.loads(get_config())["workspaces"] == []
+
+
+LEGACY_AZURE_KEY = "v3/org/proj/repo"
+LEGACY_AZURE_REMOTE = "git@ssh.dev.azure.com:v3/org/proj/repo.git"
+
+
+@pytest.mark.parametrize("url", [
+    "git@ssh.dev.azure.com:v3/org/proj/repo",
+    "https://dev.azure.com/org/proj/_git/repo",
+])
+def test_add_repo_finds_record_tracked_under_another_url_form(isolated, url):
+    """A legacy Azure SSH record (keyed `v3/...` before 0.9.0) is found, not cloned again."""
+    from gitstow.core.config import Settings, Workspace, save_config
+    from gitstow.core.repo import Repo, RepoStore
+    from gitstow.mcp.server import add_repo
+
+    ws_dir = isolated / "ws"
+    ws_dir.mkdir()
+    save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+    RepoStore().add(Repo(owner="v3/org/proj", name="repo", remote_url=LEGACY_AZURE_REMOTE,
+                         workspace="ws", tags=["work"], frozen=True))
+
+    with patch("gitstow.mcp.server.git_clone") as clone:
+        payload = json.loads(add_repo(url, workspace="ws"))
+
+    assert payload == {
+        "success": True, "status": "already_tracked", "key": LEGACY_AZURE_KEY, "workspace": "ws",
+        "path": str(ws_dir / "v3" / "org" / "proj" / "repo"),
+        "detail": f"same repo as org/proj/repo, already tracked as {LEGACY_AZURE_KEY}",
+    }
+    assert clone.call_count == 0
+    assert [(r.key, r.remote_url, r.tags, r.frozen) for r in RepoStore().list_all()] == [
+        (LEGACY_AZURE_KEY, LEGACY_AZURE_REMOTE, ["work"], True)]
+    assert not (ws_dir / "org").exists()

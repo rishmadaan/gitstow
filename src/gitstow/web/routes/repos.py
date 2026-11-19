@@ -375,6 +375,16 @@ async def add_repo(
         target = ws_path / parsed.owner / parsed.repo
         repo_owner = parsed.owner
 
+    # Already tracked, by key or under another URL form's key: never clone a second
+    # copy, and never re-register over its tags and frozen state.
+    repo_key = f"{repo_owner}/{parsed.repo}" if repo_owner else parsed.repo
+    existing = store.find_tracked(repo_key, ws.label, parsed.clone_url, settings.default_host)
+    if existing:
+        return _render_add_form(
+            request, settings, form_values,
+            f"Already tracked as {existing.key} in workspace '{ws.label}'.",
+        )
+
     # Check for collision
     if target.exists():
         if is_git_repo(target):
