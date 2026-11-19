@@ -1688,3 +1688,138 @@ class TestOrphanedRecordInBulkOperation:
         payload = json.loads(result.stdout)
         assert [r["repo"] for r in payload["results"]] == ["good"]
         assert "orphan" in (result.stderr or "")
+
+
+def _git(*args, cwd=None):
+    import subprocess
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                   cwd=cwd, check=True, capture_output=True)
+
+
+class RealGitPullFixture:
+    """A bare upstream, a tracked clone in a flat workspace, and a second clone to push from."""
+
+    def _setup(self, tmp_path, monkeypatch, *, frozen=False):
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        # Hermetic git: the developer's own config (pull.rebase etc.) must not leak in.
+        monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "no-gitconfig"))
+        monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+
+        upstream = tmp_path / "upstream.git"
+        _git("init", "-q", "--bare", "-b", "main", str(upstream))
+        pusher = tmp_path / "pusher"
+        _git("clone", "-q", str(upstream), str(pusher))
+        (pusher / "x.txt").write_text("x v1\n")
+        (pusher / "y.txt").write_text("y v1\n")
+        _git("add", ".", cwd=pusher)
+        _git("commit", "-q", "-m", "v1", cwd=pusher)
+        _git("push", "-q", "origin", "HEAD:main", cwd=pusher)
+
+        ws_dir = tmp_path / "ws"
+        ws_dir.mkdir()
+        clone = ws_dir / "proj"
+        _git("clone", "-q", str(upstream), str(clone))
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="flat")]))
+        RepoStore(path=repos_file).add(
+            Repo(owner="", name="proj", remote_url=str(upstream), workspace="ws", frozen=frozen))
+        self.pusher, self.clone = pusher, clone
+
+    def push_change(self, name, content):
+        (self.pusher / name).write_text(content)
+        _git("commit", "-q", "-am", f"change {name}", cwd=self.pusher)
+        _git("push", "-q", "origin", "HEAD:main", cwd=self.pusher)
+
+    def head(self):
+        import subprocess
+        return subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.clone,
+                              capture_output=True, text=True, check=True).stdout.strip()
+
+
+class TestPullForce(RealGitPullFixture):
+    def test_force_pulls_and_keeps_local_edit_byte_identical(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        (self.clone / "x.txt").write_bytes(b"my local edit\r\nkeep\n")
+        self.push_change("y.txt", "y v2\n")
+
+        result = runner.invoke(app, ["pull", "proj", "--force", "--json"])
+
+        row = json.loads(result.stdout)["results"][0]
+        assert row["status"] == "pulled", row
+        assert result.exit_code == 0
+        assert (self.clone / "x.txt").read_bytes() == b"my local edit\r\nkeep\n"
+        assert (self.clone / "y.txt").read_text() == "y v2\n"
+
+    def test_force_refused_by_git_when_upstream_touches_the_edited_file(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        before = self.head()
+        (self.clone / "x.txt").write_bytes(b"my local edit\n")
+        self.push_change("x.txt", "x v2 from upstream\n")
+
+        result = runner.invoke(app, ["pull", "proj", "--force", "--json"])
+
+        row = json.loads(result.stdout)["results"][0]
+        assert row["status"] == "error"
+        assert "overwritten" in row["detail"]
+        assert result.exit_code == 1
+        assert (self.clone / "x.txt").read_bytes() == b"my local edit\n"
+        assert self.head() == before
+
+    def test_without_force_the_repo_is_skipped_as_before(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        before = self.head()
+        (self.clone / "x.txt").write_text("my local edit\n")
+        self.push_change("y.txt", "y v2\n")
+
+        result = runner.invoke(app, ["pull", "proj", "--json"])
+
+        row = json.loads(result.stdout)["results"][0]
+        assert row == {"repo": "proj", "status": "skipped", "detail": "Local changes (1 modified)"}
+        assert result.exit_code == 0
+        assert self.head() == before
+        assert (self.clone / "y.txt").read_text() == "y v1\n"
+
+    def test_force_still_skips_diverged(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        (self.clone / "y.txt").write_text("local commit\n")
+        _git("commit", "-q", "-am", "local", cwd=self.clone)
+        self.push_change("x.txt", "x v2\n")
+        _git("fetch", "-q", cwd=self.clone)
+        (self.clone / "x.txt").write_text("and a local edit\n")
+
+        result = runner.invoke(app, ["pull", "proj", "--force", "--json"])
+
+        row = json.loads(result.stdout)["results"][0]
+        assert row["status"] == "skipped"
+        assert row["detail"].startswith("Diverged from remote")
+
+    def test_force_still_skips_no_upstream(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        _git("checkout", "-q", "-b", "local-only", cwd=self.clone)
+        (self.clone / "x.txt").write_text("edit\n")
+
+        result = runner.invoke(app, ["pull", "proj", "--force", "--json"])
+
+        row = json.loads(result.stdout)["results"][0]
+        assert row == {"repo": "proj", "status": "skipped",
+                       "detail": "Local-only repo — no upstream configured"}
+
+    def test_mcp_force(self, tmp_path, monkeypatch):
+        from gitstow.mcp.server import pull_repos
+
+        self._setup(tmp_path, monkeypatch)
+        (self.clone / "x.txt").write_bytes(b"my local edit\n")
+        self.push_change("y.txt", "y v2\n")
+
+        skipped = json.loads(pull_repos())["results"][0]
+        assert skipped["status"] == "skipped"
+        row = json.loads(pull_repos(force=True))["results"][0]
+        assert row["status"] == "pulled"
+        assert (self.clone / "x.txt").read_bytes() == b"my local edit\n"
+        assert (self.clone / "y.txt").read_text() == "y v2\n"

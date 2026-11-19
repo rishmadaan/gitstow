@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import sys
 from datetime import datetime
@@ -29,8 +30,12 @@ console = Console()
 err_console = Console(stderr=True)
 
 
-def _pull_one_repo(repo: Repo, ws: Workspace) -> dict:
-    """Pull a single repo. Returns a result dict."""
+def _pull_one_repo(repo: Repo, ws: Workspace, force: bool = False) -> dict:
+    """Pull a single repo. Returns a result dict.
+
+    force=True skips only the local-changes check; git's ff-only pull still
+    refuses to overwrite a modified file.
+    """
     path = repo.get_path(ws.get_path())
 
     if not path.exists():
@@ -41,19 +46,19 @@ def _pull_one_repo(repo: Repo, ws: Workspace) -> dict:
 
     status = get_status(path)
     state = classify(exists=True, frozen=repo.frozen, status=status)
-    if state.blocks_pull:
+    if state.blocks_pull and not force:
         return {
             "repo": repo.key,
             "status": "skipped",
             "detail": f"Local changes ({state.local_summary})",
         }
-    if state.pull_action == "skip-diverged":
+    if state.remote_state == "diverged":
         return {
             "repo": repo.key,
             "status": "skipped",
             "detail": "Diverged from remote — resolve manually (rebase or merge)",
         }
-    if state.pull_action == "skip-no-upstream":
+    if state.remote_state == "no-upstream":
         return {
             "repo": repo.key,
             "status": "skipped",
@@ -88,6 +93,10 @@ def pull(
     include_frozen: bool = typer.Option(
         False, "--include-frozen", help="Include frozen repos.",
     ),
+    force: bool = typer.Option(
+        False, "--force",
+        help="Also pull repos with modified or staged files. Git still refuses any pull that would overwrite them.",
+    ),
     output_json: bool = typer.Option(
         False, "--json", "-j", help="JSON output.",
     ),
@@ -102,8 +111,8 @@ def pull(
 
     Frozen repos are skipped unless --include-frozen is set.
     Repos with modified or staged changes are skipped (never risk losing
-    local work); untracked-only repos are pulled. Diverged repos are
-    skipped — resolve manually with rebase or merge.
+    local work) unless --force is set; untracked-only repos are pulled.
+    Diverged repos are skipped — resolve manually with rebase or merge.
 
     \b
     Examples:
@@ -111,6 +120,7 @@ def pull(
       gitstow pull --tag ai           # Only repos tagged 'ai'
       gitstow pull --exclude-tag stale
       gitstow pull -w oss             # Only repos in oss workspace
+      gitstow pull owner/repo --force # Pull despite modified files
     """
     settings = load_config()
     store = RepoStore()
@@ -180,7 +190,7 @@ def pull(
 
     result_dicts = run_bulk(
         targets,
-        _pull_one_repo,
+        functools.partial(_pull_one_repo, force=force),
         parallel_limit=settings.parallel_limit,
         retry=retry,
         on_attempt=None if (quiet or output_json) else _on_attempt,
