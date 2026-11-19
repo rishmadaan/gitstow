@@ -276,6 +276,12 @@ class TestPathSegmentsStayInsideTheWorkspace:
         "https://dev.azure.com/org/proj/_git/..\\..\\x",
         "https://github.com/acme/widget:stream",
         "https://github.com/acme/wid\x07get",
+        # urlparse deletes these silently, so they are refused before it runs
+        "https://github.com/acme/wid\tget",
+        "https://github.com/acme/wid\rget",
+        "https://github.com/acme/wid\nget",
+        "acme/wid\tget",
+        "git@github.com:acme/wid\nget.git",
     ])
     def test_dot_and_empty_segments_raise(self, url):
         with pytest.raises(ValueError, match=r"may not contain '\.', '\.\.' or empty path segments"):

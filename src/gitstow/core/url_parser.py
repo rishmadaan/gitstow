@@ -26,6 +26,11 @@ _HAS_SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
 _SCP_LIKE = re.compile(r"^([^@]+@)?([^:]+):(.+)$")
 _LOOKS_LIKE_HOST = re.compile(r"(?:[A-Za-z0-9][-A-Za-z0-9]*\.)+[A-Za-z]{2,}(?::\d{1,5})?$")
 _UNSAFE_IN_SEGMENT = re.compile(r"[/\\:\x00-\x1f\x7f]")
+_CONTROL_CHAR = re.compile(r"[\x00-\x1f\x7f]")
+_SEGMENT_RULE = (
+    "owner/repo may not contain '.', '..' or empty path segments, "
+    "a segment of only dots and spaces, or a \\, : or control character"
+)
 
 # Hosts whose repo path is always exactly owner/repo — never nested groups.
 _TWO_SEGMENT_HOSTS = {"github.com", "bitbucket.org", "codeberg.org", "gitea.com"}
@@ -90,6 +95,10 @@ def parse_git_url(
         raise ValueError("Empty URL")
 
     original = raw
+    # Before urlparse, which silently deletes tabs and newlines (acme/wid<TAB>get would
+    # become acme/widget), so a control character anywhere is refused, not dropped.
+    if _CONTROL_CHAR.search(raw):
+        raise ValueError(f"Cannot use {original!r}: {_SEGMENT_RULE}")
 
     # Step 1: Convert SCP-style (git@host:path) to ssh:// URL
     if not _HAS_SCHEME.match(raw):
@@ -132,10 +141,7 @@ def parse_git_url(
     # checked before anything drops empty ones or truncates a browse link, so
     # `acme//widget`, `..`, `\\Documents` or `D:` can never turn into a path outside it.
     if path and not all(valid_segment(seg) for seg in path.split("/")):
-        raise ValueError(
-            f"Cannot use '{original}': owner/repo may not contain '.', '..' or empty path segments, "
-            "a segment of only dots and spaces, or a \\, : or control character"
-        )
+        raise ValueError(f"Cannot use '{original}': {_SEGMENT_RULE}")
 
     # Azure DevOps SSH (git@ssh.dev.azure.com:v3/org/project/repo) names the
     # same repo as the HTTPS form: normalise the host and drop the "v3" segment.
