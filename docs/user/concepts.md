@@ -162,6 +162,8 @@ gitstow repo unfreeze facebook/react   # Re-enable pulling
 gitstow pull --include-frozen          # Override for one pull
 ```
 
+Under `--include-frozen`, a frozen repo that has diverged from its remote (or has no upstream) is skipped with the same reason as any other repo.
+
 Frozen repos still appear in `gitstow list` and `gitstow status` (marked with `❄`).
 
 ## Discovery and Reconciliation
@@ -181,7 +183,7 @@ You can also explicitly scan a workspace to discover and register repos on disk:
 One bad repo never stops operations on others. During `gitstow pull`:
 
 - Network errors → logged, other repos keep pulling
-- Dirty repos → skipped with warning, others keep pulling
+- Repos with modified or staged files → skipped with the composition shown, others keep pulling (`--force` pulls them; git still refuses a pull that would overwrite a modified file)
 - Auth failures → logged, others keep pulling
 - Merge conflicts → logged (shouldn't happen with `--ff-only`), others keep pulling
 

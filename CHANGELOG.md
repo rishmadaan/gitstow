@@ -4,6 +4,23 @@ All notable changes to gitstow will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] - 2026-11-19
+
+### Fixed
+
+- **`gitstow add` can no longer delete a local repo** — if the target folder already held a git repo with no `origin` remote (one you `git init`ed yourself), `add` treated it as a fresh clone; the clone failed on the non-empty folder, and with `--retry 1` or more the retry cleanup deleted the folder, your commits with it, before cloning again. That folder is now never cloned over: `add` stops with an error that gives the exact command to add the remote (`git -C <folder> remote add origin <url>`), after which the same `gitstow add` registers it as already on disk. Separately, a retry now only ever cleans up a folder its own clone attempt created.
+- **Azure DevOps URLs work** — `dev.azure.com/org/project/_git/repo` typed without `https://` was read as GitHub shorthand, and even with the scheme the clone URL was built in a form Azure does not serve. Clone URLs now use Azure's documented forms (`https://dev.azure.com/org/project/_git/repo`, or `git@ssh.dev.azure.com:v3/org/project/repo` with SSH preferred; legacy `org.visualstudio.com` URLs keep HTTPS), and the SSH and HTTPS forms are recognised as the same repo. Any host with several dots (e.g. `git.example.co.uk/group/repo`) is now recognised without a scheme too. Folder paths for Azure repos are unchanged.
+- **`gitstow search` handles patterns that start with `-`** — `gitstow search -- -foo` searches for `-foo` instead of passing it to ripgrep or git grep as an option, and `--glob` now also filters when ripgrep is not installed (the `git grep` fallback used to ignore it). The CLI and the MCP `search_repos` tool now share one search runner with the same environment as every other git call.
+- **Frozen repos that split from upstream show a clean skip** — `gitstow pull --include-frozen` on a frozen repo that has diverged from its remote (or has no upstream) now reports "skipped — Diverged from remote" (or "Local-only repo") like any other repo, instead of attempting a pull that could only fail and showing it as an error.
+- **The "untracked repos" hint now appears when nothing is tracked yet** — `gitstow list` and `gitstow status` returned early on an empty result and never suggested `gitstow workspace scan`, so a workspace whose repos were all untracked never got the nudge. `gitstow list --json` with no results no longer prints a message ahead of the JSON.
+- **A blank `$VISUAL` or `$EDITOR` no longer crashes `gitstow open`** — a whitespace-only value counts as unset, so the next editor setting or the usual fallbacks are used.
+- **Dashboard row numbers stay put after a single-row Pull, Fetch, freeze or tag** — the refreshed row used to be numbered counting records from workspaces that are no longer configured, so it could jump to a different number than the full page showed.
+
+### Added
+
+- **`gitstow pull --force`** — also pulls repos with modified or staged files, for when you have asked for a pull and mean it (the dashboard's single-row Pull already works this way). Git's fast-forward-only pull still refuses any pull that would overwrite a modified file, and that refusal is reported as an error with your file untouched. Diverged and local-only repos are still skipped, and frozen repos still need `--include-frozen`. The MCP `pull_repos` tool gains the same `force` parameter.
+- **MCP `pull_repos` rows for frozen repos now name their workspace** — `skipped_frozen` rows carry a `workspace` field, so two frozen repos with the same name in different workspaces can be told apart (the CLI's frozen rows already did this).
+
 ## [0.8.0] - 2026-09-13
 
 ### Changed

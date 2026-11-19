@@ -109,6 +109,7 @@ gitstow pull [repos...] [flags]
 | `--exclude-tag` | | Skip repos with this tag. Repeatable. |
 | `--owner` | | Only pull repos from this owner. |
 | `--include-frozen` | | Include frozen repos (normally skipped). |
+| `--force` | | Also pull repos with modified or staged files. Git still refuses any pull that would overwrite them. |
 | `--retry` | | Retry failed repos N times (e.g., `--retry 3`). |
 | `--json` | `-j` | JSON output. |
 | `--quiet` | `-q` | Suppress per-repo progress. |
@@ -128,14 +129,18 @@ gitstow pull --exclude-tag archived
 # Specific repos
 gitstow pull anthropic/claude-code facebook/react
 
-# Force-pull frozen repos too
+# Pull frozen repos too
 gitstow pull --include-frozen
+
+# Pull a repo even though it has modified files
+gitstow pull anthropic/claude-code --force
 ```
 
 **Behavior:**
 - Frozen repos are skipped (shown as "Frozen" in summary)
-- Repos with modified or staged files are skipped — the composition is shown in the summary (e.g. "2 modified · 1 staged")
-- Diverged repos (local and remote both have commits the other lacks) are skipped — resolve manually (rebase or merge)
+- Repos with modified or staged files are skipped — the composition is shown in the summary (e.g. "2 modified · 1 staged"). With `--force` they are pulled; git's ff-only pull still refuses (reported as an error, files untouched) if the pull would overwrite a modified file
+- Diverged repos (local and remote both have commits the other lacks) are skipped — resolve manually (rebase or merge). This holds with `--force`, and for frozen repos under `--include-frozen`
+- Local-only repos (no upstream configured) are skipped, likewise
 - Repos with only untracked files ARE pulled — an ff-only pull can't lose them
 - Uses `--ff-only` — won't create merge commits
 - Runs in parallel (configurable, default 6 concurrent)
@@ -389,7 +394,7 @@ gitstow search <pattern> [flags]
 |------|-------|-------------|
 | `--tag` | `-t` | Only search in repos with this tag. |
 | `--owner` | | Only search in repos from this owner. |
-| `--glob` | `-g` | File glob pattern (e.g., `*.py`, `*.md`). |
+| `--glob` | `-g` | File glob pattern (e.g., `*.py`, `*.md`). Works with ripgrep and with the `git grep` fallback. |
 | `--ignore-case` | `-i` | Case-insensitive search. |
 | `--files` | `-l` | Only show file paths, not matching lines. |
 | `--max` | `-m` | Max results per repo (default: 50). |
@@ -402,6 +407,7 @@ gitstow search "TODO"
 gitstow search "def main" --glob "*.py"
 gitstow search "import React" --tag frontend
 gitstow search "error" -i --files
+gitstow search -- -foo                      # A pattern that starts with "-"
 ```
 
 ---
