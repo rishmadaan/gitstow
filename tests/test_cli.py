@@ -370,6 +370,229 @@ class TestDotDotNeverLeavesTheWorkspace:
         assert (outside / "keep.txt").read_bytes() == b"precious\n"
 
 
+class TestCollectionListsATargetTwice:
+    """One collection naming the same folder twice: the first entry wins and keeps its metadata;
+    a different repo resolving to that folder is a conflict, never registered over it."""
+
+    SAME = (b"- url: https://github.com/acme/widget\n  tags: [keep]\n  frozen: true\n"
+            b"- url: git@github.com:acme/widget.git\n")
+    # (layout, second URL that resolves to the first entry's folder but is another repo)
+    OTHERS = [("structured", "https://gitlab.com/acme/widget"),
+              ("flat", "https://github.com/other/widget")]
+
+    def _setup(self, tmp_path, monkeypatch, layout="structured"):
+        from gitstow.core.config import Settings, Workspace, save_config
+
+        config_file = tmp_path / "config.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", tmp_path / "repos.yaml")
+        ws_dir = tmp_path / "ws"
+        ws_dir.mkdir()
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout=layout)]))
+        return ws_dir
+
+    def _records(self, tmp_path):
+        from gitstow.core.repo import RepoStore
+        return [(r.key, r.remote_url, r.tags, r.frozen)
+                for r in RepoStore(path=tmp_path / "repos.yaml").list_all()]
+
+    @staticmethod
+    def _fake_clone(calls):
+        def fake(url, target, **kw):
+            calls.append((url, target))
+            (target / ".git").mkdir(parents=True)
+            return True, ""
+        return fake
+
+    @staticmethod
+    def _then(url):
+        return (f"- url: https://github.com/acme/widget\n  tags: [keep]\n  frozen: true\n"
+                f"- url: {url}\n").encode()
+
+    def _cli(self, tmp_path, body):
+        from unittest.mock import patch
+        coll = tmp_path / "coll.yaml"
+        coll.write_bytes(body)
+        calls = []
+        with patch("gitstow.cli.export_cmd.git_clone", side_effect=self._fake_clone(calls)):
+            result = runner.invoke(app, ["collection", "import", str(coll)])
+        return result, calls
+
+    def _dashboard(self, body):
+        from fastapi.testclient import TestClient
+        from unittest.mock import patch
+
+        from gitstow.web.server import create_app
+
+        calls = []
+        client = TestClient(create_app(), base_url="http://127.0.0.1")
+        with patch("gitstow.web.routes.collection.git_clone", side_effect=self._fake_clone(calls)):
+            r = client.post("/collection/import", follow_redirects=False,
+                            files={"file": ("coll.yaml", body, "text/yaml")})
+        return r, calls
+
+    def test_cli_same_repo_twice_clones_once_and_keeps_the_first_entry(self, tmp_path, monkeypatch):
+        ws_dir = self._setup(tmp_path, monkeypatch)
+
+        result, calls = self._cli(tmp_path, self.SAME)
+
+        assert result.exit_code == 0, result.output
+        assert calls == [("https://github.com/acme/widget.git", ws_dir / "acme" / "widget")]
+        assert self._records(tmp_path) == [
+            ("acme/widget", "https://github.com/acme/widget.git", ["keep"], True)]
+        out = " ".join(result.output.split())
+        assert "acme/widget: listed twice in this file (https://github.com/acme/widget.git), imported once" in out
+        assert "Done: 1 imported, 1 skipped" in out
+
+    def test_dashboard_same_repo_twice_clones_once_and_keeps_the_first_entry(self, tmp_path, monkeypatch):
+        ws_dir = self._setup(tmp_path, monkeypatch)
+
+        r, calls = self._dashboard(self.SAME)
+
+        assert r.status_code == 303
+        assert r.headers["location"] == "/?imported=1&failed=0"
+        assert calls == [("https://github.com/acme/widget.git", ws_dir / "acme" / "widget")]
+        assert self._records(tmp_path) == [
+            ("acme/widget", "https://github.com/acme/widget.git", ["keep"], True)]
+
+    @pytest.mark.parametrize("layout, other", OTHERS)
+    def test_cli_other_repo_on_the_same_folder_is_a_conflict(self, tmp_path, monkeypatch, layout, other):
+        self._setup(tmp_path, monkeypatch, layout)
+
+        result, calls = self._cli(tmp_path, self._then(other))
+
+        key = "acme/widget" if layout == "structured" else "widget"
+        assert len(calls) == 1
+        assert self._records(tmp_path) == [(key, "https://github.com/acme/widget.git", ["keep"], True)]
+        out = " ".join(result.output.split())
+        assert (f"{key}: conflict: this file also lists https://github.com/acme/widget.git "
+                f"for the same folder in 'ws'; import one of them into another workspace") in out
+        assert "Done: 1 imported, 1 failed" in out
+
+    @pytest.mark.parametrize("layout, other", OTHERS)
+    def test_dashboard_other_repo_on_the_same_folder_is_a_conflict(self, tmp_path, monkeypatch, layout, other):
+        self._setup(tmp_path, monkeypatch, layout)
+
+        r, calls = self._dashboard(self._then(other))
+
+        key = "acme/widget" if layout == "structured" else "widget"
+        assert r.headers["location"] == "/?imported=1&failed=1"
+        assert len(calls) == 1
+        assert self._records(tmp_path) == [(key, "https://github.com/acme/widget.git", ["keep"], True)]
+
+    @pytest.mark.parametrize("surface", ["cli", "dashboard"])
+    def test_other_repo_already_tracked_at_that_key_is_a_conflict(self, tmp_path, monkeypatch, surface):
+        """A record from before the import, a different repo at the entry's key, on disk: kept as is."""
+        from gitstow.core.repo import Repo, RepoStore
+
+        ws_dir = self._setup(tmp_path, monkeypatch, "flat")
+        RepoStore(path=tmp_path / "repos.yaml").add(Repo(
+            owner="", name="widget", remote_url="https://github.com/acme/widget.git",
+            workspace="ws", tags=["keep"], frozen=True))
+        (ws_dir / "widget" / ".git").mkdir(parents=True)
+        body = b"- https://github.com/other/widget\n"
+
+        if surface == "cli":
+            result, calls = self._cli(tmp_path, body)
+            out = " ".join(result.output.split())
+            assert ("widget: conflict: widget is already tracked in 'ws' with remote "
+                    "https://github.com/acme/widget.git, but this entry asks for "
+                    "https://github.com/other/widget.git") in out
+        else:
+            r, calls = self._dashboard(body)
+            assert r.headers["location"] == "/?imported=0&failed=1"
+        assert calls == []
+        assert self._records(tmp_path) == [("widget", "https://github.com/acme/widget.git", ["keep"], True)]
+
+
+    # --- what each re-check catches that the others do not -------------------------
+
+    def _store_add(self, tmp_path, name, remote, tags):
+        from gitstow.core.repo import Repo, RepoStore
+        RepoStore(path=tmp_path / "repos.yaml").add(Repo(
+            owner="", name=name, remote_url=remote, workspace="ws", tags=tags))
+
+    def test_first_clone_failing_does_not_let_another_repo_into_its_folder(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        self._setup(tmp_path, monkeypatch, "flat")
+        coll = tmp_path / "coll.yaml"
+        coll.write_bytes(self._then("https://github.com/other/widget"))
+        calls = []
+        with patch("gitstow.cli.export_cmd.git_clone",
+                   side_effect=lambda url, target, **kw: calls.append(url) or (False, "network down")):
+            result = runner.invoke(app, ["collection", "import", str(coll)])
+
+        assert calls == ["https://github.com/acme/widget.git"]
+        assert "conflict: this file also lists" in " ".join(result.output.split())
+        assert self._records(tmp_path) == []
+
+    def _import(self, surface, tmp_path, body, clone):
+        """Run one import with `clone` as git_clone; return the CLI output or the redirect target."""
+        from unittest.mock import patch
+        if surface == "cli":
+            coll = tmp_path / "coll.yaml"
+            coll.write_bytes(body)
+            with patch("gitstow.cli.export_cmd.git_clone", side_effect=clone):
+                return " ".join(runner.invoke(app, ["collection", "import", str(coll)]).output.split())
+        from fastapi.testclient import TestClient
+
+        from gitstow.web.server import create_app
+        with patch("gitstow.web.routes.collection.git_clone", side_effect=clone):
+            return TestClient(create_app(), base_url="http://127.0.0.1").post(
+                "/collection/import", follow_redirects=False,
+                files={"file": ("coll.yaml", body, "text/yaml")}).headers["location"]
+
+    @pytest.mark.parametrize("surface", ["cli", "dashboard"])
+    def test_tracked_record_with_missing_folder_blocks_the_clone(self, tmp_path, monkeypatch, surface):
+        self._setup(tmp_path, monkeypatch, "flat")
+        self._store_add(tmp_path, "widget", "https://github.com/acme/widget.git", ["keep"])
+        calls = []
+
+        out = self._import(surface, tmp_path, b"- https://github.com/other/widget\n", self._fake_clone(calls))
+
+        assert calls == []
+        assert ("widget: conflict: widget is already tracked" in out if surface == "cli"
+                else out == "/?imported=0&failed=1")
+        assert self._records(tmp_path) == [("widget", "https://github.com/acme/widget.git", ["keep"], False)]
+
+    @pytest.mark.parametrize("surface", ["cli", "dashboard"])
+    def test_record_added_by_another_process_mid_import_is_seen_before_the_next_clone(
+            self, tmp_path, monkeypatch, surface):
+        self._setup(tmp_path, monkeypatch, "flat")
+        calls = []
+
+        def clone(url, target, **kw):
+            calls.append(url)
+            # meanwhile another gitstow tracks a different repo at the second entry's key
+            self._store_add(tmp_path, "second", "https://gitlab.com/them/second.git", ["theirs"])
+            return False, "network down"
+
+        out = self._import(surface, tmp_path,
+                           b"- https://github.com/acme/first\n- https://github.com/acme/second\n", clone)
+
+        assert calls == ["https://github.com/acme/first.git"]
+        assert ("second: conflict: second is already tracked" in out if surface == "cli"
+                else out == "/?imported=0&failed=2")
+        assert self._records(tmp_path) == [("second", "https://gitlab.com/them/second.git", ["theirs"], False)]
+
+    @pytest.mark.parametrize("surface", ["cli", "dashboard"])
+    def test_record_added_while_cloning_is_never_registered_over(self, tmp_path, monkeypatch, surface):
+        self._setup(tmp_path, monkeypatch, "flat")
+
+        def clone(url, target, **kw):
+            self._store_add(tmp_path, "widget", "https://gitlab.com/them/widget.git", ["theirs"])
+            (target / ".git").mkdir(parents=True)
+            return True, ""
+
+        out = self._import(surface, tmp_path, b"- url: https://github.com/acme/widget\n  tags: [mine]\n", clone)
+
+        assert ("widget: conflict: widget is already tracked" in out if surface == "cli"
+                else out == "/?imported=0&failed=1")
+        assert self._records(tmp_path) == [("widget", "https://gitlab.com/them/widget.git", ["theirs"], False)]
+
+
 class TestTrackedButFolderMissing:
     """A tracked repo whose folder was deleted: every add surface names the way out, clones nothing."""
 

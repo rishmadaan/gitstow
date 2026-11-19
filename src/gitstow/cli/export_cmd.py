@@ -12,8 +12,15 @@ from pathlib import Path
 import typer
 import yaml
 from rich.console import Console
+from rich.markup import escape
 
-from gitstow.core.collection_io import parse_collection_file, resolve_entry_workspace
+from gitstow.core.collection_io import (
+    duplicate_in_file,
+    parse_collection_file,
+    register_unless_tracked,
+    resolve_entry_workspace,
+    tracked_conflict,
+)
 from gitstow.core.config import load_config
 from gitstow.core.git import clone as git_clone
 from gitstow.core.repo import Repo, RepoStore
@@ -203,7 +210,19 @@ def import_collection(
     from gitstow.core.url_parser import parse_git_url
 
     succeeded = 0
+    skipped = 0
     failed = 0
+    seen: dict = {}  # (workspace, key) → first URL in this file that resolved there
+
+    def refused(key: str, refusal) -> None:
+        nonlocal skipped, failed
+        kind, reason = refusal
+        if kind == "skip":
+            skipped += 1
+            console.print(f"  [yellow]○[/yellow] {escape(key)}: {escape(reason)}")
+        else:
+            failed += 1
+            err_console.print(f"  [red]✗[/red] {escape(key)}: conflict: {escape(reason)}")
 
     for entry in new_repos:
         url = entry.get("url") or entry.get("remote_url", "")
@@ -228,10 +247,21 @@ def import_collection(
             target = root / parsed.owner / parsed.repo
             repo_owner = parsed.owner
 
+        key = f"{repo_owner}/{parsed.repo}" if repo_owner else parsed.repo
+        store.load()  # another writer (or an earlier entry of this file) may have added it
+        refusal = (duplicate_in_file(seen, entry_ws.label, key, parsed.clone_url, settings.default_host)
+                   or tracked_conflict(store, entry_ws.label, key, parsed.clone_url, settings.default_host))
+        if refusal:
+            refused(key, refusal)
+            continue
+
         if target.exists():
-            console.print(f"  [yellow]○[/yellow] {parsed.key} already on disk, registering")
             repo = Repo(owner=repo_owner, name=parsed.repo, remote_url=url, workspace=entry_ws.label, tags=entry_tags, frozen=frozen)
-            store.add(repo)
+            refusal = register_unless_tracked(store, repo, settings.default_host)
+            if refusal:
+                refused(key, refusal)
+                continue
+            console.print(f"  [yellow]○[/yellow] {parsed.key} already on disk, registered")
             succeeded += 1
             continue
 
@@ -250,7 +280,10 @@ def import_collection(
                 frozen=frozen,
                 last_pulled=datetime.now().isoformat(),
             )
-            store.add(repo)
+            refusal = register_unless_tracked(store, repo, settings.default_host)
+            if refusal:
+                refused(key, refusal)
+                continue
             console.print(f"  [green]✓[/green] {parsed.key}")
             succeeded += 1
         else:
@@ -258,6 +291,8 @@ def import_collection(
             failed += 1
 
     console.print(f"\n  Done: {succeeded} imported", end="")
+    if skipped:
+        console.print(f", {skipped} skipped", end="")
     if failed:
         console.print(f", [red]{failed} failed[/red]", end="")
     console.print("\n")

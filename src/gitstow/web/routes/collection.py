@@ -15,7 +15,13 @@ import yaml
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 
-from gitstow.core.collection_io import parse_collection_file, resolve_entry_workspace
+from gitstow.core.collection_io import (
+    duplicate_in_file,
+    parse_collection_file,
+    register_unless_tracked,
+    resolve_entry_workspace,
+    tracked_conflict,
+)
 from gitstow.core.config import NO_WORKSPACES_HINT, load_config
 from gitstow.core.git import clone as git_clone
 from gitstow.core.repo import Repo, RepoStore
@@ -136,6 +142,7 @@ async def import_collection(
     # Clone each new entry — sequential for simplicity; bulk clone races are risky
     succeeded = 0
     failed = 0
+    seen: dict = {}  # (workspace, key) → first URL in this file that resolved there
     for e in new_entries:
         entry_ws = e["_resolved_ws"]
         url = e.get("url", "")
@@ -161,18 +168,28 @@ async def import_collection(
             repo_owner = parsed.owner
 
         all_tags = list(dict.fromkeys(list(e.get("tags", [])) + list(entry_ws.auto_tags)))
+        key = f"{repo_owner}/{parsed.repo}" if repo_owner else parsed.repo
+        store.load()  # another writer (or an earlier entry of this file) may have added it
+        refusal = (duplicate_in_file(seen, entry_ws.label, key, parsed.clone_url, settings.default_host)
+                   or tracked_conflict(store, entry_ws.label, key, parsed.clone_url, settings.default_host))
+        if refusal:
+            failed += refusal[0] == "conflict"  # the same repo again is skipped, like the prefilter
+            continue
 
         if target.exists():
             # Already on disk — just register
-            store.add(Repo(
+            refusal = register_unless_tracked(store, Repo(
                 owner=repo_owner,
                 name=parsed.repo,
                 remote_url=parsed.clone_url,
                 workspace=entry_ws.label,
                 tags=all_tags,
                 frozen=e.get("frozen", False),
-            ))
-            succeeded += 1
+            ), settings.default_host)
+            if refusal:
+                failed += refusal[0] == "conflict"
+            else:
+                succeeded += 1
             continue
 
         clone_fn = functools.partial(
@@ -180,7 +197,7 @@ async def import_collection(
         )
         ok, _err = await asyncio.to_thread(clone_fn)
         if ok:
-            store.add(Repo(
+            refusal = register_unless_tracked(store, Repo(
                 owner=repo_owner,
                 name=parsed.repo,
                 remote_url=parsed.clone_url,
@@ -188,8 +205,11 @@ async def import_collection(
                 tags=all_tags,
                 frozen=e.get("frozen", False),
                 last_pulled=datetime.now().isoformat(timespec="seconds"),
-            ))
-            succeeded += 1
+            ), settings.default_host)
+            if refusal:
+                failed += refusal[0] == "conflict"
+            else:
+                succeeded += 1
         else:
             failed += 1
 

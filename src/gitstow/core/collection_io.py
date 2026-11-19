@@ -8,6 +8,8 @@ import json
 import yaml
 
 from gitstow.core.config import Settings, Workspace
+from gitstow.core.repo import Repo, RepoStore
+from gitstow.core.url_parser import same_repo
 
 EXPORT_FORMAT_VERSION = 1
 
@@ -98,3 +100,40 @@ def resolve_entry_workspace(
             return candidate, None
         return fallback, f"workspace '{recorded}' not configured — importing into '{fallback.label}'"
     return fallback, None
+
+
+# Why an import entry must not be cloned or registered: ("skip", reason) when it is a
+# repo already handled, ("conflict", reason) when a different repo owns its folder.
+Refusal = tuple[str, str]
+
+
+def duplicate_in_file(seen: dict, workspace: str, key: str, url: str, default_host: str) -> Refusal | None:
+    """An earlier entry of the same file resolved to this workspace and key (record it if not)."""
+    earlier = seen.get((workspace, key))
+    if earlier is None:
+        seen[(workspace, key)] = url
+        return None
+    if same_repo(earlier, url, default_host):
+        return "skip", f"listed twice in this file ({earlier}), imported once"
+    return "conflict", (f"this file also lists {earlier} for the same folder in '{workspace}'; "
+                        "import one of them into another workspace")
+
+
+def tracked_conflict(store: RepoStore, workspace: str, key: str, url: str, default_host: str) -> Refusal | None:
+    """The workspace already tracks this repo, or a different repo at this key (store as loaded)."""
+    existing = store.find_tracked(key, workspace, url, default_host)
+    if existing is None:
+        return None
+    if same_repo(existing.remote_url, url, default_host):
+        return "skip", f"already tracked as {existing.key}"
+    return "conflict", (f"{existing.key} is already tracked in '{workspace}' with remote "
+                        f"{existing.remote_url}, but this entry asks for {url}")
+
+
+def register_unless_tracked(store: RepoStore, repo: Repo, default_host: str) -> Refusal | None:
+    """Add `repo` as one locked read-check-write; never over a record already at its key."""
+    with store.bulk():  # bulk() reloads under the lock, so the check sees every other writer
+        refusal = tracked_conflict(store, repo.workspace, repo.key, repo.remote_url, default_host)
+        if refusal is None:
+            store.add(repo)
+    return refusal
