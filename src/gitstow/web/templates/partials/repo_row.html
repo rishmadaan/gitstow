@@ -8,7 +8,7 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
     {% if repo.frozen %}<svg class="lock" title="Frozen — 'Pull all' skips this repo. Unfreeze from the ⋯ menu." viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>{% endif %}
   </td>
   <td><a href="/repo/{{ repo.workspace }}/{{ repo.key }}" class="repo-link" title="{{ repo.repo_link_tooltip }}">{{ repo.display_name }}</a>
-    {% if repo.action_error %}<div class="row-error" role="alert" title="Auto-refresh pauses while this message is on screen. Once you dismiss it (×) or filter this row out, the next refresh clears it."><span>{{ repo.action_error }}</span><button type="button" class="row-error-close" onclick="this.closest('.row-error').remove()" aria-label="Dismiss this message" title="Dismiss">×</button></div>{% endif %}</td>
+    {% if repo.action_error %}<div class="row-error" role="alert" title="Auto-refresh pauses while this message is shown. Dismiss it with ×; if you filter this row out instead, the next refresh clears it."><span>{{ repo.action_error }}</span><button type="button" class="row-error-close" onclick="this.closest('.row-error').remove()" aria-label="Dismiss this message" title="Dismiss">×</button></div>{% endif %}</td>
   <td><span class="ws ws-{{ repo.ws_slot }}" title="{{ repo.ws_tooltip }}">{{ repo.workspace }}</span></td>
   <td class="col-branch"><span class="branch-name" title="{{ repo.branch_tooltip }}">{{ repo.branch }}</span></td>
   <td><span class="delta {{ repo.delta_class }}" title="{{ repo.delta_tooltip }}">{{ repo.delta_text }}</span></td>

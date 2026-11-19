@@ -287,7 +287,7 @@ Flat workspaces skip the owner directory entirely — repos are just `workspace/
 
 **Workspace directory doesn't exist** — Run `gitstow doctor` to check workspace health. Create missing directories or update the path with `gitstow workspace add`.
 
-**`gitstow doctor`** — Run this first when something isn't working. It checks git installation, config files, and workspace integrity.
+**`gitstow doctor`** — Run this first when something isn't working. It checks git installation, config files, and workspace integrity, and lists any repos.yaml entry it set aside because its key is not a safe folder path.
 
 ## Development
 

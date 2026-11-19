@@ -174,7 +174,7 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
 
       <section class="section">
         <h4>Auto-refresh (every 30s)</h4>
-        <p>It pauses while a row on screen shows a Pull or Fetch error, so the message stays while that row is shown. Once you dismiss it with × or filter the row out, refresh resumes and the next refresh clears the message.</p>
+        <p>It pauses while a row on screen shows a Pull or Fetch error, so the message stays while that row is shown. Dismiss it with ×; if you filter that row out instead, refresh resumes and the next refresh clears the message.</p>
         <p>Refresh re-reads <strong>local state only</strong>: your <code>~/.gitstow/repos.yaml</code> registry plus <code>git status</code> on each tracked repo. It catches:</p>
         <ul>
           <li>New repos added via the CLI (<code>gitstow add</code> in another terminal)</li>
