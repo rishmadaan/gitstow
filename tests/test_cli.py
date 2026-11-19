@@ -1104,6 +1104,26 @@ class TestHintWhenNothingTracked:
         quiet = runner.invoke(app, [cmd, "--quiet"])
         assert quiet.output == ""
 
+    @pytest.mark.parametrize("cmd", ["list", "status"])
+    def test_json_wins_over_quiet_on_a_populated_collection(self, cmd, tmp_path, monkeypatch):
+        """SKILL.md tells agents to use --json --quiet; that must stay parseable JSON."""
+        from unittest.mock import patch
+        from gitstow.core.git import RepoStatus
+        from gitstow.core.repo import Repo, RepoStore
+
+        self._setup(tmp_path, monkeypatch)
+        (tmp_path / "ws" / "a" / "one" / ".git").mkdir(parents=True)
+        RepoStore(path=tmp_path / "repos.yaml").add(Repo(owner="a", name="one", remote_url="u", workspace="ws"))
+        with patch("gitstow.cli.status.get_status", return_value=RepoStatus(branch="main")):
+            both = runner.invoke(app, [cmd, "--json", "--quiet"])
+            quiet = runner.invoke(app, [cmd, "--quiet"])
+
+        assert both.exit_code == 0
+        rows = json.loads(both.stdout)
+        assert [(r.get("key") or r.get("repo"), r["workspace"]) for r in rows] == [("a/one", "ws")]
+        if cmd == "list":
+            assert quiet.stdout == "a/one\n"  # quiet alone keeps its plain behaviour
+
     def test_status_dirty_filter_empty_still_hints(self, tmp_path, monkeypatch):
         from unittest.mock import patch
         from gitstow.core.git import RepoStatus

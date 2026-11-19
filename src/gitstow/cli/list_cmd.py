@@ -86,8 +86,8 @@ def list_repos(
             print_untracked_hint(settings, store, ws_label)
         return
 
-    # Quiet mode: one key per line (for shell completions and scripting)
-    if quiet:
+    # Quiet mode: one key per line (for shell completions and scripting); --json wins.
+    if quiet and not output_json:
         for r, _ in repo_ws_pairs:
             print(r.key)
         return
