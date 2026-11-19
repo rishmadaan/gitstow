@@ -187,6 +187,78 @@ class TestAddParallelAndConflicts:
         assert {r["status"] for r in payload["results"]} == {"cloned"}
 
 
+class TestAddFindsRecordByRemote:
+    """Re-adding a tracked repo by another URL form finds its record (legacy Azure SSH `v3/` keys)."""
+
+    LEGACY_KEY = "v3/org/proj/repo"
+
+    def _seed(self, tmp_path, monkeypatch):
+        from gitstow.core.repo import Repo, RepoStore
+
+        ws_dir = TestAddParallelAndConflicts()._setup(tmp_path, monkeypatch)
+        RepoStore(path=tmp_path / "repos.yaml").add(Repo(
+            owner="v3/org/proj", name="repo", remote_url="git@ssh.dev.azure.com:v3/org/proj/repo.git",
+            workspace="ws", tags=["work"], frozen=True,
+        ))
+        return ws_dir
+
+    def _record(self, tmp_path):
+        from gitstow.core.repo import RepoStore
+        return [(r.key, r.remote_url, r.tags, r.frozen)
+                for r in RepoStore(path=tmp_path / "repos.yaml").list_all()]
+
+    @pytest.mark.parametrize("url", [
+        "git@ssh.dev.azure.com:v3/org/proj/repo",
+        "https://dev.azure.com/org/proj/_git/repo",
+    ])
+    def test_reports_exists_and_clones_nothing(self, tmp_path, monkeypatch, url):
+        from unittest.mock import patch
+
+        ws_dir = self._seed(tmp_path, monkeypatch)
+        before = self._record(tmp_path)
+        with patch("gitstow.cli.add.git_clone") as clone:
+            result = runner.invoke(app, ["add", url, "--json"])
+
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["results"] == [{
+            "repo": self.LEGACY_KEY, "status": "exists",
+            "detail": f"same repo as org/proj/repo, already tracked as {self.LEGACY_KEY}",
+        }]
+        assert clone.call_count == 0
+        assert self._record(tmp_path) == before == [
+            (self.LEGACY_KEY, "git@ssh.dev.azure.com:v3/org/proj/repo.git", ["work"], True)]
+        assert not (ws_dir / "org").exists()
+
+    def test_human_mode_names_the_stored_key(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        self._seed(tmp_path, monkeypatch)
+        with patch("gitstow.cli.add.git_clone") as clone:
+            result = runner.invoke(app, ["add", "git@ssh.dev.azure.com:v3/org/proj/repo"])
+        assert result.exit_code == 0
+        assert f"org/proj/repo already tracked as {self.LEGACY_KEY}" in result.stdout
+        assert clone.call_count == 0
+
+    def test_update_pulls_the_stored_folder(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        from gitstow.core.git import PullResult
+
+        ws_dir = self._seed(tmp_path, monkeypatch)
+        with patch("gitstow.cli.add.git_clone") as clone, \
+                patch("gitstow.core.git.pull", return_value=PullResult(success=True)) as pull:
+            result = runner.invoke(app, ["add", "https://dev.azure.com/org/proj/_git/repo",
+                                         "--update", "--json"])
+
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["results"] == [{"repo": self.LEGACY_KEY, "status": "updated"}]
+        pull.assert_called_once_with(ws_dir / "v3" / "org" / "proj" / "repo")
+        assert clone.call_count == 0
+        (key, remote, tags, frozen), = self._record(tmp_path)
+        assert (key, remote, tags, frozen) == (
+            self.LEGACY_KEY, "git@ssh.dev.azure.com:v3/org/proj/repo.git", ["work"], True)
+
+
 class TestAddNeverDeletesLocalRepo:
     """`add` must never clone over, or delete, a local repo that has no remote."""
 

@@ -137,6 +137,18 @@ def add(
 
         repo_key = f"{repo_owner}/{parsed.repo}" if repo_owner else parsed.repo
 
+        existing = store.get(repo_key, workspace=ws.label)
+        matched_by_remote = False
+        if not existing:
+            # Same repo tracked under another key (e.g. an Azure SSH `v3/` key from before
+            # 0.9.0): use that record and its folder, never clone a second copy.
+            existing = next((r for r in store.list_by_workspace(ws.label) if r.remote_url
+                             and _same_repo(r.remote_url, parsed.clone_url, settings.default_host)), None)
+            if existing:
+                matched_by_remote = True
+                asked_key, repo_key = repo_key, existing.key
+                target = existing.get_path(root)
+
         # Dedup equivalent URLs within one invocation — the parallel phase must
         # never see two workers targeting the same directory (clone collision,
         # collapsed outcome_by_key entries, retry rmtree deleting the other
@@ -153,8 +165,6 @@ def add(
                 console.print(f"  [yellow]○[/yellow] {repo_key} duplicates {seen_targets[resolved_target]} — skipped")
             continue
         seen_targets[resolved_target] = repo_key
-
-        existing = store.get(repo_key, workspace=ws.label)
 
         # Already tracked in this workspace
         if existing:
@@ -174,9 +184,13 @@ def add(
                     if show:
                         err_console.print(f"  [red]✗[/red] {repo_key}: {pull_result.error}")
             else:
-                results.append({"repo": repo_key, "status": "exists"})
+                row = {"repo": repo_key, "status": "exists"}
+                if matched_by_remote:
+                    row["detail"] = f"same repo as {asked_key}, already tracked as {repo_key}"
+                results.append(row)
                 if show:
-                    console.print(f"  [yellow]○[/yellow] {repo_key} already tracked. Use --update to pull.")
+                    shown = f"{asked_key} already tracked as {repo_key}" if matched_by_remote else f"{repo_key} already tracked"
+                    console.print(f"  [yellow]○[/yellow] {shown}. Use --update to pull.")
             continue
 
         # Path exists on disk but not tracked
