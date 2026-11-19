@@ -607,19 +607,48 @@ class TestStatusModelInCli:
         ws_dir = tmp_path / "ws"
         (ws_dir / "a" / "one" / ".git").mkdir(parents=True)
         save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
-        RepoStore(path=repos_file).add(Repo(owner="a", name="one", remote_url="u", workspace="ws"))
+        RepoStore(path=repos_file).add(Repo(
+            owner="a", name="one", remote_url="u", workspace="ws",
+            tags=["ai"], last_pulled="2026-01-02T03:04:05",
+        ))
 
-        fake = RepoStatus(branch="main", staged=2, untracked=1, behind=3)
-        with patch("gitstow.cli.status.get_status", return_value=fake):
+        from gitstow.core.git import CommitInfo
+        fake = RepoStatus(branch="main", dirty=4, staged=2, untracked=1, behind=3)
+        commit = CommitInfo(hash="abc1234", message="Fix the thing", date="2 days ago", author="x")
+        with patch("gitstow.cli.status.get_status", return_value=fake), \
+             patch("gitstow.cli.status.get_last_commit", return_value=commit):
             result = CliRunner().invoke(app, ["status", "--json"])
 
         payload = json.loads(result.output)
         entry = payload[0]
         # New model keys (additive)
-        assert entry["local"] == {"modified": 0, "staged": 2, "untracked": 1, "summary": "2 staged · 1 untracked"}
+        assert entry["local"] == {"modified": 4, "staged": 2, "untracked": 1,
+                                  "summary": "4 modified · 2 staged · 1 untracked"}
         assert entry["remote"]["state"] == "behind"
-        # Legacy keys preserved
-        assert entry["staged"] == 2 and entry["behind"] == 3 and entry["clean"] is False
+        # Every pre-model key preserved, with its exact value
+        legacy = {k: entry[k] for k in (
+            "repo", "workspace", "branch", "dirty", "staged", "untracked", "ahead", "behind",
+            "clean", "status_symbol", "ahead_behind", "frozen", "tags", "last_commit",
+            "last_commit_date", "last_pulled",
+        )}
+        assert legacy == {
+            "repo": "a/one",
+            "workspace": "ws",
+            "branch": "main",
+            "dirty": 4,
+            "staged": 2,
+            "untracked": 1,
+            "ahead": 0,
+            "behind": 3,
+            "clean": False,
+            "status_symbol": "*+?",
+            "ahead_behind": "↓3",
+            "frozen": False,
+            "tags": ["ai"],
+            "last_commit": "Fix the thing",
+            "last_commit_date": "2 days ago",
+            "last_pulled": "2026-01-02T03:04:05",
+        }
 
 
 class TestPullSemantics:

@@ -110,23 +110,28 @@ def test_pull_repos_follows_unified_rule(isolated):
 
 
 def test_pull_repos_no_frozen_collapse(isolated):
-    """Two same-named repos in different workspaces, one frozen — the frozen
-    one must not swallow the other (the Wave 1 bare-key set bug)."""
+    """Three same-named repos in different workspaces, two frozen — neither
+    frozen one may swallow the other or the unfrozen one (the Wave 1 bare-key
+    set bug)."""
     from gitstow.core.config import Settings, Workspace, save_config
     from gitstow.core.repo import Repo, RepoStore
     from gitstow.mcp.server import pull_repos
 
     a_dir = isolated / "a"
     b_dir = isolated / "b"
+    c_dir = isolated / "c"
     a_dir.mkdir()
     b_dir.mkdir()
+    c_dir.mkdir()
     save_config(Settings(workspaces=[
         Workspace(path=str(a_dir), label="a", layout="flat"),
         Workspace(path=str(b_dir), label="b", layout="flat"),
+        Workspace(path=str(c_dir), label="c", layout="flat"),
     ]))
     store = RepoStore()
     store.add(Repo(owner="", name="dup", remote_url="u", workspace="a", frozen=True))
     store.add(Repo(owner="", name="dup", remote_url="u", workspace="b", frozen=False))
+    store.add(Repo(owner="", name="dup", remote_url="u", workspace="c", frozen=True))
 
     with patch("gitstow.cli.pull.is_git_repo", return_value=True), \
          patch("gitstow.cli.pull.get_status", return_value=None), \
@@ -136,9 +141,13 @@ def test_pull_repos_no_frozen_collapse(isolated):
         payload = json.loads(pull_repos())
 
     statuses = [r["status"] for r in payload["results"]]
-    # Frozen a/dup skipped_frozen, unfrozen b/dup evaluated (missing on disk).
+    # Frozen a/dup and c/dup skipped_frozen, unfrozen b/dup evaluated (missing on disk).
     assert "skipped_frozen" in statuses
     assert "missing" in statuses
+    frozen_rows = {(r["repo"], r["workspace"]) for r in payload["results"]
+                   if r["status"] == "skipped_frozen"}
+    assert frozen_rows == {("dup", "a"), ("dup", "c")}
+    assert statuses.count("skipped_frozen") == 2
 
 
 @pytest.mark.parametrize("tool_name", [

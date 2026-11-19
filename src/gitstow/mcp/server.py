@@ -291,7 +291,8 @@ def pull_repos(
                 store.update(r.key, workspace=r.workspace, last_pulled=now)
 
     for r, _ws in sorted(frozen_pairs, key=lambda p: p[0].global_key):
-        results.append({"repo": r.key, "status": "skipped_frozen", "detail": "Skipped (frozen)"})
+        results.append({"repo": r.key, "workspace": r.workspace, "status": "skipped_frozen",
+                        "detail": "Skipped (frozen)"})
 
     pulled = sum(1 for r in results if r["status"] == "pulled")
     up_to_date = sum(1 for r in results if r["status"] == "up_to_date")

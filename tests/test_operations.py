@@ -68,3 +68,33 @@ class TestRunBulk:
         results = run_bulk(pairs, worker)
         assert results[0]["status"] == "error"
         assert "kaput" in results[0]["detail"]
+
+
+class TestRunBulkRetryContract:
+    def test_missing_status_is_retried(self):
+        pairs = [_pair("steady"), _pair("late")]
+        calls = []
+
+        def worker(repo, ws):
+            calls.append(repo.name)
+            if repo.name == "late" and calls.count("late") == 1:
+                return {"repo": repo.key, "status": "missing"}
+            return {"repo": repo.key, "status": "ok"}
+
+        results = run_bulk(pairs, worker, retry=2, parallel_limit=1)
+        assert sorted(calls) == ["late", "late", "steady"]  # only "late" was re-run, once
+        assert results == [{"repo": "o/steady", "status": "ok"}, {"repo": "o/late", "status": "ok"}]
+
+    def test_on_attempt_gets_round_and_remaining_count(self):
+        pairs = [_pair("a"), _pair("b"), _pair("c")]
+        fails_left = {"a": 2, "b": 1, "c": 0}  # a fails twice, b once, c never
+        seen = []
+
+        def worker(repo, ws):
+            if fails_left[repo.name]:
+                fails_left[repo.name] -= 1
+                return {"repo": repo.key, "status": "error"}
+            return {"repo": repo.key, "status": "ok"}
+
+        run_bulk(pairs, worker, retry=3, on_attempt=lambda attempt, remaining: seen.append((attempt, remaining)))
+        assert seen == [(1, 2), (2, 1)]

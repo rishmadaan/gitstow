@@ -16,18 +16,22 @@ def _repo(owner: str, name: str) -> Repo:
 class TestFileLock:
     def test_lock_is_exclusive(self, tmp_path):
         lock_path = tmp_path / "x.lock"
-        order = []
+        trying = threading.Event()
+        entered = threading.Event()
 
         def worker():
+            trying.set()
             with file_lock(lock_path):
-                order.append("worker")
+                entered.set()
 
         with file_lock(lock_path):
             t = threading.Thread(target=worker)
             t.start()
-            order.append("holder")
+            assert trying.wait(timeout=5)
+            # The worker is now blocked on the lock: it must not get in while we hold it.
+            assert not entered.wait(timeout=0.3)
+        assert entered.wait(timeout=5)  # released → the worker gets in
         t.join(timeout=5)
-        assert order == ["holder", "worker"]
 
 
 class TestAtomicStore:
