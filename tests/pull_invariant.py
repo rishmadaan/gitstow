@@ -11,8 +11,20 @@ agree with what happened to HEAD.
 
 from __future__ import annotations
 
+import os
 import subprocess
+import tempfile
 from pathlib import Path
+
+
+def non_utf8_names_ok() -> bool:
+    """False where the filesystem refuses non-UTF-8 file names (macOS APFS), so git cannot create such a branch."""
+    with tempfile.TemporaryDirectory() as d:
+        try:
+            open(os.path.join(os.fsencode(d), b"x\xff"), "wb").close()
+        except OSError:
+            return False
+    return True
 
 
 def _git(clone: Path, *args: str, binary: bool = False):

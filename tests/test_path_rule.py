@@ -252,7 +252,7 @@ def test_a_save_keeps_every_set_aside_record_and_doctor_names_them(legacy):
     flat = " ".join(human.split())
     assert f"{len(legacy['keys'])} repos.yaml entries set aside" in flat
     for key in legacy["keys"]:
-        assert repr(key) in human.replace("\n       ", ""), key
+        assert "".join(repr(key).split()) in "".join(human.split()), key
     assert "Delete each entry there, then add the repo again" in flat
     assert "All repos in sync" not in flat
 

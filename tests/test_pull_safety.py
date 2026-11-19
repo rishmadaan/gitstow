@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 from gitstow.core.git import fetch, pull
-from tests.pull_invariant import check_pull, pull_problems, snapshot
+from tests.pull_invariant import check_pull, non_utf8_names_ok, pull_problems, snapshot
 
 IDENT = ["-c", "user.name=t", "-c", "user.email=t@example.invalid"]
 
@@ -554,7 +554,10 @@ def test_no_display_name_feeds_a_git_key():
 # override to another key. Names are generated as bytes and every ref and config
 # write goes through bytes argv: a generator over printable text is what missed them.
 
-posix_only = pytest.mark.skipif(os.name == "nt", reason="non-UTF-8 ref names cannot be passed exactly on Windows")
+posix_only = pytest.mark.skipif(
+    os.name == "nt" or not non_utf8_names_ok(),
+    reason="non-UTF-8 ref names cannot be passed exactly on Windows, and filesystems such as macOS APFS refuse them",
+)
 
 
 def bgit(*args, cwd=None):

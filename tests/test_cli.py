@@ -11,6 +11,7 @@ import pytest
 from typer.testing import CliRunner
 
 from gitstow.cli.main import app
+from tests.pull_invariant import non_utf8_names_ok
 
 runner = CliRunner()
 
@@ -2849,7 +2850,10 @@ class TestPullFetchThenMerge(RealGitPullFixture):
         assert self.head() == before
 
 
-@pytest.mark.skipif(os.name == "nt", reason="non-UTF-8 ref names cannot be passed exactly on Windows")
+@pytest.mark.skipif(
+    os.name == "nt" or not non_utf8_names_ok(),
+    reason="non-UTF-8 ref names cannot be passed exactly on Windows, and filesystems such as macOS APFS refuse them",
+)
 class TestNonUtf8BranchMessage(RealGitPullFixture):
     """A branch named b"a=b-\xff" with merge options set is refused; the message reaches the
     terminal and JSON with U+FFFD in place of the byte, never a UnicodeEncodeError."""
