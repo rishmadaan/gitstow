@@ -94,7 +94,7 @@ gitstow add anthropic/claude-code --update
 
 ### `gitstow pull`
 
-Bulk update repos via `git pull --ff-only`.
+Bulk update repos: `git fetch`, then a fast-forward-only merge of the upstream branch.
 
 ```bash
 gitstow pull [repos...] [flags]
@@ -145,6 +145,7 @@ gitstow pull anthropic/claude-code --force
 - Local-only repos (no upstream configured) are skipped, likewise
 - Repos with only untracked files ARE pulled — an ff-only pull can't lose them
 - Uses `--ff-only` — won't create merge commits
+- Never overwrites your files, whatever your git config says: a pull that would replace a modified file, or an ignored local file (like a `.env`) that upstream has started tracking, is refused and reported as an error with the files left as they were. Autostash settings (`merge.autoStash`) and rebase settings (`pull.rebase`) are not used
 - Runs in parallel (configurable, default 6 concurrent)
 - Updates `last_pulled` timestamp on success
 

@@ -132,6 +132,12 @@ class TestPull:
         result = pull(Path("/tmp/repo"))
         assert result.success is True
         assert result.already_up_to_date is False
+        assert result.output == "Updating abc123..def456\n1 file changed"
+        assert [c.args[0] for c in mock_run.call_args_list] == [
+            ["fetch"],
+            ["-c", "merge.autoStash=false",
+             "merge", "--ff-only", "--no-overwrite-ignore", "@{upstream}"],
+        ]
 
     @patch("gitstow.core.git._run_git")
     def test_pull_already_up_to_date(self, mock_run):

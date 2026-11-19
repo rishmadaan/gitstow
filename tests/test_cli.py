@@ -2115,9 +2115,13 @@ class TestPullIgnoresAutostashConfig(RealGitPullFixture):
         assert self._stash_list() == ""
         assert self.head() == before
 
-    def test_non_overlapping_edit_still_fast_forwards_under_pull_rebase(self, tmp_path, monkeypatch):
+    # branch.main.rebase used to make `git pull` refuse this (rebase needs a clean tree);
+    # fetch + merge --ff-only ignores both rebase settings.
+    @pytest.mark.parametrize("key", ["pull.rebase", "branch.main.rebase"])
+    def test_non_overlapping_edit_still_fast_forwards_under_rebase_config(
+            self, tmp_path, monkeypatch, key):
         self._setup(tmp_path, monkeypatch)
-        _git("config", "pull.rebase", "true", cwd=self.clone)
+        _git("config", key, "true", cwd=self.clone)
         (self.clone / "x.txt").write_bytes(b"my local edit\n")
         self.push_change("y.txt", "y v2\n")
 
@@ -2127,6 +2131,78 @@ class TestPullIgnoresAutostashConfig(RealGitPullFixture):
         assert (self.clone / "x.txt").read_bytes() == b"my local edit\n"
         assert (self.clone / "y.txt").read_text() == "y v2\n"
         assert self._stash_list() == ""
+
+
+class TestPullFetchThenMerge(RealGitPullFixture):
+    """pull() = fetch + `merge --ff-only --no-overwrite-ignore`, on real git."""
+
+    def test_ignored_local_file_is_never_overwritten(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        # Upstream ignores secret.env; the clone holds its own copy.
+        (self.pusher / ".gitignore").write_text("secret.env\n")
+        _git("add", ".gitignore", cwd=self.pusher)
+        _git("commit", "-q", "-m", "ignore secret.env", cwd=self.pusher)
+        _git("push", "-q", "origin", "HEAD:main", cwd=self.pusher)
+        _git("pull", "-q", "--ff-only", cwd=self.clone)
+        (self.clone / "secret.env").write_bytes(b"MY LOCAL SECRET\n")
+        before = self.head()
+        # Upstream stops ignoring it and commits its own template.
+        (self.pusher / ".gitignore").write_text("")
+        (self.pusher / "secret.env").write_text("upstream template\n")
+        _git("add", ".gitignore", "secret.env", cwd=self.pusher)
+        _git("commit", "-q", "-m", "track secret.env", cwd=self.pusher)
+        _git("push", "-q", "origin", "HEAD:main", cwd=self.pusher)
+
+        result = runner.invoke(app, ["pull", "proj", "--json"])
+
+        row = json.loads(result.stdout)["results"][0]
+        assert row["status"] == "error", row
+        assert "secret.env" in row["detail"]
+        assert result.exit_code == 1
+        assert (self.clone / "secret.env").read_bytes() == b"MY LOCAL SECRET\n"
+        assert self.head() == before
+
+    def test_behind_repo_pulls_and_reports_first_line(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        before = self.head()
+        self.push_change("y.txt", "y v2\n")
+
+        result = runner.invoke(app, ["pull", "proj", "--json"])
+
+        row = json.loads(result.stdout)["results"][0]
+        assert row["status"] == "pulled", row
+        assert row["detail"].startswith(f"Updating {before[:7]}"), row
+        assert (self.clone / "y.txt").read_text() == "y v2\n"
+        assert self.head() != before
+
+    def test_already_up_to_date(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+
+        result = runner.invoke(app, ["pull", "proj", "--json"])
+
+        row = json.loads(result.stdout)["results"][0]
+        assert row == {"repo": "proj", "status": "up_to_date", "detail": "Already up to date"}
+
+    def test_fetch_failure_is_an_error_and_never_merges(self, tmp_path, monkeypatch):
+        from gitstow.core import git as core_git
+
+        self._setup(tmp_path, monkeypatch)
+        _git("remote", "set-url", "origin", str(tmp_path / "no-such-remote.git"), cwd=self.clone)
+        before = self.head()
+        calls = []
+        real_run = core_git._run_git
+
+        def spy(args, *a, **kw):
+            calls.append(args)
+            return real_run(args, *a, **kw)
+
+        monkeypatch.setattr(core_git, "_run_git", spy)
+        result = core_git.pull(self.clone)
+
+        assert result.success is False
+        assert "no-such-remote" in result.error
+        assert calls == [["fetch"]]
+        assert self.head() == before
 
 
 class TestFrozenSplitFromUpstream(RealGitPullFixture):

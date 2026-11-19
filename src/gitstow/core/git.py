@@ -183,25 +183,31 @@ def clone(
         )
 
 
-# A user's autostash or pull.rebase config would stash local edits, fast-forward
-# and re-apply them, which can leave conflict markers in a modified file while git
-# exits 0. `-c` beats every config file, and git older than 2.27 (no
-# --no-autostash on pull) simply ignores keys it does not know.
-_SAFE_PULL_ARGS = [
+# Fetch then merge, not `git pull`: pull cannot refuse to overwrite an ignored
+# local file (no --no-overwrite-ignore), so a `.env` upstream starts tracking
+# would be silently replaced. Going through merge also takes pull.rebase and
+# branch.<name>.rebase out of play. merge.autoStash=false: a user's autostash
+# config would stash local edits, fast-forward and re-apply them, which can leave
+# conflict markers while git exits 0; `-c` beats every config file, and git
+# older than 2.27 simply ignores the key.
+_SAFE_MERGE_ARGS = [
     "-c", "merge.autoStash=false",
-    "-c", "rebase.autoStash=false",
-    "-c", "pull.rebase=false",
-    "pull", "--ff-only",
+    "merge", "--ff-only", "--no-overwrite-ignore", "@{upstream}",
 ]
 
 
 def pull(repo_path: Path) -> PullResult:
-    """Pull latest changes (fast-forward only).
+    """Pull latest changes: fetch, then fast-forward to the upstream branch.
 
-    Returns PullResult with success/error status.
+    Refuses (error result, files untouched) whenever the fast-forward would
+    overwrite a local edit or an ignored local file.
     """
     try:
-        result = _run_git(_SAFE_PULL_ARGS, cwd=repo_path, timeout=120)
+        fetched = _run_git(["fetch"], cwd=repo_path, timeout=120)
+        if fetched.returncode != 0:
+            return PullResult(success=False,
+                              error=fetched.stderr.strip() or fetched.stdout.strip())
+        result = _run_git(_SAFE_MERGE_ARGS, cwd=repo_path, timeout=120)
         output = result.stdout.strip()
         stderr = result.stderr.strip()
 
