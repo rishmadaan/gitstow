@@ -261,8 +261,13 @@ def config_keys() -> list[str]:
 def test_config_sections_never_break_the_invariant(templates, tmp_path):
     keys = config_keys()
     assert "merge.autoStash" in keys and "branch.main.mergeOptions" in keys
-    rows = [(f"{k}={v}", [(k, v)]) for k in keys for v in ("true", "false")]
+    rows = [(f"{k}={v}", [(k, v)]) for k in keys for v in _SWEEP_VALUES.get(k, ("true", "false"))]
     assert sweep(templates, rows, tmp_path, check_expected=False) == []
+
+
+# Integer-only keys: newer git (CI) fast-forwards and only then errors on a true/false
+# value, so the invalid value tests git's config parsing, not pull(). Sweep valid values.
+_SWEEP_VALUES = {"core.packedRefsTimeout": ("0", "1000")}
 
 
 # --- canary: a new stash-related setting in a newer git needs a look ----------------
@@ -271,7 +276,9 @@ def test_config_sections_never_break_the_invariant(templates, tmp_path):
 # `merge --autostash` can stash during a pull; both are switched off in pull().
 KNOWN_STASH_KEYS = {"color.decorate.stash", "merge.autoStash", "rebase.autoStash",
                     "stash.showIncludeUntracked", "stash.showPatch", "stash.showStat",
-                    "status.showStash", "stash.index"}
+                    "status.showStash", "stash.index",
+                    # newer git; read only by `git pull`, which pull() does not run (git-config docs)
+                    "pull.autoStash"}
 
 
 def test_canary_stash_related_names_are_all_known():
@@ -746,6 +753,7 @@ KNOWN_MERGE_PULL_KEYS = {
     "merge.ff", "merge.guitool", "merge.log", "merge.renameLimit", "merge.renames",
     "merge.renormalize", "merge.stat", "merge.suppressDest", "merge.tool", "merge.verbosity",
     "merge.verifySignatures", "pull.ff", "pull.octopus", "pull.rebase", "pull.twohead",
+    "pull.autoStash",  # newer git (CI); read only by `git pull`
 }
 
 
