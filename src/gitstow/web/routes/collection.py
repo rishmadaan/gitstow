@@ -128,8 +128,8 @@ async def import_collection(
     for e in entries:
         entry_ws, _note = resolve_entry_workspace(e, settings, fallback=ws)
         e["_resolved_ws"] = entry_ws
-        key = e.get("key", "")
-        if key and store.get(key, workspace=entry_ws.label):
+        # By key, else by remote identity (another URL form): never clone a second copy.
+        if store.find_tracked(e.get("key", ""), entry_ws.label, e.get("url", ""), settings.default_host):
             continue
         new_entries.append(e)
 

@@ -260,6 +260,48 @@ class TestAddFindsRecordByRemote:
         assert (key, remote, tags, frozen) == (
             self.LEGACY_KEY, "git@ssh.dev.azure.com:v3/org/proj/repo.git", ["work"], True)
 
+    # Collection imports use the same lookup: an HTTPS entry for the legacy SSH-keyed repo.
+    COLLECTION = (b"version: 1\nrepos:\n  org/proj/repo:\n"
+                  b"    remote_url: https://dev.azure.com/org/proj/_git/repo\n")
+
+    def test_cli_collection_import_finds_the_record(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        ws_dir = self._seed(tmp_path, monkeypatch)
+        before = self._record(tmp_path)
+        coll = tmp_path / "coll.yaml"
+        coll.write_bytes(self.COLLECTION)
+        with patch("gitstow.cli.export_cmd.git_clone") as clone:
+            result = runner.invoke(app, ["collection", "import", str(coll)])
+
+        assert result.exit_code == 0, result.output
+        assert "1 already tracked (will skip)" in result.stdout
+        assert "Nothing new to import" in result.stdout
+        assert clone.call_count == 0
+        assert self._record(tmp_path) == before == [
+            (self.LEGACY_KEY, "git@ssh.dev.azure.com:v3/org/proj/repo.git", ["work"], True)]
+        assert not (ws_dir / "org").exists()
+
+    def test_dashboard_collection_import_finds_the_record(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from unittest.mock import patch
+
+        from gitstow.web.server import create_app
+
+        ws_dir = self._seed(tmp_path, monkeypatch)
+        before = self._record(tmp_path)
+        client = TestClient(create_app(), base_url="http://127.0.0.1")
+        with patch("gitstow.web.routes.collection.git_clone") as clone:
+            r = client.post("/collection/import", follow_redirects=False,
+                            files={"file": ("coll.yaml", self.COLLECTION, "text/yaml")})
+
+        assert r.status_code == 303
+        assert r.headers["location"] == "/?imported=0&failed=0"
+        assert clone.call_count == 0
+        assert self._record(tmp_path) == before == [
+            (self.LEGACY_KEY, "git@ssh.dev.azure.com:v3/org/proj/repo.git", ["work"], True)]
+        assert not (ws_dir / "org").exists()
+
 
 class TestAddNeverDeletesLocalRepo:
     """`add` must never clone over, or delete, a local repo that has no remote."""

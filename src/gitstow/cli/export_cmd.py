@@ -171,8 +171,9 @@ def import_collection(
         entry_ws, note = resolve_entry_workspace(entry, settings, fallback=ws)
         entry["_resolved_ws"] = entry_ws
         entry["_ws_note"] = note
-        key = entry.get("key", "")
-        if key and store.get(key, workspace=entry_ws.label):
+        url = entry.get("url") or entry.get("remote_url", "")
+        # By key, else by remote identity (another URL form): never clone a second copy.
+        if store.find_tracked(entry.get("key", ""), entry_ws.label, url, settings.default_host):
             existing.append(entry)
         else:
             new_repos.append(entry)
