@@ -457,6 +457,7 @@ class TestAddRepo:
         RepoStore().add(Repo(owner="v3/org/proj", name="repo",
                              remote_url="git@ssh.dev.azure.com:v3/org/proj/repo.git",
                              workspace="test-ws", tags=["work"], frozen=True))
+        _make_repo_on_disk(workspace_dir, "v3/org/proj", "repo")  # tracked and on disk
         called = []
         monkeypatch.setattr("gitstow.web.routes.repos.git_clone",
                             lambda *a, **kw: called.append(a) or (True, ""))

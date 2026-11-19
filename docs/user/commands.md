@@ -81,7 +81,7 @@ gitstow add anthropic/claude-code --update
 
 **Behavior:**
 - Repos are added to the first configured workspace, or the workspace specified with `-w`. With none configured, `add` exits 1 with `No workspaces configured…` and clones nothing
-- If the repo is already tracked: skips (or pulls with `--update`)
+- If the repo is already tracked: skips (or pulls with `--update`). If its folder is missing on disk, it errors instead and names the way out: `gitstow remove <key>`, then add it again to re-clone (the MCP `add_repo` tool and the dashboard's Add page say the same)
 - If the same repo is already tracked in that workspace under another URL form (HTTPS vs SSH, or an Azure repo first added by its SSH `v3/` URL): reports it as already tracked under its stored name and folder, never clones a second copy; `--update` pulls that existing folder
 - If the path exists on disk as a git repo whose `origin` remote matches, but isn't tracked: registers it automatically
 - If the path exists on disk as a git repo with **no** `origin` remote (one you `git init`ed yourself): errors and never clones over it, printing the command to run inside it (`git -C <folder> remote add origin <url>`); run the same `gitstow add` again afterwards to register it

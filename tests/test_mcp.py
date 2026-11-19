@@ -206,6 +206,7 @@ def test_add_repo_finds_record_tracked_under_another_url_form(isolated, url):
     save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
     RepoStore().add(Repo(owner="v3/org/proj", name="repo", remote_url=LEGACY_AZURE_REMOTE,
                          workspace="ws", tags=["work"], frozen=True))
+    (ws_dir / "v3" / "org" / "proj" / "repo" / ".git").mkdir(parents=True)  # tracked and on disk
 
     with patch("gitstow.mcp.server.git_clone") as clone:
         payload = json.loads(add_repo(url, workspace="ws"))

@@ -31,7 +31,7 @@ from gitstow.core.git import (
     get_status,
     is_git_repo,
 )
-from gitstow.core.repo import Repo, RepoStore
+from gitstow.core.repo import MISSING_FOLDER_HINT, Repo, RepoStore
 from gitstow.core.url_parser import parse_git_url
 
 mcp = FastMCP(
@@ -176,6 +176,10 @@ def add_repo(
 
     # Already tracked, by key or under another URL form's key
     existing = store.find_tracked(repo_key, ws.label, parsed.clone_url, settings.default_host)
+    if existing and not existing.get_path(root).exists():
+        return json.dumps({"success": False, "status": "missing", "key": existing.key,
+                           "workspace": ws.label, "path": str(existing.get_path(root)),
+                           "error": MISSING_FOLDER_HINT.format(key=existing.key)})
     if existing:
         row = {
             "success": True,

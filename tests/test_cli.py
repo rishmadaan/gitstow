@@ -202,6 +202,7 @@ class TestAddFindsRecordByRemote:
             owner="v3/org/proj", name="repo", remote_url="git@ssh.dev.azure.com:v3/org/proj/repo.git",
             workspace="ws", tags=["work"], frozen=True,
         ))
+        (ws_dir / "v3" / "org" / "proj" / "repo" / ".git").mkdir(parents=True)  # tracked and on disk
         return ws_dir
 
     def _record(self, tmp_path):
@@ -301,6 +302,89 @@ class TestAddFindsRecordByRemote:
         assert self._record(tmp_path) == before == [
             (self.LEGACY_KEY, "git@ssh.dev.azure.com:v3/org/proj/repo.git", ["work"], True)]
         assert not (ws_dir / "org").exists()
+
+
+class TestTrackedButFolderMissing:
+    """A tracked repo whose folder was deleted: every add surface names the way out, clones nothing."""
+
+    HINT = ("Tracked as owner/repo, but its folder is missing on disk. Remove it from gitstow "
+            "(gitstow remove owner/repo), then add it again to re-clone.")
+
+    def _seed(self, tmp_path, monkeypatch):
+        from gitstow.core.repo import Repo, RepoStore
+
+        ws_dir = TestAddParallelAndConflicts()._setup(tmp_path, monkeypatch)
+        RepoStore(path=tmp_path / "repos.yaml").add(Repo(
+            owner="owner", name="repo", remote_url="https://github.com/owner/repo.git",
+            workspace="ws", tags=["keep"]))
+        return ws_dir
+
+    def _records(self, tmp_path):
+        from gitstow.core.repo import RepoStore
+        return [(r.key, r.workspace, r.remote_url, r.tags)
+                for r in RepoStore(path=tmp_path / "repos.yaml").list_all()]
+
+    @pytest.mark.parametrize("url", ["owner/repo", "git@github.com:owner/repo.git"])
+    @pytest.mark.parametrize("update", [False, True])
+    def test_cli_add(self, tmp_path, monkeypatch, url, update):
+        from unittest.mock import patch
+
+        ws_dir = self._seed(tmp_path, monkeypatch)
+        with patch("gitstow.cli.add.git_clone") as clone, patch("gitstow.core.git.pull") as pull:
+            result = runner.invoke(app, ["add", url, "--json"] + (["--update"] if update else []))
+
+        assert result.exit_code == 1
+        assert json.loads(result.stdout)["results"] == [
+            {"repo": "owner/repo", "status": "error", "error": self.HINT}]
+        assert clone.call_count == 0 and pull.call_count == 0
+        assert not (ws_dir / "owner").exists()
+        assert self._records(tmp_path) == [
+            ("owner/repo", "ws", "https://github.com/owner/repo.git", ["keep"])]
+
+    def test_cli_add_human_mode(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        self._seed(tmp_path, monkeypatch)
+        with patch("gitstow.cli.add.git_clone") as clone:
+            result = runner.invoke(app, ["add", "owner/repo"], env={"COLUMNS": "400"})
+
+        assert result.exit_code == 1
+        assert self.HINT in result.stderr
+        assert clone.call_count == 0
+
+    def test_mcp_add_repo(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        from gitstow.mcp.server import add_repo
+
+        ws_dir = self._seed(tmp_path, monkeypatch)
+        with patch("gitstow.mcp.server.git_clone") as clone:
+            out = json.loads(add_repo("owner/repo"))
+
+        assert out == {"success": False, "status": "missing", "key": "owner/repo", "workspace": "ws",
+                       "path": str(ws_dir / "owner" / "repo"), "error": self.HINT}
+        assert clone.call_count == 0
+
+    def test_dashboard_add(self, tmp_path, monkeypatch):
+        import html
+        from unittest.mock import patch
+
+        from fastapi.testclient import TestClient
+
+        from gitstow.web.server import create_app
+
+        ws_dir = self._seed(tmp_path, monkeypatch)
+        client = TestClient(create_app(), base_url="http://127.0.0.1")
+        with patch("gitstow.web.routes.repos.git_clone") as clone:
+            r = client.post("/repos/add", data={"url": "owner/repo", "workspace": "ws"},
+                            follow_redirects=False)
+
+        assert r.status_code == 200
+        assert self.HINT in html.unescape(r.text)
+        assert clone.call_count == 0
+        assert not (ws_dir / "owner").exists()
+        assert self._records(tmp_path) == [
+            ("owner/repo", "ws", "https://github.com/owner/repo.git", ["keep"])]
 
 
 class TestAddNeverDeletesLocalRepo:

@@ -100,6 +100,13 @@ def _is_legacy_format(data: dict) -> bool:
     return False
 
 
+# Every add surface answers a tracked record whose folder is gone with this.
+MISSING_FOLDER_HINT = (
+    "Tracked as {key}, but its folder is missing on disk. Remove it from gitstow "
+    "(gitstow remove {key}), then add it again to re-clone."
+)
+
+
 class RepoStore:
     """CRUD operations on repos.yaml.
 
