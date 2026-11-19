@@ -137,9 +137,9 @@ def add(
             target = existing.get_path(root)
 
         # Dedup equivalent URLs within one invocation — the parallel phase must
-        # never see two workers targeting the same directory (clone collision,
-        # collapsed outcome_by_key entries, retry rmtree deleting the other
-        # worker's good clone). Also covers register/exists branches so a second
+        # never see two workers targeting the same directory (a wasted second
+        # clone whose publish is refused, collapsed outcome_by_key entries).
+        # Also covers register/exists branches so a second
         # equivalent URL never double-registers.
         resolved_target = target.resolve()
         if resolved_target in seen_targets:
