@@ -133,31 +133,35 @@ class TestCloneTimeout:
         assert mock_run.call_args.kwargs["timeout"] == 900
 
 
+def _pull_steps(merge_stdout="", merge_rc=0):
+    """`_run_git` results for one pull, in call order: symbolic-ref, fetch, rev-parse, merge."""
+    return [
+        MagicMock(returncode=0, stdout="main\n", stderr=""),
+        MagicMock(returncode=0, stdout="", stderr=""),
+        MagicMock(returncode=0, stdout="abc\n", stderr=""),
+        MagicMock(returncode=merge_rc, stdout=merge_stdout, stderr=""),
+    ]
+
+
 class TestPull:
     @patch("gitstow.core.git._run_git")
     def test_pull_success(self, mock_run):
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="Updating abc123..def456\n1 file changed",
-            stderr="",
-        )
+        mock_run.side_effect = _pull_steps("Updating abc123..def456\n1 file changed")
         result = pull(Path("/tmp/repo"))
         assert result.success is True
         assert result.already_up_to_date is False
         assert result.output == "Updating abc123..def456\n1 file changed"
         assert [c.args[0] for c in mock_run.call_args_list] == [
-            ["fetch"],
-            ["-c", "merge.autoStash=false",
-             "merge", "--ff-only", "--no-overwrite-ignore", "@{upstream}"],
+            ["symbolic-ref", "--short", "-q", "HEAD"],
+            ["fetch", "--prune"],
+            ["rev-parse", "--verify", "-q", "@{upstream}"],
+            ["-c", "merge.autoStash=false", "-c", "branch.main.mergeOptions=",
+             "merge", "--no-stat", "--ff-only", "--no-overwrite-ignore", "@{upstream}"],
         ]
 
     @patch("gitstow.core.git._run_git")
     def test_pull_already_up_to_date(self, mock_run):
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="Already up to date.",
-            stderr="",
-        )
+        mock_run.side_effect = _pull_steps("Already up to date.")
         result = pull(Path("/tmp/repo"))
         assert result.success is True
         assert result.already_up_to_date is True
@@ -165,13 +169,14 @@ class TestPull:
     @patch("gitstow.core.git._run_git")
     def test_pull_failure(self, mock_run):
         mock_run.return_value = MagicMock(
-            returncode=1,
+            returncode=128,
             stdout="",
             stderr="fatal: not a git repo",
         )
         result = pull(Path("/tmp/repo"))
         assert result.success is False
         assert "not a git repo" in result.error
+        assert mock_run.call_count == 1  # nothing after the failed branch lookup
 
     @patch("gitstow.core.git._run_git")
     def test_pull_timeout(self, mock_run):

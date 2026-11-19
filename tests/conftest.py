@@ -3,10 +3,27 @@
 
 """Shared test fixtures for gitstow."""
 
+import os
+
 import pytest
 
 from gitstow.core.config import Settings, Workspace
 from gitstow.core.repo import Repo, RepoStore
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "slow: long real-git sweeps; run on CI (CI is set) or with GITSTOW_RUN_SLOW=1")
+
+
+def pytest_collection_modifyitems(config, items):
+    # GitHub Actions (and most CI) sets CI=true, so CI runs the slow sweeps with no flag.
+    if os.environ.get("CI") or os.environ.get("GITSTOW_RUN_SLOW"):
+        return
+    skip = pytest.mark.skip(reason="slow sweep: set GITSTOW_RUN_SLOW=1 (CI runs it)")
+    for item in items:
+        if "slow" in item.keywords:
+            item.add_marker(skip)
 
 
 @pytest.fixture(autouse=True)

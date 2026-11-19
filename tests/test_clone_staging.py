@@ -125,7 +125,7 @@ def _ours(surface):
 def _assert_sibling_intact(e):
     assert (e.target / "local-work.txt").read_bytes() == LOCAL_WORK
     assert subprocess.run(["git", "fsck", "--no-progress"], cwd=e.target,
-                          capture_output=True).returncode == 0
+                          capture_output=True, check=False).returncode == 0
     assert _git("rev-parse", "HEAD", cwd=e.target).stdout.strip() == e.upstream_head
     assert sorted(os.listdir(e.target.parent)) == ["repo"]  # no staging leftovers
 

@@ -206,28 +206,49 @@ def clone(
 # Fetch then merge, not `git pull`: pull cannot refuse to overwrite an ignored
 # local file (no --no-overwrite-ignore), so a `.env` upstream starts tracking
 # would be silently replaced. Going through merge also takes pull.rebase and
-# branch.<name>.rebase out of play. merge.autoStash=false: a user's autostash
-# config would stash local edits, fast-forward and re-apply them, which can leave
-# conflict markers while git exits 0; `-c` beats every config file, and git
-# older than 2.27 simply ignores the key.
-_SAFE_MERGE_ARGS = [
-    "-c", "merge.autoStash=false",
-    "merge", "--ff-only", "--no-overwrite-ignore", "@{upstream}",
-]
+# branch.<name>.rebase out of play. The two `-c` overrides close merge's own
+# channels for changing what it does: merge.autoStash would stash local edits
+# and re-apply them (conflict markers, exit 0), and branch.<name>.mergeOptions
+# can inject any merge option (--autostash, --squash, -s ours, ...). `-c` beats
+# every config file; neither override needs a particular git version.
+def _safe_merge_args(branch: str) -> list[str]:
+    return [
+        "-c", "merge.autoStash=false",
+        "-c", f"branch.{branch}.mergeOptions=",
+        "merge", "--no-stat", "--ff-only", "--no-overwrite-ignore", "@{upstream}",
+    ]
 
 
 def pull(repo_path: Path) -> PullResult:
     """Pull latest changes: fetch, then fast-forward to the upstream branch.
 
     Refuses (error result, files untouched) whenever the fast-forward would
-    overwrite a local edit or an ignored local file.
+    overwrite a local edit or an ignored local file, and on a detached HEAD, a
+    missing upstream, or merge options it cannot switch off.
     """
     try:
-        fetched = _run_git(["fetch"], cwd=repo_path, timeout=120)
+        head = _run_git(["symbolic-ref", "--short", "-q", "HEAD"], cwd=repo_path)
+        branch = head.stdout.strip()
+        if not branch:  # -q: silent on a detached HEAD, stderr only for a real failure
+            return PullResult(success=False, error=head.stderr.strip()
+                              or "not on a branch (detached HEAD): check out a branch, then pull")
+        # `-c key=value` splits at the first '=', so the mergeOptions override cannot
+        # name a branch containing '='; refuse only when there is something to override.
+        if "=" in branch and _run_git(
+                ["config", "--get", f"branch.{branch}.mergeOptions"], cwd=repo_path).stdout.strip():
+            return PullResult(success=False, error=(
+                f"branch '{branch}' has merge options (branch.{branch}.mergeOptions) that gitstow "
+                "cannot switch off for a branch name containing '='; pull it with git"))
+        fetched = _run_git(["fetch", "--prune"], cwd=repo_path, timeout=120)
         if fetched.returncode != 0:
             return PullResult(success=False,
                               error=fetched.stderr.strip() or fetched.stdout.strip())
-        result = _run_git(_SAFE_MERGE_ARGS, cwd=repo_path, timeout=120)
+        if _run_git(["rev-parse", "--verify", "-q", "@{upstream}"], cwd=repo_path).returncode != 0:
+            if _run_git(["config", "--get", f"branch.{branch}.merge"], cwd=repo_path).stdout.strip():
+                return PullResult(success=False,
+                                  error="the upstream branch no longer exists on the remote")
+            return PullResult(success=False, error=f"no upstream configured for branch '{branch}'")
+        result = _run_git(_safe_merge_args(branch), cwd=repo_path, timeout=120)
         output = result.stdout.strip()
         stderr = result.stderr.strip()
 

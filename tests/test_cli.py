@@ -1987,10 +1987,26 @@ class RealGitPullFixture:
         _git("commit", "-q", "-am", f"change {name}", cwd=self.pusher)
         _git("push", "-q", "origin", "HEAD:main", cwd=self.pusher)
 
-    def head(self):
+    def head(self, repo=None):
         import subprocess
-        return subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.clone,
+        return subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo or self.clone,
                               capture_output=True, text=True, check=True).stdout.strip()
+
+    def checked(self, files, run):
+        """Run a pull under the shared safety invariant (tests/pull_invariant.py)."""
+        from tests.pull_invariant import check_pull
+        return check_pull(self.clone, files, self.head(self.pusher), run)
+
+    def cli_pull(self, argv, files):
+        """`gitstow <argv>` checked by the invariant; returns (result, first JSON row)."""
+        out = {}
+
+        def run():
+            out["result"] = runner.invoke(app, argv)
+            out["row"] = json.loads(out["result"].stdout)["results"][0]
+            return out["row"]["status"] in ("pulled", "up_to_date"), out["row"].get("detail", "")
+        self.checked(files, run)
+        return out["result"], out["row"]
 
 
 class TestPullForce(RealGitPullFixture):
@@ -1999,9 +2015,8 @@ class TestPullForce(RealGitPullFixture):
         (self.clone / "x.txt").write_bytes(b"my local edit\r\nkeep\n")
         self.push_change("y.txt", "y v2\n")
 
-        result = runner.invoke(app, ["pull", "proj", "--force", "--json"])
+        result, row = self.cli_pull(["pull", "proj", "--force", "--json"], ["x.txt"])
 
-        row = json.loads(result.stdout)["results"][0]
         assert row["status"] == "pulled", row
         assert result.exit_code == 0
         assert (self.clone / "x.txt").read_bytes() == b"my local edit\r\nkeep\n"
@@ -2013,9 +2028,8 @@ class TestPullForce(RealGitPullFixture):
         (self.clone / "x.txt").write_bytes(b"my local edit\n")
         self.push_change("x.txt", "x v2 from upstream\n")
 
-        result = runner.invoke(app, ["pull", "proj", "--force", "--json"])
+        result, row = self.cli_pull(["pull", "proj", "--force", "--json"], ["x.txt"])
 
-        row = json.loads(result.stdout)["results"][0]
         assert row["status"] == "error"
         assert "overwritten" in row["detail"]
         assert result.exit_code == 1
@@ -2028,9 +2042,8 @@ class TestPullForce(RealGitPullFixture):
         (self.clone / "x.txt").write_text("my local edit\n")
         self.push_change("y.txt", "y v2\n")
 
-        result = runner.invoke(app, ["pull", "proj", "--json"])
+        result, row = self.cli_pull(["pull", "proj", "--json"], ["x.txt"])
 
-        row = json.loads(result.stdout)["results"][0]
         assert row == {"repo": "proj", "status": "skipped", "detail": "Local changes (1 modified)"}
         assert result.exit_code == 0
         assert self.head() == before
@@ -2044,9 +2057,8 @@ class TestPullForce(RealGitPullFixture):
         _git("fetch", "-q", cwd=self.clone)
         (self.clone / "x.txt").write_text("and a local edit\n")
 
-        result = runner.invoke(app, ["pull", "proj", "--force", "--json"])
+        _, row = self.cli_pull(["pull", "proj", "--force", "--json"], ["x.txt", "y.txt"])
 
-        row = json.loads(result.stdout)["results"][0]
         assert row["status"] == "skipped"
         assert row["detail"].startswith("Diverged from remote")
 
@@ -2055,9 +2067,8 @@ class TestPullForce(RealGitPullFixture):
         _git("checkout", "-q", "-b", "local-only", cwd=self.clone)
         (self.clone / "x.txt").write_text("edit\n")
 
-        result = runner.invoke(app, ["pull", "proj", "--force", "--json"])
+        _, row = self.cli_pull(["pull", "proj", "--force", "--json"], ["x.txt"])
 
-        row = json.loads(result.stdout)["results"][0]
         assert row == {"repo": "proj", "status": "skipped",
                        "detail": "Local-only repo — no upstream configured"}
 
@@ -2068,10 +2079,15 @@ class TestPullForce(RealGitPullFixture):
         (self.clone / "x.txt").write_bytes(b"my local edit\n")
         self.push_change("y.txt", "y v2\n")
 
-        skipped = json.loads(pull_repos())["results"][0]
-        assert skipped["status"] == "skipped"
-        row = json.loads(pull_repos(force=True))["results"][0]
-        assert row["status"] == "pulled"
+        rows = []
+
+        def mcp_pull(**kw):
+            rows.append(json.loads(pull_repos(**kw))["results"][0])
+            return rows[-1]["status"] == "pulled", rows[-1].get("detail", "")
+        self.checked(["x.txt"], mcp_pull)
+        self.checked(["x.txt"], lambda: mcp_pull(force=True))
+        assert rows[0]["status"] == "skipped"
+        assert rows[1]["status"] == "pulled"
         assert (self.clone / "x.txt").read_bytes() == b"my local edit\n"
         assert (self.clone / "y.txt").read_text() == "y v2\n"
 
@@ -2089,15 +2105,21 @@ class TestPullIgnoresAutostashConfig(RealGitPullFixture):
         return subprocess.run(["git", "diff", "--cached"], cwd=self.clone,
                               capture_output=True, check=True).stdout
 
-    def _force_pull(self):
+    def _force_pull(self, files=("x.txt",)):
         from gitstow.cli.pull import _pull_one_repo
         from gitstow.core.config import Workspace
         from gitstow.core.repo import Repo
-        return _pull_one_repo(
-            Repo(owner="", name="proj", remote_url="", workspace="ws"),
-            Workspace(path=str(self.clone.parent), label="ws", layout="flat"),
-            force=True,
-        )
+        out = {}
+
+        def run():
+            out["row"] = _pull_one_repo(
+                Repo(owner="", name="proj", remote_url="", workspace="ws"),
+                Workspace(path=str(self.clone.parent), label="ws", layout="flat"),
+                force=True,
+            )
+            return out["row"]["status"] in ("pulled", "up_to_date"), out["row"].get("detail", "")
+        self.checked(list(files), run)
+        return out["row"]
 
     @pytest.mark.parametrize("config", [
         [("merge.autoStash", "true")],
@@ -2175,9 +2197,8 @@ class TestPullFetchThenMerge(RealGitPullFixture):
         _git("commit", "-q", "-m", "track secret.env", cwd=self.pusher)
         _git("push", "-q", "origin", "HEAD:main", cwd=self.pusher)
 
-        result = runner.invoke(app, ["pull", "proj", "--json"])
+        result, row = self.cli_pull(["pull", "proj", "--json"], ["secret.env"])
 
-        row = json.loads(result.stdout)["results"][0]
         assert row["status"] == "error", row
         assert "secret.env" in row["detail"]
         assert result.exit_code == 1
@@ -2189,9 +2210,8 @@ class TestPullFetchThenMerge(RealGitPullFixture):
         before = self.head()
         self.push_change("y.txt", "y v2\n")
 
-        result = runner.invoke(app, ["pull", "proj", "--json"])
+        _, row = self.cli_pull(["pull", "proj", "--json"], ["x.txt"])
 
-        row = json.loads(result.stdout)["results"][0]
         assert row["status"] == "pulled", row
         assert row["detail"].startswith(f"Updating {before[:7]}"), row
         assert (self.clone / "y.txt").read_text() == "y v2\n"
@@ -2200,9 +2220,8 @@ class TestPullFetchThenMerge(RealGitPullFixture):
     def test_already_up_to_date(self, tmp_path, monkeypatch):
         self._setup(tmp_path, monkeypatch)
 
-        result = runner.invoke(app, ["pull", "proj", "--json"])
+        _, row = self.cli_pull(["pull", "proj", "--json"], ["x.txt", "y.txt"])
 
-        row = json.loads(result.stdout)["results"][0]
         assert row == {"repo": "proj", "status": "up_to_date", "detail": "Already up to date"}
 
     def test_fetch_failure_is_an_error_and_never_merges(self, tmp_path, monkeypatch):
@@ -2219,11 +2238,17 @@ class TestPullFetchThenMerge(RealGitPullFixture):
             return real_run(args, *a, **kw)
 
         monkeypatch.setattr(core_git, "_run_git", spy)
-        result = core_git.pull(self.clone)
+        out = {}
+
+        def run():
+            out["r"] = core_git.pull(self.clone)
+            return out["r"].success, out["r"].error
+        self.checked(["x.txt"], run)
+        result = out["r"]
 
         assert result.success is False
         assert "no-such-remote" in result.error
-        assert calls == [["fetch"]]
+        assert calls == [["symbolic-ref", "--short", "-q", "HEAD"], ["fetch", "--prune"]]
         assert self.head() == before
 
 
@@ -2242,8 +2267,7 @@ class TestFrozenSplitFromUpstream(RealGitPullFixture):
         self._setup(tmp_path, monkeypatch, frozen=True)
         self._diverge()
         with patch("gitstow.cli.pull.git_pull") as spy:
-            result = runner.invoke(app, ["pull", "--include-frozen", "--json"])
-        row = json.loads(result.stdout)["results"][0]
+            result, row = self.cli_pull(["pull", "--include-frozen", "--json"], ["x.txt", "y.txt"])
         assert row == {"repo": "proj", "status": "skipped",
                        "detail": "Diverged from remote — resolve manually (rebase or merge)"}
         assert result.exit_code == 0
@@ -2255,8 +2279,7 @@ class TestFrozenSplitFromUpstream(RealGitPullFixture):
         self._setup(tmp_path, monkeypatch, frozen=True)
         _git("checkout", "-q", "-b", "local-only", cwd=self.clone)
         with patch("gitstow.cli.pull.git_pull") as spy:
-            result = runner.invoke(app, ["pull", "--include-frozen", "--json"])
-        row = json.loads(result.stdout)["results"][0]
+            result, row = self.cli_pull(["pull", "--include-frozen", "--json"], ["x.txt", "y.txt"])
         assert row == {"repo": "proj", "status": "skipped",
                        "detail": "Local-only repo — no upstream configured"}
         assert result.exit_code == 0
