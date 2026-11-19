@@ -42,3 +42,7 @@ Triaged non-blocking items from the 2026-07 audit remediation (see
 - [x] **Product call: frozen + diverged + `--include-frozen`** — Fixed in 0.9.0: a clean "diverged" (or "local-only") skip. Was: surfaces as an ff-only error row
   instead of a clean "diverged" skip (check `remote_state` directly in the worker if the messaging
   matters).
+
+## Post-0.9.0 follow-ups
+
+- [ ] **Align MCP `add_repo` and the dashboard's Add with CLI `add` for an on-disk repo** — when the target folder is already a git repo, both register it with `remote_url` set to the URL that was asked for, without reading its real `origin`: a repo with no remote gets a guessed remote recorded, and one whose remote is a different project is registered with no mismatch error (MCP `add_repo` in `mcp/server.py`; dashboard `add_repo` in `web/routes/repos.py`, the `target.exists()` / `is_git_repo` branch). Not data loss (neither has a retry or deletes anything). CLI `add` refuses both cases since 0.9.0; share that classification so all three surfaces answer the same way.
