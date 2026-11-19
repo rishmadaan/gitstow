@@ -178,7 +178,7 @@ def import_collection(
 
     console.print(f"\n  Found {len(repos_to_import)} repos in file")
     if would_skip:
-        console.print(f"  [dim]{len(would_skip)} already tracked (will skip)[/dim]")
+        console.print(f"  [dim]{len(would_skip)} already tracked or listed twice (will skip)[/dim]")
     if stopped:
         console.print(f"  [dim]{len(stopped)} cannot be imported (conflict or unusable entry)[/dim]")
     console.print(f"  {len(would_add)} new repos to import\n")

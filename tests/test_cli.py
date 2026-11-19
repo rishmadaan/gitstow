@@ -276,7 +276,7 @@ class TestAddFindsRecordByRemote:
             result = runner.invoke(app, ["collection", "import", str(coll)])
 
         assert result.exit_code == 0, result.output
-        assert "1 already tracked (will skip)" in result.stdout
+        assert "1 already tracked or listed twice (will skip)" in result.stdout
         assert "Nothing new to import" in result.stdout
         assert clone.call_count == 0
         assert self._record(tmp_path) == before == [
@@ -725,6 +725,7 @@ class TestImportClassifiesEveryEntryAlike:
                 "same folder in 'ws'; import one of them into another workspace") in out
         assert "Cannot add: https://github.com/../x: Cannot use" in out
         assert "1 new repos to import" in out
+        assert "1 already tracked or listed twice (will skip)" in out  # the in-file duplicate
         assert not (tmp_path / "repos.yaml").exists()
 
 
