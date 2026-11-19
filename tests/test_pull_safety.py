@@ -121,9 +121,14 @@ STATES = [unstaged_overlap, staged_overlap, untracked_collision, ignored_collisi
 
 @pytest.fixture(scope="module")
 def hermetic_git(tmp_path_factory):
-    """Keep the developer's own git config out: an empty, test-owned global config."""
+    """Keep the developer's own git config out: a test-owned global config.
+
+    It carries an identity, as a real user's does: without one, a setting that makes
+    merge create a commit (pull.twohead=ours, --no-ff) fails for lack of a name and the
+    cell passes for the wrong reason.
+    """
     home = tmp_path_factory.mktemp("githome")
-    (home / "gitconfig").write_text("")
+    (home / "gitconfig").write_text("[user]\n\tname = t\n\temail = t@example.invalid\n")
     with pytest.MonkeyPatch.context() as mp:
         mp.setenv("GIT_CONFIG_GLOBAL", str(home / "gitconfig"))
         mp.setenv("GIT_CONFIG_NOSYSTEM", "1")
