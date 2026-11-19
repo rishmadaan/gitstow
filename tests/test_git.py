@@ -144,6 +144,12 @@ def _pull_steps(merge_stdout="", merge_rc=0):
 
 
 class TestPull:
+    @pytest.fixture(autouse=True)
+    def _own_toplevel(self):
+        # These mock _run_git call by call; the boundary check has its own real-git tests.
+        with patch("gitstow.core.git._not_own_toplevel", return_value=None):
+            yield
+
     @patch("gitstow.core.git._run_git")
     def test_pull_success(self, mock_run):
         mock_run.side_effect = _pull_steps("Updating abc123..def456\n1 file changed")
@@ -189,6 +195,12 @@ class TestPull:
 
 
 class TestFetch:
+    @pytest.fixture(autouse=True)
+    def _own_toplevel(self):
+        # These mock _run_git call by call; the boundary check has its own real-git tests.
+        with patch("gitstow.core.git._not_own_toplevel", return_value=None):
+            yield
+
     @patch("gitstow.core.git._run_git")
     def test_fetch_success(self, mock_run):
         mock_run.return_value = MagicMock(

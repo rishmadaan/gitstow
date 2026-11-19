@@ -104,11 +104,15 @@ def _cwd_only_env(cwd: Path | None = None) -> dict[str, str]:
     With a `cwd`, GIT_CEILING_DIRECTORIES is its resolved parent: git never climbs out
     of the folder it was pointed at. Without it, a tracked folder whose `.git` is broken
     or empty, inside another repo (a workspace under a folder that is itself a repo),
-    would make git act on that outer repo instead.
+    would make git act on that outer repo instead. The variable is a path list, so a
+    parent containing the list separator (':' on POSIX) cannot be expressed and is left
+    out; `_not_own_toplevel` refuses those cases before anything that writes.
     """
     env = {k: v for k, v in os.environ.items() if k not in _REPO_LOCATING_VARS}
     if cwd is not None:
-        env["GIT_CEILING_DIRECTORIES"] = str(Path(cwd).resolve().parent)
+        parent = str(Path(cwd).resolve().parent)
+        if os.pathsep not in parent:
+            env["GIT_CEILING_DIRECTORIES"] = parent
     return env
 
 
@@ -173,6 +177,24 @@ def is_repo_readable(repo_path: Path) -> bool:
     is_git_repo but fails every real git command — this catches that.
     """
     return _run_git(["rev-parse", "--git-dir"], cwd=repo_path).returncode == 0
+
+
+def _not_own_toplevel(repo_path: Path) -> str | None:
+    """Error text unless git's top level for `repo_path` is that folder itself, else None.
+
+    Called before every command that writes to a repo: whatever git's discovery does
+    (a broken `.git` inside another repo, a ceiling the path list cannot express),
+    gitstow then only ever acts on the folder it was pointed at.
+    """
+    refused = f"{repo_path} is not the top of its own git repository; left untouched"
+    top = _run_git(["rev-parse", "--show-toplevel"], cwd=repo_path, binary=True)
+    if top.returncode != 0 or not top.stdout.removesuffix(b"\n"):
+        return refused
+    try:
+        same = os.path.samefile(os.fsdecode(top.stdout.removesuffix(b"\n")), repo_path)
+    except (OSError, ValueError):
+        return refused
+    return None if same else refused
 
 
 def clone(
@@ -261,6 +283,8 @@ def pull(repo_path: Path) -> PullResult:
     missing upstream, or merge options it cannot switch off.
     """
     try:
+        if refused := _not_own_toplevel(repo_path):
+            return PullResult(success=False, error=refused)
         # The full ref, never `--short`: the short form is a display name (a tag also
         # called `main` makes it `heads/main`), while git keys branch config on the
         # full ref minus `refs/heads/`, byte for byte. So it is read as bytes and only
@@ -324,6 +348,8 @@ def fetch(repo_path: Path) -> FetchResult:
     Returns FetchResult with success/error status.
     """
     try:
+        if refused := _not_own_toplevel(repo_path):
+            return FetchResult(success=False, error=refused)
         result = _run_git(["fetch", "--all", "--prune"], cwd=repo_path, timeout=120)
         output = result.stdout.strip()
         stderr = result.stderr.strip()

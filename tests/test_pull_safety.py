@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from gitstow.core.git import pull
+from gitstow.core.git import fetch, pull
 from tests.pull_invariant import check_pull, pull_problems, snapshot
 
 IDENT = ["-c", "user.name=t", "-c", "user.email=t@example.invalid"]
@@ -698,11 +698,16 @@ def test_pull_twohead_ours_never_makes_a_merge_commit(templates, tmp_path):
 
 # --- git never climbs out of the tracked folder ----------------------------------------
 
+@pytest.mark.parametrize("ancestor", ["", "outer:part"])
 @pytest.mark.parametrize("broken", ["empty .git folder", ".git file pointing nowhere"])
-def test_broken_git_inside_another_repo_never_touches_that_repo(hermetic_git, tmp_path, broken):
+def test_broken_git_inside_another_repo_never_touches_that_repo(hermetic_git, tmp_path, broken,
+                                                                ancestor):
     """A workspace inside a folder that is itself a repo; a tracked folder's `.git` is broken.
-    git must not climb to the outer repo and fast-forward it."""
-    _up, pusher, outer = make_repos(tmp_path)
+    git must not climb to the outer repo and fast-forward or fetch into it. "outer:part": the
+    ':' splits GIT_CEILING_DIRECTORIES (a path list), so the ceiling alone cannot hold."""
+    base = tmp_path / ancestor
+    base.mkdir(exist_ok=True)
+    _up, pusher, outer = make_repos(base)
     (pusher / "y.txt").write_text("y v2 upstream\n")
     push(pusher)
     child = outer / "ws" / "acme" / "widget"
@@ -715,10 +720,17 @@ def test_broken_git_inside_another_repo_never_touches_that_repo(hermetic_git, tm
     head = git("rev-parse", "HEAD", cwd=outer).stdout.strip()
     ybytes = (outer / "y.txt").read_bytes()
 
+    tracking = git("rev-parse", "origin/main", cwd=outer).stdout.strip()
+
     result = pull(child)
+    fetched = fetch(child)
 
     assert not result.success
+    assert result.error == f"{child} is not the top of its own git repository; left untouched"
+    assert not fetched.success
+    assert fetched.error == result.error
     assert git("rev-parse", "HEAD", cwd=outer).stdout.strip() == head
+    assert git("rev-parse", "origin/main", cwd=outer).stdout.strip() == tracking
     assert (outer / "y.txt").read_bytes() == ybytes
     assert sorted(p.name for p in outer.iterdir()) == files
 
