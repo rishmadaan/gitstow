@@ -396,7 +396,7 @@ gitstow search <pattern> [flags]
 |------|-------|-------------|
 | `--tag` | `-t` | Only search in repos with this tag. |
 | `--owner` | | Only search in repos from this owner. |
-| `--glob` | `-g` | File glob pattern (e.g., `*.py`, `*.md`). Works with ripgrep and with the `git grep` fallback. |
+| `--glob` | `-g` | File glob pattern (e.g., `*.py`, `*.md`), or `!` in front to exclude (e.g., `'!*.md'`). Works with ripgrep and with the `git grep` fallback. |
 | `--ignore-case` | `-i` | Case-insensitive search. |
 | `--files` | `-l` | Only show file paths, not matching lines. |
 | `--max` | `-m` | Max results per repo (default: 50). |

@@ -656,6 +656,9 @@ def search_repo(
             cmd.append("-l")
         cmd.extend(["--max-depth", "10", "-e", pattern])
         if glob_filter:
+            # rg's "!glob" means exclude; git grep needs the :(exclude) pathspec for that.
+            if glob_filter.startswith("!"):
+                glob_filter = f":(exclude){glob_filter[1:]}"
             cmd.extend(["--", glob_filter])
 
     try:

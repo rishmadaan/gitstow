@@ -712,6 +712,11 @@ class TestSearchRepo:
         matches = search_repo(self._repo(tmp_path), "-foo", use_rg=False, glob_filter="*.py")
         assert matches == [{"file": "a.py", "line_number": "1", "text": "x = 1  # -foo flag"}]
 
+    def test_git_grep_honours_negated_glob(self, tmp_path):
+        from gitstow.core.git import search_repo
+        matches = search_repo(self._repo(tmp_path), "-foo", use_rg=False, glob_filter="!*.md")
+        assert matches == [{"file": "a.py", "line_number": "1", "text": "x = 1  # -foo flag"}]
+
     def test_rg_finds_dash_pattern(self, tmp_path):
         import shutil
         if shutil.which("rg") is None:
