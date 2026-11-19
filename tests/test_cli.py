@@ -2080,7 +2080,7 @@ class TestPullIgnoresAutostashConfig(RealGitPullFixture):
     @pytest.mark.parametrize("config", [
         [("merge.autoStash", "true")],
         [("pull.rebase", "true"), ("rebase.autoStash", "true")],
-        # branch.<name>.rebase outranks pull.rebase, so only rebase.autoStash=false guards this one.
+        # Rebase configs: guarded by not using `git pull` at all (merge ignores them).
         [("branch.main.rebase", "true"), ("rebase.autoStash", "true")],
     ], ids=["merge-autostash", "rebase-autostash", "branch-rebase-autostash"])
     def test_overlapping_unstaged_edit_is_refused_untouched(self, tmp_path, monkeypatch, config):
