@@ -9,7 +9,7 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
     <strong>Import complete</strong>
     <p>{{ flash }}</p>
     {% if flash_reasons %}
-    <ul>
+    <ul style="overflow-wrap: anywhere;">
       {% for reason in flash_reasons %}<li>{{ reason }}</li>{% endfor %}
     </ul>
     {% endif %}
