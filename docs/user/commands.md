@@ -145,7 +145,8 @@ gitstow pull anthropic/claude-code --force
 - Local-only repos (no upstream configured) are skipped, likewise
 - Repos with only untracked files ARE pulled — an ff-only pull can't lose them
 - Uses `--ff-only` — won't create merge commits
-- Never overwrites your files, whatever your git config says: a pull that would replace a modified file, or an ignored local file (like a `.env`) that upstream has started tracking, is refused and reported as an error with the files left as they were. Autostash settings (`merge.autoStash`) and rebase settings (`pull.rebase`) are not used
+- Never overwrites your local edits or ignored files, whatever your git settings for stashing, rebasing or merge options: a pull that would replace a modified file, or an ignored local file (like a `.env`) that upstream has started tracking, is refused and reported as an error with the files left as they were. Autostash settings (`merge.autoStash`, `rebase.autoStash`), rebase settings (`pull.rebase`, `branch.<name>.rebase`) and per-branch merge options (`branch.<name>.mergeOptions`) are not used. A branch whose name contains `=` and that has merge options set is refused (pull it with git)
+- A detached HEAD, or a branch whose upstream was deleted on the remote, is reported as an error ("not on a branch", "the upstream branch no longer exists on the remote") instead of a silent "already up to date"
 - Runs in parallel (configurable, default 6 concurrent)
 - Updates `last_pulled` timestamp on success
 
@@ -582,6 +583,8 @@ Every interactive element has a hover tooltip. There's also a `?` button in the 
 - **Ghost** (gray) — already up to date, has local changes, or ahead. The button still works; it just won't change anything useful. (Untracked-only local changes still pull fine — a bulk pull only skips modified/staged files.)
 - **Disabled** — frozen, in conflict, diverged from remote, or missing on disk
 
+If a single-row **Pull** or **Fetch** fails (git refuses to overwrite a local file, the network is down), git's message appears in red under the repo name and the *Last pull* stamp keeps its old value. Dismiss it with **×**.
+
 **Remote Δ** (`↑ N`, `↓ N`, or `—`) reflects your *last fetch*, not live remote state. If the counts look stale, pull (or run `git fetch --all` manually) to refresh them. A `local` badge means the repo has no upstream remote — bulk pulls skip it.
 
 **Auto-refresh every 30s** re-reads local state only:
@@ -589,7 +592,7 @@ Every interactive element has a hover tooltip. There's also a `?` button in the 
 - Your `~/.gitstow/repos.yaml` registry (catches `gitstow add` from another terminal)
 - `git status` on each tracked repo (catches new local commits, branch switches, dirty files)
 
-It does **NOT** run `git fetch`. Ahead/behind counts won't update without a pull or manual fetch.
+It does **NOT** run `git fetch`. Ahead/behind counts won't update without a pull or manual fetch. It pauses while a row shows a Pull or Fetch error, so the message stays until you dismiss it.
 
 ### `gitstow update`
 
