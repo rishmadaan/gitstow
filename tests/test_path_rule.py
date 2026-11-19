@@ -278,6 +278,50 @@ def test_migrate_root_refuses_a_repo_behind_a_symlinked_owner(tmp_path, monkeypa
     assert (deeper / "real" / "repo" / ".git").is_dir()
 
 
+def test_migrate_refuses_a_destination_behind_a_symlinked_owner(tmp_path, monkeypatch):
+    """The explicitly named source may live anywhere; the derived destination may not leave
+    the workspace. ws/acme points outside, so acme/widget is refused and real/repo moves."""
+    from gitstow.core.config import Settings, Workspace, save_config
+    from gitstow.core.repo import RepoStore
+
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "no-gitconfig"))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    config_file, repos_file = tmp_path / "config.yaml", tmp_path / "repos.yaml"
+    monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+    monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+    monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+    ws, outside = tmp_path / "ws", tmp_path / "outside"
+    ws.mkdir()
+    outside.mkdir()
+    (ws / "acme").symlink_to(outside)
+    save_config(Settings(workspaces=[Workspace(path=str(ws), label="ws", layout="structured")]))
+    sources = {}
+    for owner in ("acme", "real"):
+        src = tmp_path / f"src-{owner}"
+        git("init", "-q", "-b", "main", str(src))
+        (src / "sentinel.txt").write_bytes(b"MINE " + owner.encode() + b"\n")
+        git("add", ".", cwd=src)
+        git("commit", "-q", "-m", "v1", cwd=src)
+        name = "widget" if owner == "acme" else "repo"
+        git("remote", "add", "origin", f"https://github.com/{owner}/{name}.git", cwd=src)
+        sources[owner] = src
+    head = git("rev-parse", "HEAD", cwd=sources["acme"])
+
+    result = runner.invoke(app, ["migrate", str(sources["acme"]), str(sources["real"]),
+                                 "--json", "--quiet"])
+
+    assert (sources["acme"] / "sentinel.txt").read_bytes() == b"MINE acme\n"
+    assert git("rev-parse", "HEAD", cwd=sources["acme"]) == head
+    assert list(outside.iterdir()) == []
+    rows = json.loads(result.output)
+    assert rows[0] == {"path": str(sources["acme"]), "status": "error", "key": "acme/widget",
+                       "detail": f"Destination resolves outside workspace 'ws': {ws / 'acme' / 'widget'}"}
+    assert rows[1]["status"] == "migrated"
+    assert not sources["real"].exists()
+    assert (ws / "real" / "repo" / "sentinel.txt").read_bytes() == b"MINE real\n"
+    assert [r.key for r in RepoStore().list_all()] == ["real/repo"]
+
+
 @pytest.mark.parametrize("owner, name", [(".", "widget"), ("..", "x"), ("acme", ".."), ("", "../x"),
                                          ("acme", "/abs"), ("acme", "a\\b"), ("C:", "x"), ("", "")])
 def test_no_repo_with_an_unsafe_key_can_be_built(owner, name):
