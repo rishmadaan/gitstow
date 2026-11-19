@@ -125,6 +125,8 @@ async def pull_single(workspace: str, key: str, request: Request):
     num = _row_number(settings, store, repo)
     sorted_labels = sorted(w.label for w in settings.get_workspaces())
     ctx = _row_context(repo, settings, sorted_labels, num)
+    if not result.success:  # shown in the row where Pull was pressed; last_pulled keeps its old stamp
+        ctx["action_error"] = f"Pull failed: {result.error}"
 
     return render(request, "partials/repo_row.html", repo=ctx)
 
@@ -155,6 +157,8 @@ async def fetch_single(workspace: str, key: str, request: Request):
     num = _row_number(settings, store, repo)
     sorted_labels = sorted(w.label for w in settings.get_workspaces())
     ctx = _row_context(repo, settings, sorted_labels, num)
+    if not result.success:
+        ctx["action_error"] = f"Fetch failed: {result.error}"
     return render(request, "partials/repo_row.html", repo=ctx)
 
 

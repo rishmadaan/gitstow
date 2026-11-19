@@ -2107,3 +2107,72 @@ class TestRowNumbersAgree:
 
         assert re.findall(r'class="row-num" title="Row (\S+)"', page.text) == ["01"]
         assert re.findall(r'class="row-num" title="Row (\S+)"', refreshed.text) == ["01"]
+
+
+# ---------- single-row Pull / Fetch refusals are shown where pressed ----------
+
+
+class TestSingleRowFailureShown:
+    STAMP = "2026-07-12T10:00:00"
+
+    def _seed(self, workspace_dir, monkeypatch):
+        _make_repo_on_disk(workspace_dir, "acme", "widget")
+        RepoStore().add(Repo(owner="acme", name="widget", remote_url="https://example/acme/widget.git",
+                             workspace="test-ws", last_pulled=self.STAMP, last_fetched=self.STAMP))
+        monkeypatch.setattr("gitstow.web.routes.repos.get_status", lambda p: _fake_status(branch="main"))
+
+    def _error_block(self, html):
+        import re
+        m = re.search(r'<div class="row-error" role="alert"[^>]*><span>(.*?)</span>', html, re.S)
+        return m and m.group(1)
+
+    def test_pull_refusal_is_in_the_row_and_keeps_the_stamp(self, client, configured, workspace_dir,
+                                                            monkeypatch):
+        import html as html_lib
+        from gitstow.core.git import PullResult
+
+        self._seed(workspace_dir, monkeypatch)
+        error = ("error: The following untracked working tree files would be overwritten by merge:\n"
+                 "\tsecret.env\nPlease move or remove them before you merge.\nAborting")
+        monkeypatch.setattr("gitstow.web.routes.repos.git_pull",
+                            lambda p: PullResult(success=False, error=error))
+
+        r = client.post("/repos/test-ws/acme/widget/pull")
+
+        assert r.status_code == 200
+        assert html_lib.unescape(self._error_block(r.text)) == f"Pull failed: {error}"
+        assert RepoStore().get("acme/widget", workspace="test-ws").last_pulled == self.STAMP
+
+    def test_fetch_failure_is_in_the_row_and_keeps_the_stamp(self, client, configured, workspace_dir,
+                                                             monkeypatch):
+        from gitstow.core.git import FetchResult
+
+        self._seed(workspace_dir, monkeypatch)
+        error = "fatal: unable to access 'https://example/acme/widget.git/': Could not resolve host"
+        monkeypatch.setattr("gitstow.web.routes.repos.git_fetch",
+                            lambda p: FetchResult(success=False, error=error))
+
+        r = client.post("/repos/test-ws/acme/widget/fetch")
+
+        assert r.status_code == 200
+        import html as html_lib
+        assert html_lib.unescape(self._error_block(r.text)) == f"Fetch failed: {error}"
+        assert RepoStore().get("acme/widget", workspace="test-ws").last_fetched == self.STAMP
+
+    def test_success_shows_no_error(self, client, configured, workspace_dir, monkeypatch):
+        from gitstow.core.git import FetchResult, PullResult
+
+        self._seed(workspace_dir, monkeypatch)
+        monkeypatch.setattr("gitstow.web.routes.repos.git_pull", lambda p: PullResult(success=True))
+        monkeypatch.setattr("gitstow.web.routes.repos.git_fetch", lambda p: FetchResult(success=True))
+
+        for action in ("pull", "fetch"):
+            r = client.post(f"/repos/test-ws/acme/widget/{action}")
+            assert r.status_code == 200 and "<tr" in r.text
+            assert 'class="row-error"' not in r.text
+
+    def test_auto_refresh_pauses_while_an_error_is_shown(self, client, configured, workspace_dir,
+                                                         monkeypatch):
+        self._seed(workspace_dir, monkeypatch)
+        r = client.get("/")
+        assert '<tbody hx-get="/dashboard/rows"\n             hx-trigger="every 30s [!document.querySelector(\'.row-error\')]"' in r.text

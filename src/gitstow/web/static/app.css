@@ -515,6 +515,20 @@ table.ledger { width: 100%; border-collapse: collapse; background: transparent; 
 }
 .repo-link:hover { color: var(--accent); border-bottom-color: var(--accent); text-decoration: none; }
 
+/* A single-row Pull/Fetch that git refused: the reason, in the row where it was pressed. */
+.row-error {
+  display: flex; align-items: flex-start; gap: 0.5rem;
+  margin-top: 0.4rem; min-width: 16rem; max-width: 46rem;  /* min: readable lines on a phone (the table scrolls) */
+  font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; line-height: 1.45;
+  color: var(--c-conflict);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.row-error-close {
+  flex: none; background: none; border: 0; padding: 0 0.2rem; cursor: pointer;
+  color: var(--muted); font-size: 1rem; line-height: 1;
+}
+.row-error-close:hover { color: var(--text); }
+
 .branch-name {
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.84rem; color: var(--text-soft);
