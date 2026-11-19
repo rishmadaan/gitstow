@@ -619,8 +619,9 @@ def search_repos(
         JSON with matches grouped by repo.
     """
     import shutil
-    import subprocess
     from pathlib import Path
+
+    from gitstow.core.git import search_repo
 
     settings, store = _get_settings_and_store()
     if not settings.get_workspaces():
@@ -641,26 +642,13 @@ def search_repos(
         if not path.exists():
             continue
 
-        if use_rg:
-            cmd = ["rg", "--no-heading", "--with-filename", "-n", "--max-count", str(max_results)]
-            if glob_filter:
-                cmd.extend(["--glob", glob_filter])
-            cmd.append(pattern)
-        else:
-            cmd = ["git", "grep", "-n", pattern]
-
-        try:
-            result = subprocess.run(cmd, cwd=path, capture_output=True, text=True, timeout=30, check=False)
-            if result.returncode == 0 and result.stdout.strip():
-                matches = []
-                for line in result.stdout.strip().splitlines()[:max_results]:
-                    parts = line.split(":", 2)
-                    if len(parts) >= 3:
-                        matches.append({"file": parts[0], "line": parts[1], "text": parts[2].strip()})
-                if matches:
-                    all_results.append({"repo": repo.key, "matches": matches, "count": len(matches)})
-        except (subprocess.TimeoutExpired, Exception):
-            continue
+        matches = [
+            {"file": m["file"], "line": m["line_number"], "text": m["text"]}
+            for m in search_repo(path, pattern, use_rg, glob_filter=glob_filter, max_results=max_results)
+            if "line_number" in m
+        ]
+        if matches:
+            all_results.append({"repo": repo.key, "matches": matches, "count": len(matches)})
 
     total = sum(r["count"] for r in all_results)
     return json.dumps({

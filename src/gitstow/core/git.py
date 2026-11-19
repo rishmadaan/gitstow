@@ -86,6 +86,11 @@ class CommitInfo:
     author: str = ""
 
 
+def _git_env() -> dict[str, str]:
+    """Env for every subprocess this module runs (see `_run_git` for why)."""
+    return {**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"}
+
+
 def _run_git(
     args: list[str],
     cwd: Path | None = None,
@@ -104,7 +109,6 @@ def _run_git(
     callers of NUL-delimited git output must decode the bytes themselves.
     """
     cmd = ["git"] + args
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"}
     text_kwargs = {} if binary else {"text": True, "encoding": "utf-8",
                                      "errors": "replace"}
     return subprocess.run(
@@ -113,7 +117,7 @@ def _run_git(
         check=False,
         capture_output=True,
         timeout=timeout,
-        env=env,
+        env=_git_env(),
         **text_kwargs,
     )
 
@@ -481,14 +485,13 @@ def get_file_diff(
     else:
         args = ["--literal-pathspecs", "diff", "--no-ext-diff", "--no-color", "--", *paths]
 
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"}
     try:
         proc = subprocess.Popen(
             ["git"] + args,
             cwd=repo_path,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
-            env=env,
+            env=_git_env(),
         )
     except FileNotFoundError:
         return ""
@@ -606,3 +609,72 @@ def format_size(size_bytes: int) -> str:
             return f"{size_bytes:.0f} {unit}" if unit == "B" else f"{size_bytes:.1f} {unit}"
         size_bytes /= 1024
     return f"{size_bytes:.1f} TB"
+
+
+def search_repo(
+    repo_path: Path,
+    pattern: str,
+    use_rg: bool,
+    glob_filter: str | None = None,
+    case_insensitive: bool = False,
+    files_only: bool = False,
+    max_results: int = 50,
+) -> list[dict]:
+    """Search one repo with ripgrep, or `git grep` when ripgrep is absent.
+
+    rg lives here beside git grep so both run with `_git_env()`. The pattern
+    goes after `-e`, so one starting with "-" is searched for, not read as an
+    option. Returns {"file", "line_number", "text"} dicts ({"file"} only with
+    files_only); [] on any error. Exit 1 is "no matches", not an error.
+    """
+    if use_rg:
+        cmd = ["rg", "--no-heading", "--with-filename", "--line-number"]
+        if case_insensitive:
+            cmd.append("-i")
+        if files_only:
+            cmd.append("-l")
+        if glob_filter:
+            cmd.extend(["--glob", glob_filter])
+        cmd.extend(["--max-count", str(max_results), "-e", pattern])
+    else:
+        cmd = ["git", "grep", "-n"]
+        if case_insensitive:
+            cmd.append("-i")
+        if files_only:
+            cmd.append("-l")
+        cmd.extend(["--max-depth", "10", "-e", pattern])
+        if glob_filter:
+            cmd.extend(["--", glob_filter])
+
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=repo_path,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            encoding="utf-8",
+            errors="replace",
+            env=_git_env(),
+        )
+    except (OSError, ValueError, subprocess.TimeoutExpired):  # missing binary, NUL in pattern, slow repo
+        return []
+    if result.returncode not in (0, 1):
+        return []
+
+    matches = []
+    for line in result.stdout.strip().splitlines():
+        if not line:
+            continue
+        if files_only:
+            matches.append({"file": line.strip()})
+            continue
+        parts = line.split(":", 2)
+        if len(parts) >= 3:
+            matches.append({"file": parts[0], "line_number": parts[1], "text": parts[2].strip()})
+        elif len(parts) == 2:
+            matches.append({"file": parts[0], "text": parts[1].strip()})
+        else:
+            matches.append({"file": line, "text": ""})
+    return matches[:max_results]

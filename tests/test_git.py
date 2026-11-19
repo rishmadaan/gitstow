@@ -3,9 +3,10 @@
 
 """Tests for git wrapper module (mocked subprocess)."""
 
-from unittest.mock import patch, MagicMock
 from pathlib import Path
+from unittest.mock import patch, MagicMock
 
+import pytest
 
 from gitstow.core.git import (
     clone,
@@ -682,3 +683,76 @@ class TestRunInteractiveDiff:
         assert args[0] == ["git", "diff", "--cached"]
         assert kwargs.get("cwd") == Path("/repo")
         assert "capture_output" not in kwargs  # output goes straight to the TTY
+
+
+class TestSearchRepo:
+    """One hardened search runner for CLI and MCP (rg, or git grep fallback)."""
+
+    def _repo(self, tmp_path):
+        import subprocess
+        repo = tmp_path / "r"
+        repo.mkdir(parents=True)
+        (repo / "a.py").write_text("x = 1  # -foo flag\n")
+        (repo / "b.md").write_text("docs mention -foo too\n")
+        (repo / "c.txt").write_text("nothing here\n")
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t",
+                        "commit", "-q", "-m", "init"], check=True)
+        return repo
+
+    def test_git_grep_finds_dash_pattern(self, tmp_path):
+        from gitstow.core.git import search_repo
+        matches = search_repo(self._repo(tmp_path), "-foo", use_rg=False)
+        assert sorted(m["file"] for m in matches) == ["a.py", "b.md"]
+        assert {m["line_number"] for m in matches} == {"1"}
+
+    def test_git_grep_honours_glob(self, tmp_path):
+        from gitstow.core.git import search_repo
+        matches = search_repo(self._repo(tmp_path), "-foo", use_rg=False, glob_filter="*.py")
+        assert matches == [{"file": "a.py", "line_number": "1", "text": "x = 1  # -foo flag"}]
+
+    def test_rg_finds_dash_pattern(self, tmp_path):
+        import shutil
+        if shutil.which("rg") is None:
+            pytest.skip("ripgrep not installed")
+        from gitstow.core.git import search_repo
+        matches = search_repo(self._repo(tmp_path), "-foo", use_rg=True, glob_filter="*.py")
+        assert [m["file"] for m in matches] == ["a.py"]
+
+    @pytest.mark.parametrize("use_rg", [True, False])
+    @patch("gitstow.core.git.subprocess.run")
+    def test_command_uses_dash_e_and_git_env(self, mock_run, use_rg, tmp_path):
+        from gitstow.core.git import search_repo
+        mock_run.return_value = MagicMock(returncode=1, stdout="")
+        assert search_repo(tmp_path, "-foo", use_rg=use_rg, glob_filter="*.md") == []
+        cmd = mock_run.call_args.args[0]
+        assert cmd[0] == ("rg" if use_rg else "git")
+        assert cmd[cmd.index("-e") + 1] == "-foo"
+        if not use_rg:
+            assert cmd[-2:] == ["--", "*.md"]
+            assert cmd[cmd.index("--max-depth") + 1] == "10"
+        env = mock_run.call_args.kwargs["env"]
+        assert env["GIT_TERMINAL_PROMPT"] == "0"
+        assert env["LC_ALL"] == "C"
+
+    def test_mcp_search_keeps_line_key_and_finds_dash_pattern(self, tmp_path, monkeypatch):
+        import json
+
+        from gitstow.core.config import Settings, Workspace
+        from gitstow.core.repo import Repo, RepoStore
+        from gitstow.mcp import server
+
+        ws = tmp_path / "ws"
+        repo_dir = self._repo(ws / "owner")
+        store = RepoStore(path=tmp_path / "repos.yaml")
+        store.add(Repo(owner="owner", name=repo_dir.name, remote_url="", workspace="ws"))
+        settings = Settings(workspaces=[Workspace(path=str(ws), label="ws", layout="structured")])
+        monkeypatch.setattr(server, "_get_settings_and_store", lambda: (settings, store))
+        monkeypatch.setattr("shutil.which", lambda name: None)  # force the git grep path
+
+        payload = json.loads(server.search_repos("-foo", glob_filter="*.md"))
+        assert payload["total_matches"] == 1
+        assert payload["results"][0]["matches"] == [
+            {"file": "b.md", "line": "1", "text": "docs mention -foo too"}
+        ]
