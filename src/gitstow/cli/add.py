@@ -155,7 +155,7 @@ def add(
 
         # Already tracked in this workspace
         if existing and not target.exists():
-            hint = MISSING_FOLDER_HINT.format(key=repo_key)
+            hint = MISSING_FOLDER_HINT.format(key=repo_key, remove=f"gitstow remove {repo_key}")
             results.append({"repo": repo_key, "status": "error", "error": hint})
             if show:
                 err_console.print(f"  [red]✗[/red] {escape(hint)}")
@@ -203,8 +203,8 @@ def add(
                     err_console.print(f"  [red]✗[/red] {repo_key}: remote mismatch ({remote})")
                 continue
             if not remote:
-                # Local-only repo: never queue it for cloning — a failed clone's
-                # retry cleanup would delete the user's work.
+                # Local-only repo: never queue it for cloning; the folder already
+                # holds the user's repo.
                 fix = f"git -C {shlex.quote(str(target))} remote add origin {shlex.quote(parsed.clone_url)}"
                 results.append({
                     "repo": repo_key,

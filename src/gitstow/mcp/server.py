@@ -179,7 +179,7 @@ def add_repo(
     if existing and not existing.get_path(root).exists():
         return json.dumps({"success": False, "status": "missing", "key": existing.key,
                            "workspace": ws.label, "path": str(existing.get_path(root)),
-                           "error": MISSING_FOLDER_HINT.format(key=existing.key)})
+                           "error": MISSING_FOLDER_HINT.format(key=existing.key, remove="remove_repo")})
     if existing:
         row = {
             "success": True,

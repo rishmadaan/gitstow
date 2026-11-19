@@ -126,9 +126,14 @@ async def pull_single(workspace: str, key: str, request: Request):
     sorted_labels = sorted(w.label for w in settings.get_workspaces())
     ctx = _row_context(repo, settings, sorted_labels, num)
     if not result.success:  # shown in the row where Pull was pressed; last_pulled keeps its old stamp
-        ctx["action_error"] = f"Pull failed: {result.error}"
+        ctx["action_error"] = f"Pull failed: {_git_message(result.error)}"
 
     return render(request, "partials/repo_row.html", repo=ctx)
+
+
+def _git_message(error: str) -> str:
+    """Git's message without its own leading "error: "/"fatal: " (the row already says "failed")."""
+    return error.removeprefix("error: ").removeprefix("fatal: ")
 
 
 @router.post("/repos/{workspace}/{key:path}/fetch", response_class=HTMLResponse)
@@ -158,7 +163,7 @@ async def fetch_single(workspace: str, key: str, request: Request):
     sorted_labels = sorted(w.label for w in settings.get_workspaces())
     ctx = _row_context(repo, settings, sorted_labels, num)
     if not result.success:
-        ctx["action_error"] = f"Fetch failed: {result.error}"
+        ctx["action_error"] = f"Fetch failed: {_git_message(result.error)}"
     return render(request, "partials/repo_row.html", repo=ctx)
 
 
@@ -385,7 +390,7 @@ async def add_repo(
     existing = store.find_tracked(repo_key, ws.label, parsed.clone_url, settings.default_host)
     if existing and not existing.get_path(ws_path).exists():
         return _render_add_form(request, settings, form_values,
-                                MISSING_FOLDER_HINT.format(key=existing.key))
+                                MISSING_FOLDER_HINT.format(key=existing.key, remove="Remove in its row's ⋯ menu"))
     if existing:
         return _render_add_form(
             request, settings, form_values,

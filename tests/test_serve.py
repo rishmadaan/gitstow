@@ -2141,7 +2141,9 @@ class TestSingleRowFailureShown:
         r = client.post("/repos/test-ws/acme/widget/pull")
 
         assert r.status_code == 200
-        assert html_lib.unescape(self._error_block(r.text)) == f"Pull failed: {error}"
+        # git's own "error: " prefix is dropped: the row already says the pull failed
+        assert html_lib.unescape(self._error_block(r.text)) == f"Pull failed: {error.removeprefix('error: ')}"
+        assert "Pull failed: The following untracked" in html_lib.unescape(r.text)
         assert RepoStore().get("acme/widget", workspace="test-ws").last_pulled == self.STAMP
 
     def test_fetch_failure_is_in_the_row_and_keeps_the_stamp(self, client, configured, workspace_dir,
@@ -2157,7 +2159,8 @@ class TestSingleRowFailureShown:
 
         assert r.status_code == 200
         import html as html_lib
-        assert html_lib.unescape(self._error_block(r.text)) == f"Fetch failed: {error}"
+        assert html_lib.unescape(self._error_block(r.text)) == (
+            "Fetch failed: unable to access 'https://example/acme/widget.git/': Could not resolve host")
         assert RepoStore().get("acme/widget", workspace="test-ws").last_fetched == self.STAMP
 
     def test_success_shows_no_error(self, client, configured, workspace_dir, monkeypatch):

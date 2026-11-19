@@ -81,14 +81,14 @@ gitstow add anthropic/claude-code --update
 
 **Behavior:**
 - Repos are added to the first configured workspace, or the workspace specified with `-w`. With none configured, `add` exits 1 with `No workspaces configured…` and clones nothing
-- If the repo is already tracked: skips (or pulls with `--update`). If its folder is missing on disk, it errors instead and names the way out: `gitstow remove <key>`, then add it again to re-clone (the MCP `add_repo` tool and the dashboard's Add page say the same)
+- If the repo is already tracked: skips (or pulls with `--update`). If its folder is missing on disk, it errors instead and names the way out: `gitstow remove <key>`, then add it again to re-clone (the MCP `add_repo` tool names `remove_repo`, the dashboard's Add page the row's ⋯ menu Remove)
 - If the same repo is already tracked in that workspace under another URL form (HTTPS vs SSH, or an Azure repo first added by its SSH `v3/` URL): reports it as already tracked under its stored name and folder, never clones a second copy; `--update` pulls that existing folder
 - If the path exists on disk as a git repo whose `origin` remote matches, but isn't tracked: registers it automatically
 - If the path exists on disk as a git repo with **no** `origin` remote (one you `git init`ed yourself): errors and never clones over it, printing the command to run inside it (`git -C <folder> remote add origin <url>`); run the same `gitstow add` again afterwards to register it
 - If the path exists on disk with a **different** remote than the one requested: errors with a remote-mismatch message instead of silently registering — move the directory or pick another workspace
 - If the path exists but isn't a git repo: errors
 - Equivalent URLs passed twice in the same invocation (e.g. HTTPS and SSH forms of the same repo) are deduplicated — only the first is cloned, the rest are reported as duplicates
-- Multiple URLs are cloned concurrently (bounded by `parallel_limit`, default 6), with per-clone retry via `--retry`. Each clone runs in a hidden staging folder beside the target (`.gitstow-clone-…`) and is moved into place only when complete; if something appeared at the target in the meantime (another process got there first), that repo fails with `already exists … left untouched` and whatever is there is kept. A clone that fails for good leaves no folder behind
+- Multiple URLs are cloned concurrently (bounded by `parallel_limit`, default 6), with per-clone retry via `--retry`. Each clone runs in a hidden staging folder beside the target (`.gitstow-clone-…`) and is moved into place only when complete; if something appeared at the target in the meantime (another process got there first), that repo fails with `already exists … left untouched` and whatever is there is kept (an empty folder at the target is simply replaced). A clone that fails for good leaves no repo folder behind (an empty owner folder it created may stay). If gitstow is killed mid-clone, a hidden `.gitstow-clone-…` folder may be left beside the target; it is safe to delete
 
 ---
 
@@ -146,7 +146,7 @@ gitstow pull anthropic/claude-code --force
 - Repos with only untracked files ARE pulled — an ff-only pull can't lose them
 - Uses `--ff-only` — won't create merge commits
 - Never overwrites your local edits or ignored files, whatever your git settings for stashing, rebasing or merge options: a pull that would replace a modified file, or an ignored local file (like a `.env`) that upstream has started tracking, is refused and reported as an error with the files left as they were. Autostash settings (`merge.autoStash`, `rebase.autoStash`), rebase settings (`pull.rebase`, `branch.<name>.rebase`) and per-branch merge options (`branch.<name>.mergeOptions`) are not used. A branch whose name contains `=` and that has merge options set is refused (pull it with git)
-- A detached HEAD, or a branch whose upstream was deleted on the remote, is reported as an error ("not on a branch", "the upstream branch no longer exists on the remote") instead of a silent "already up to date"
+- A branch whose upstream was deleted on the remote is reported as "the upstream branch no longer exists on the remote". A detached HEAD is skipped as a local-only repo here; where a single repo is pulled directly (the dashboard's row Pull, `gitstow add --update`) it is reported as "not on a branch"
 - Runs in parallel (configurable, default 6 concurrent)
 - Updates `last_pulled` timestamp on success
 
@@ -494,6 +494,12 @@ gitstow collection import <file> [flags]
 | `--tag` | `-t` | Apply tag(s) to all imported repos. |
 | `--shallow` | `-s` | Shallow clone imported repos. |
 | `--dry-run` | `-n` | Show what would be imported without doing it. |
+
+**Behavior:**
+- A repo already tracked in its target workspace (under any URL form) is skipped instead of cloning a second copy; its tags and frozen state are left as they are
+- A file that lists the same repo twice imports it once, with the first entry's tags and frozen state
+- An entry whose folder is already used by a different repo (another host, or another owner in a flat workspace), either earlier in the file or already tracked, is reported as a conflict and not imported
+- A URL whose owner or repo has a `.`, `..` or empty path segment is refused as invalid
 
 ---
 

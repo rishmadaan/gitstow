@@ -596,8 +596,11 @@ class TestCollectionListsATargetTwice:
 class TestTrackedButFolderMissing:
     """A tracked repo whose folder was deleted: every add surface names the way out, clones nothing."""
 
+    # Each surface names its own way to untrack the record.
     HINT = ("Tracked as owner/repo, but its folder is missing on disk. Remove it from gitstow "
             "(gitstow remove owner/repo), then add it again to re-clone.")
+    MCP_HINT = HINT.replace("gitstow remove owner/repo", "remove_repo")
+    DASHBOARD_HINT = HINT.replace("gitstow remove owner/repo", "Remove in its row's ⋯ menu")
 
     def _seed(self, tmp_path, monkeypatch):
         from gitstow.core.repo import Repo, RepoStore
@@ -651,7 +654,7 @@ class TestTrackedButFolderMissing:
             out = json.loads(add_repo("owner/repo"))
 
         assert out == {"success": False, "status": "missing", "key": "owner/repo", "workspace": "ws",
-                       "path": str(ws_dir / "owner" / "repo"), "error": self.HINT}
+                       "path": str(ws_dir / "owner" / "repo"), "error": self.MCP_HINT}
         assert clone.call_count == 0
 
     def test_dashboard_add(self, tmp_path, monkeypatch):
@@ -669,7 +672,7 @@ class TestTrackedButFolderMissing:
                             follow_redirects=False)
 
         assert r.status_code == 200
-        assert self.HINT in html.unescape(r.text)
+        assert self.DASHBOARD_HINT in html.unescape(r.text)
         assert clone.call_count == 0
         assert not (ws_dir / "owner").exists()
         assert self._records(tmp_path) == [
