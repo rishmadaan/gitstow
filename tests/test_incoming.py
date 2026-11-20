@@ -537,6 +537,17 @@ class TestWeb:
         row = client.get("/dashboard/rows").text
         assert ">error<" in row and "↓ Pull" not in row and ">clean<" not in row
 
+    def test_unreadable_repo_counts_as_error_never_missing(self, web):
+        import re
+        client, clone, _, _ = web
+        (clone / ".git" / "index").write_bytes(b"garbage")
+        html = client.get("/").text
+        strip = html.split('class="metrics-strip"', 1)[1].split("</div>", 1)[0]
+        assert re.search(r'<span class="count">01</span> <span class="lbl">error</span>', strip)
+        assert "open the repo page for git's message. Nothing on disk was changed." in strip
+        assert 'class="lbl">missing<' not in strip and "re-clone" not in strip
+        assert "1 could not be read" in html and "1 missing" not in html
+
     def test_local_edits_label_on_dirty_and_behind(self, web):
         client, clone, _, _ = web
         (clone / "src/toc.py").write_text("my edit\n")

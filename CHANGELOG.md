@@ -23,7 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Fixed
 
-- **A failed read is never shown as clean** — when `git status` fails for a repo (a corrupt index, say), the dashboard row reads "error" with git's message instead of "clean", `gitstow status`/`repo info`, the MCP `repo_status`/`repo_info` tools and `gitstow diff` report the failure, and pulls skip it as an error; the repo page's local changes and a file's diff say "could not load" (with git's message or "timed out") instead of "no changes", and a diff cut at its size limit says so.
+- **A failed read is never shown as clean** — when `git status` fails for a repo (a corrupt index, say), the dashboard row reads "error" with git's message instead of "clean" (and the count strip counts it under its own "error" chip, never "missing"), `gitstow status`/`repo info`, the MCP `repo_status`/`repo_info` tools and `gitstow diff` report the failure, and pulls skip it as an error; the repo page's local changes and a file's diff say "could not load" (with git's message or "timed out") instead of "no changes", and a diff cut at its size limit says so.
 - **File rows in the diff viewer show `+` and `−` signs** beside the colours.
 
 ## [0.9.0] - 2026-11-20

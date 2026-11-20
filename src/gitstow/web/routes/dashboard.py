@@ -283,7 +283,7 @@ async def _build_repos_data(settings, store) -> tuple[list, dict]:
     repos_data = []
     counts = {
         "clean": 0, "dirty": 0, "local_edits": 0, "diverged": 0,
-        "missing": 0, "behind": 0, "ahead": 0, "frozen": 0,
+        "missing": 0, "error": 0, "behind": 0, "ahead": 0, "frozen": 0,
     }
 
     for i, repo in enumerate(repos, start=1):
@@ -294,8 +294,8 @@ async def _build_repos_data(settings, store) -> tuple[list, dict]:
         # a css class (local edits, diverged) are checked before the class itself.
         if repo.frozen:
             counts["frozen"] += 1
-        elif row["status_label"] in ("missing", "error"):
-            counts["missing"] += 1
+        elif row["status_label"] in ("missing", "error"):  # a folder not there vs one git could not read
+            counts[row["status_label"]] += 1
         elif row["status_label"] == "diverged":
             counts["diverged"] += 1
         elif row["status_label"] == "local edits":
@@ -333,6 +333,8 @@ async def dashboard(
         bits.append(f"{counts['diverged']} diverged")
     if counts["missing"]:
         bits.append(f"{counts['missing']} missing")
+    if counts["error"]:
+        bits.append(f"{counts['error']} could not be read")
     if counts["behind"]:
         bits.append(f"{counts['behind']} behind")
 
