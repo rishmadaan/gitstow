@@ -184,11 +184,15 @@ def _not_own_toplevel(repo_path: Path) -> str | None:
 
     Called before every command that writes to a repo: whatever git's discovery does
     (a broken `.git` inside another repo, a ceiling the path list cannot express),
-    gitstow then only ever acts on the folder it was pointed at.
+    gitstow then only ever acts on the folder it was pointed at. When git itself
+    refuses the folder (dubious ownership, a broken `.git`), its own words are the
+    reason given.
     """
     refused = f"{repo_path} is not the top of its own git repository; left untouched"
     top = _run_git(["rev-parse", "--show-toplevel"], cwd=repo_path, binary=True)
-    if top.returncode != 0 or not top.stdout.removesuffix(b"\n"):
+    if top.returncode != 0:
+        return top.stderr.decode("utf-8", "replace").strip() or refused
+    if not top.stdout.removesuffix(b"\n"):
         return refused
     try:
         same = os.path.samefile(os.fsdecode(top.stdout.removesuffix(b"\n")), repo_path)

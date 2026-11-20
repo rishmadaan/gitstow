@@ -143,6 +143,24 @@ def _pull_steps(merge_stdout="", merge_rc=0):
     ]
 
 
+class TestNotOwnToplevel:
+    """When rev-parse fails, git's own stderr is the reason; the generic text only as a fallback."""
+
+    @patch("gitstow.core.git._run_git")
+    def test_failing_rev_parse_returns_gits_words(self, mock_run):
+        from gitstow.core.git import _not_own_toplevel
+        mock_run.return_value = MagicMock(returncode=128, stdout=b"",
+                                          stderr=b"fatal: detected dubious ownership\n\thint\n")
+        assert _not_own_toplevel(Path("/r")) == "fatal: detected dubious ownership\n\thint"
+
+    @patch("gitstow.core.git._run_git")
+    def test_failing_rev_parse_without_stderr_falls_back(self, mock_run):
+        from gitstow.core.git import _not_own_toplevel
+        mock_run.return_value = MagicMock(returncode=128, stdout=b"", stderr=b"")
+        assert _not_own_toplevel(Path("/r")) == (
+            "/r is not the top of its own git repository; left untouched")
+
+
 class TestPull:
     @pytest.fixture(autouse=True)
     def _own_toplevel(self):

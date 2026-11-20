@@ -736,13 +736,41 @@ def test_broken_git_inside_another_repo_never_touches_that_repo(hermetic_git, tm
     fetched = fetch(child)
 
     assert not result.success
-    assert result.error == f"{child} is not the top of its own git repository; left untouched"
+    if ancestor and broken == "empty .git folder":  # ':' defeats the ceiling: git climbs to outer
+        assert result.error == f"{child} is not the top of its own git repository; left untouched"
+    else:  # git refuses the folder itself, and its own words are the reason given
+        assert result.error.startswith("fatal: not a git repository"), result.error
     assert not fetched.success
     assert fetched.error == result.error
     assert git("rev-parse", "HEAD", cwd=outer).stdout.strip() == head
     assert git("rev-parse", "origin/main", cwd=outer).stdout.strip() == tracking
     assert (outer / "y.txt").read_bytes() == ybytes
     assert sorted(p.name for p in outer.iterdir()) == files
+
+
+def test_git_refusing_the_folder_is_reported_in_gits_own_words(hermetic_git, tmp_path, monkeypatch):
+    """Dubious ownership (safe.directory): pull and fetch give git's message, which says
+    how to fix it, not "not the top of its own git repository". GIT_TEST_ASSUME_DIFFERENT_OWNER
+    is git's own switch for testing that check without a second user."""
+    _up, pusher, clone = make_repos(tmp_path)
+    (pusher / "y.txt").write_text("y v2 upstream\n")
+    push(pusher)
+    head = git("rev-parse", "HEAD", cwd=clone).stdout.strip()
+    tracking = git("rev-parse", "origin/main", cwd=clone).stdout.strip()
+    monkeypatch.setenv("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1")
+    said = git("rev-parse", "--show-toplevel", cwd=clone, check=False)
+    if said.returncode == 0:
+        pytest.skip("this git does not honour GIT_TEST_ASSUME_DIFFERENT_OWNER")
+
+    result = pull(clone)
+    fetched = fetch(clone)
+
+    assert not result.success and not fetched.success
+    assert result.error == fetched.error == said.stderr.strip()
+    assert "dubious ownership" in result.error and "safe.directory" in result.error
+    monkeypatch.delenv("GIT_TEST_ASSUME_DIFFERENT_OWNER")
+    assert git("rev-parse", "HEAD", cwd=clone).stdout.strip() == head
+    assert git("rev-parse", "origin/main", cwd=clone).stdout.strip() == tracking
 
 
 # --- canary: a new merge.* or pull.* setting in a newer git needs a look ---------------
