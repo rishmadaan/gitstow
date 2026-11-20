@@ -441,3 +441,66 @@ def test_get_status_is_one_moment_at_every_read_boundary(lab, monkeypatch, chang
         if st.error or got not in (before, after):
             wrong.append(f"before git process {k}: {got} {st.error!r}; truth was {before} then {after}")
     assert not wrong, "\n".join(wrong)
+
+
+@pytest.fixture
+def unborn_lab(tmp_path, monkeypatch):
+    """Two repos whose branch has no commits yet: a fresh `git init`, and a clone of an empty repo."""
+    from fastapi.testclient import TestClient
+
+    from gitstow.core.config import Settings, Workspace, save_config
+    from gitstow.core.repo import Repo, RepoStore
+    from gitstow.web.server import create_app
+
+    ws = tmp_path / "ws"
+    git("init", "-q", "-b", "main", str(ws / "fresh"))
+    git("init", "-q", "--bare", "-b", "main", str(tmp_path / "empty.git"))
+    clone_into(tmp_path / "empty.git", ws / "empty")
+    for name in ("CONFIG_FILE", "REPOS_FILE"):
+        monkeypatch.setattr(f"gitstow.core.paths.{name}", tmp_path / name.lower())
+    monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", tmp_path / "config_file")
+    save_config(Settings(workspaces=[Workspace(path=str(ws), label="t", layout="flat")]))
+    for name in ("fresh", "empty"):
+        RepoStore().add(Repo(owner="", name=name, remote_url="x", workspace="t"))
+    app = create_app()
+    app.state.server = type("Stub", (), {"should_exit": False})()
+    return TestClient(app, base_url="http://127.0.0.1"), ws
+
+
+def test_a_branch_with_no_commits_is_its_own_state_on_every_surface(unborn_lab):
+    """R3-F1 / E3f: no "Could not check", no ERROR, no "upstream gone"; the page, the library row,
+    CLI status --json and the MCP status all say the branch simply has no commits yet."""
+    from typer.testing import CliRunner
+
+    from gitstow.cli.main import app
+
+    client, ws = unborn_lab
+    library = client.get("/").text
+    for name in ("fresh", "empty"):
+        page = client.get(f"/repo/t/{name}").text
+        assert "Could not check" not in page and ">error<" not in page.lower(), name
+        assert "No commits yet" in page and "<code>main</code> has no commits yet" in page, name
+        row = re.search(rf'<tr[^>]*data-key="{name}".*?</tr>', library, re.S).group(0)
+        assert "upstream gone" not in row and "no upstream" not in row and "status-conflict" not in row, name
+        assert ">no commits<" in row, name
+    out = CliRunner().invoke(app, ["status", "--json"])
+    assert out.exit_code == 0, out.output
+    rows = {r["repo"]: r for r in json.loads(out.output)}
+    for name in ("fresh", "empty"):
+        assert "error" not in rows[name] and rows[name]["branch"] == "main"
+        assert rows[name]["remote"] == {"state": "no-commits", "ahead": 0, "behind": 0}
+        diff = CliRunner().invoke(app, ["diff", name, "--incoming", "--json"])
+        assert diff.exit_code == 0 and json.loads(diff.output)["state"] == "unborn", diff.output
+    pytest.importorskip("mcp")
+    from gitstow.mcp.server import repo_status
+    mcp = {r["repo"]: r for r in json.loads(repo_status())}
+    for name in ("fresh", "empty"):
+        assert "error" not in mcp[name] and (mcp[name]["branch"], mcp[name]["ahead"], mcp[name]["behind"]) == ("main", 0, 0)
+
+
+def test_a_plain_pull_of_a_branch_with_no_commits_refuses_and_changes_nothing(unborn_lab):
+    from gitstow.core.git import pull as git_pull
+    _, ws = unborn_lab
+    result = git_pull(ws / "empty")
+    assert not result.success and "has no commits yet" in result.error
+    assert raw(ws / "empty", "for-each-ref", "refs/heads/") == b""
