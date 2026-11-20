@@ -967,6 +967,12 @@ class TestStatusModelInWeb:
         assert "↓ Pull 3" in r.text
         assert "Pull disabled" not in r.text
 
+    def test_behind_without_a_readable_target_offers_no_pull_n(self, client, configured, workspace_dir, monkeypatch):
+        """"Pull 3" must carry the commit its count came from; with none, there is no exact pull to offer."""
+        self._seed(workspace_dir, _fake_status(behind=3, upstream_oid=""), monkeypatch)
+        r = client.get("/dashboard/rows")
+        assert "↓ Pull 3" not in r.text and "could not be read" in r.text
+
     def test_diverged_disables_pull(self, client, configured, workspace_dir, monkeypatch):
         # Diverged + clean local: ff-only pull can't succeed, so Pull is disabled.
         self._seed(workspace_dir, _fake_status(ahead=2, behind=3), monkeypatch)

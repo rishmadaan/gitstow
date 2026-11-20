@@ -203,10 +203,6 @@ def read_incoming(repo_path: Path) -> IncomingView:
     if view.incoming.error:
         view.error = view.incoming.error
         return view
-    if view.incoming.commit_total != status.behind:  # both counted between the same two ids
-        view.error = (f"git counted {status.behind} commits behind but listed "
-                      f"{view.incoming.commit_total} between the same two commits")
-        return view
     view.kind = "diverged" if status.ahead else "behind"
     if view.kind == "diverged":
         mine = read_changed_paths(repo_path, view.tip, view.head)
@@ -256,6 +252,11 @@ def pull_exact(repo_path: Path, expected: Snapshot, is_frozen: Callable[[], bool
         return ExactPullResult("locked", PULL_LOCKED)
 
 
+def _changed(before: str) -> ExactPullResult:
+    return ExactPullResult("changed", "upstream or your branch changed since this list was drawn",
+                           before=before)
+
+
 def _pull_exact_locked(repo_path: Path, expected: Snapshot, is_frozen: Callable[[], bool]) -> ExactPullResult:
     if os.path.realpath(repo_path) != expected.path:
         return ExactPullResult("changed", "this list was drawn for another folder")
@@ -269,17 +270,19 @@ def _pull_exact_locked(repo_path: Path, expected: Snapshot, is_frozen: Callable[
         return ExactPullResult("frozen", "this repo is frozen", before=before)
     if status.dirty or status.staged:
         return ExactPullResult("edited", "files in this folder are edited or staged", before=before)
-    if (status.branch != expected.branch or status.upstream != expected.upstream
-            or before != expected.head or status.upstream_oid != expected.target
-            or not is_oid(expected.target) or expected.target == expected.head):
-        return ExactPullResult("changed", "upstream or your branch changed since this list was drawn",
-                               before=before)
-    named = checked_out_branch(repo_path)
+    # Each id and name separately: two branches can sit at one commit, and two upstreams too.
+    if status.branch != expected.branch:
+        return _changed(before)
+    if status.upstream != expected.upstream:
+        return _changed(before)
+    if before != expected.head:
+        return _changed(before)
+    if status.upstream_oid != expected.target:
+        return _changed(before)
+    named = checked_out_branch(repo_path)  # the byte-exact name, for the merge's config override
     if isinstance(named, str):
         return ExactPullResult("failed", named, before=before)
     branch, shown = named
-    if shown != expected.branch:  # the byte-exact name must be the branch the page named
-        return ExactPullResult("changed", "your branch changed since this list was drawn", before=before)
     ok, message = merge_exact(repo_path, branch, expected.target)
     after = head_oid(repo_path)
     if ok and after == expected.target:

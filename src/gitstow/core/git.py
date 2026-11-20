@@ -1148,9 +1148,9 @@ def read_range_files(repo_path: Path, exclude: str, include: str) -> list[RangeF
     blobs = sorted({o for f in files if f.binary for o in (f.old_oid, f.new_oid) if o})
     if blobs:
         sizes = _run_git(["cat-file", "--batch-check=%(objectname) %(objectsize)"], cwd=repo_path,
-                         input="".join(f"{o}\n" for o in blobs).encode())
+                         binary=True, input="".join(f"{o}\n" for o in blobs).encode())
         size_of = {}
-        for line in sizes.stdout.splitlines():
+        for line in sizes.stdout.decode("ascii", "replace").splitlines():
             parts = line.split()
             if len(parts) == 2 and parts[1].isdigit():
                 size_of[parts[0]] = int(parts[1])
