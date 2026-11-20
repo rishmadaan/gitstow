@@ -70,6 +70,7 @@ class Tap:
             self.first = truth(self.repo)
         if "merge" in args:
             self.at_merge, self.heads_at_merge = truth(self.repo), branches(self.repo)
+            self.merge_n, self.head_at_merge = self.n, raw(self.repo, "rev-parse", "HEAD")
         if self.fail and self.fail(self.n, args):
             msg = f"fatal: INJECTED-{self.n}"
             if self.timeout:  # what subprocess.run raises when git does not answer in time
@@ -114,6 +115,13 @@ def do(*args):
     return lambda repo: subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
 
 
+def action(argv, ids, check=True):
+    """A CHANGES entry as one callable: one git command, or several in turn (a list of argvs)."""
+    steps = argv if isinstance(argv[0], list) else [argv]
+    steps = [[a.format(**ids) if isinstance(a, str) else a for a in step] for step in steps]
+    return lambda repo: [subprocess.run(["git", *step], cwd=repo, check=check, capture_output=True) for step in steps]
+
+
 def pull_form(page: str):
     m = re.search(re.escape(f'hx-post="{PULL}"') + r"\s+hx-vals='([^']+)'", page)
     return json.loads(htmllib.unescape(m.group(1))) if m else None
@@ -144,6 +152,11 @@ CHANGES = {
     "upstream repointed to a ref at another commit": (b"main", ["branch", "-q", "--set-upstream-to=origin/forkmain", "main"]),
     "branch moved": (b"main", ["merge", "-q", "--ff-only", "{c1}"]),
     "upstream moved": (b"main", ["update-ref", "refs/remotes/origin/main", "{T2}"]),
+    # R3-C3: both at once, after a merge they hide each other from a read-back keyed on the checkout
+    "upstream repointed, then another branch checked out": (
+        b"main", [["branch", "-q", "--set-upstream-to=origin/forkmain", "main"], ["checkout", "-q", "other"]]),
+    # R3-F8: a detached HEAD at the same commit; a merge then moves HEAD and files, no branch
+    "HEAD detached": (b"main", ["checkout", "-q", "--detach"]),
 }
 
 
@@ -166,9 +179,8 @@ def test_a_change_at_any_read_boundary_never_pulls_for_something_the_page_did_no
     nothing else is acceptable; later, another branch moving must never be called a success."""
     client, clone, ids = lab
     start, argv = CHANGES[change]
-    act = do(*[a.format(**ids) if isinstance(a, str) else a for a in argv])
+    act = action(argv, ids)
     subprocess.run([b"git", b"checkout", b"-q", start], cwd=clone, check=True)
-    state = {r: raw(clone, "rev-parse", r) for r in (b"HEAD",)}
     tap = Tap(clone, monkeypatch)
     _, _, drawn = draw_then_pull(client, clone, tap, {})
     total = tap.n
@@ -185,17 +197,27 @@ def test_a_change_at_any_read_boundary_never_pulls_for_something_the_page_did_no
         page, answer, drawn_now = draw_then_pull(client, clone, tap, {k: act})
         if answer is None or tap.at_merge is None:
             continue  # no Pull offered, or refused before the merge: safe
+        # Changes from here on landed after the read-back's one capture: the result cannot know them.
+        seen = k <= tap.merge_n + 1
+        if seen and "Nothing was pulled" in answer:  # R3-C2 / R3-F8: once the merge ran, only if nothing moved
+            moved = {r for r, oid in branches(clone).items() if tap.heads_at_merge.get(r) != oid} | (
+                {b"HEAD"} if raw(clone, "rev-parse", "HEAD") != tap.head_at_merge else set())
+            if moved:
+                wrong.append(f"before git process {k}: said Nothing was pulled, but {sorted(map(label, moved))} moved")
         ref, head, upstream, tip = tap.at_merge
         said = shown(page)
         moved = {r for r, oid in branches(clone).items() if tap.heads_at_merge.get(r) != oid}
         pulled = title(answer).startswith("Pulled")
+        follows = raw(clone, "for-each-ref", "--format=%(upstream)", tap.first[0])  # by its full ref
+        if seen and pulled and said is not None and label(follows) != said[2]:  # R3-C3, by the branch's full ref
+            wrong.append(f"before git process {k}: reported Pulled, but {label(tap.first[0])} now follows "
+                         f"{label(follows)}, the page showed {said[2]}")
         if pulled and moved != {tap.first[0]}:
             wrong.append(f"before git process {k}: reported Pulled, moved {sorted(map(label, moved))}, page was for {label(tap.first[0])}")
         elif pulled and k <= drawn_now + 1 and (ref != tap.first[0] or said is None or label(upstream) != said[2]
                                                 or not head.startswith(said[1]) or not tip.startswith(said[3])):
             wrong.append(f"before git process {k}: pulled {label(ref)} {head[:7]} -> {tip[:7]} following {label(upstream)}; "
                          f"the page showed {said}")
-    del state
     assert not wrong, "\n".join(wrong)
 
 
@@ -369,9 +391,7 @@ def test_the_library_row_shows_the_branch_its_pull_takes_at_every_read_boundary(
     and a pull reported as done moved exactly the branch the row named."""
     client, clone, ids = lab
     start, argv = CHANGES[change]
-    argv = [a.format(**ids) if isinstance(a, str) else a for a in argv]
-    # check=False: after a Fetch has pruned origin/twin, repointing to it is no change at all
-    act = lambda repo: subprocess.run(["git", *argv], cwd=repo, check=False, capture_output=True)  # noqa: E731
+    act = action(argv, ids, check=False)  # after a Fetch has pruned origin/twin, repointing to it changes nothing
     tap = Tap(clone, monkeypatch)
     wrong = []
     for entry in ("dashboard", "fetch swap", "pull swap"):
@@ -413,7 +433,7 @@ def oob(repo):
     ref = raw(repo, "symbolic-ref", "-q", "HEAD")
     up = raw(repo, "rev-parse", "--symbolic-full-name", "@{upstream}")
     counts = raw(repo, "rev-list", "--left-right", "--count", "HEAD...@{upstream}").split() if up else [b"0", b"0"]
-    return label(ref), label(up), int(counts[0]), int(counts[1])
+    return label(ref) if ref else "(detached)", label(up), int(counts[0]), int(counts[1])
 
 
 @pytest.mark.parametrize("change", CHANGES)
@@ -422,7 +442,7 @@ def test_get_status_is_one_moment_at_every_read_boundary(lab, monkeypatch, chang
     upstream and counts are those of the moment before the change or the moment after it, never a mix."""
     client, clone, ids = lab
     start, argv = CHANGES[change]
-    act = do(*[a.format(**ids) if isinstance(a, str) else a for a in argv])
+    act = action(argv, ids)
     reset(clone, ids, start)
     before = oob(clone)
     act(clone)

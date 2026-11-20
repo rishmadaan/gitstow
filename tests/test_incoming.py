@@ -397,6 +397,20 @@ class TestUnderTheLock:
         assert result.message == f"git reported success, but main is at {ids[1][:7]}, not {ids[-1][:7]}"
         assert (result.before, result.after) == (snap.head, ids[1]) == (snap.head, git("rev-parse", "HEAD", cwd=clone))
 
+    @pytest.mark.parametrize("then", [["checkout", "-q", "other"], ["checkout", "-q", "--detach", "HEAD~1"]],
+                             ids=["another branch", "detached elsewhere"])
+    def test_a_checkout_after_a_successful_merge_still_reads_the_pulled_branch_by_its_full_ref(
+            self, behind, monkeypatch, then):
+        """The read-back finds the reviewed branch by its full ref, whatever is checked out now: a switch
+        after the merge changes nothing the pull did, so it is "pulled", from and to the measured ids."""
+        clone, _, ids = behind
+        snap = drawn(clone)
+        git("branch", "-q", "other", snap.head, cwd=clone)
+        self._merge_then(monkeypatch, lambda path: git(*then, cwd=path))
+        result = pull_exact(clone, snap, never_frozen)
+        assert result.outcome == "pulled", result.message
+        assert (result.before, result.after) == (snap.head, ids[-1]) == (snap.head, git("rev-parse", "main", cwd=clone))
+
     def test_an_upstream_setting_changed_during_the_merge_is_reported(self, behind, monkeypatch):
         clone, _, ids = behind
         snap = drawn(clone)
