@@ -493,6 +493,8 @@ table.ledger { width: 100%; border-collapse: collapse; background: transparent; 
 .ledger tbody tr:hover::after { opacity: 1; }
 .ledger tbody tr.frozen td { opacity: 0.55; }
 .ledger tbody tr.frozen:hover td { opacity: 0.85; }
+/* A frozen repo still shows what is waiting at full strength: the chip is how he finds it. */
+.ledger tbody tr.frozen td:has(> .inc-chip) { opacity: 1; }
 /* Give the Actions <td> its own stacking context so the menu rises above siblings */
 .ledger td:has(> div > details.menu[open]),
 .ledger td:has(details.menu[open]) { position: relative; z-index: 60; }
@@ -1186,6 +1188,9 @@ details.diff-file[open] > summary { border-bottom: 1px solid var(--border); }
 #repo-page.is-fetching .pull-btn { display: none; }
 
 @media (max-width: 640px) {
+  /* At phone width the three nav links spilled 22px past a 390px screen. */
+  .container { padding-left: 16px; padding-right: 16px; }
+  nav.primary ul.links a { padding: 0.6rem 0.5rem; letter-spacing: 0.1em; font-size: 0.68rem; }
   .drawer-head { flex-direction: column; gap: 1rem; }
   .drawer-head .big-name { font-size: 1.25rem; overflow-wrap: anywhere; }
   .drawer-tools { justify-content: flex-start; }

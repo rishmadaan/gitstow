@@ -239,10 +239,10 @@ def build_incoming(repo, repo_path, result: dict | None = None) -> dict:
                 Markup(", ").join(_code(p) for p in hits))))
             if others:
                 facts.append(_fact("info", "also", Markup(
-                    "The other {} {}. This update does not change {}, but Pull stays off while any file "
+                    "The other {} {} {}. This update does not change {}, but Pull stays off while any file "
                     "is edited or staged.").format(
-                    _n(len(others)), Markup("is ") + Markup(", ").join(_code(p) for p in others[:5])
-                    if len(others) == 1 else Markup("are ") + Markup(", ").join(_code(p) for p in others[:5])
+                    "one" if len(others) == 1 else _n(len(others)), "is" if len(others) == 1 else "are",
+                    Markup(", ").join(_code(p) for p in others[:5])
                     + (Markup(" and {} more").format(len(others) - 5) if len(others) > 5 else ""),
                     "it" if len(others) == 1 else "them")))
         else:
