@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import html as htmllib
 import json
+import os
 import re
 import subprocess
 
@@ -20,6 +21,13 @@ import pytest
 import gitstow.core.git as G
 import gitstow.core.incoming as I
 from tests.incoming_fixture import clone_into, commit, git, make_upstream, push_three
+from tests.pull_invariant import non_utf8_names_ok
+
+# Two branch names that decode alike exist only where the filesystem allows non-UTF-8 names (not on
+# macOS APFS, not on Windows); every other case runs without them.
+BYTES_OK = os.name != "nt" and non_utf8_names_ok()
+LOCAL = {b"other": b"origin/main", b"side": b"origin/forkmain",
+         **({b"topic\xfe": b"origin/main", b"topic\xff": b"origin/main"} if BYTES_OK else {})}
 
 PAGE, PULL, FETCH = "/repo/t/clone", "/repos/t/clone/incoming/pull", "/repos/t/clone/incoming/fetch"
 
@@ -99,7 +107,7 @@ def lab(tmp_path, monkeypatch):
     git("fetch", "-q", cwd=clone)
     h = git("rev-parse", "HEAD", cwd=clone)
     git("update-ref", "refs/remotes/origin/twin", ids[-1], cwd=clone)
-    for name, upstream in ((b"other", b"origin/main"), (b"side", b"origin/forkmain"), (b"topic\xfe", b"origin/main"), (b"topic\xff", b"origin/main")):
+    for name, upstream in LOCAL.items():
         subprocess.run([b"git", b"branch", b"-q", name, h.encode()], cwd=clone, check=True)
         subprocess.run([b"git", b"branch", b"-q", b"--set-upstream-to=" + upstream, name], cwd=clone, check=True)
     for name in ("CONFIG_FILE", "REPOS_FILE"):
@@ -160,6 +168,9 @@ CHANGES = {
     # R3-F8: a detached HEAD at the same commit; a merge then moves HEAD and files, no branch
     "HEAD detached": (b"main", ["checkout", "-q", "--detach"]),
 }
+CHANGE_PARAMS = [pytest.param(name, marks=pytest.mark.skipif(
+    b"topic\xff" in CHANGES[name][0] and not BYTES_OK, reason="this filesystem refuses non-UTF-8 branch names"))
+    for name in CHANGES]
 
 
 def draw_then_pull(client, clone, tap, hooks):
@@ -173,7 +184,7 @@ def draw_then_pull(client, clone, tap, hooks):
     return page, (client.post(PULL, data=form).text if form else None), drawn
 
 
-@pytest.mark.parametrize("change", CHANGES)
+@pytest.mark.parametrize("change", CHANGE_PARAMS)
 def test_a_change_at_any_read_boundary_never_pulls_for_something_the_page_did_not_show(lab, monkeypatch, change):
     """R2-C1 as a property: one outside change, tried just before every git process of the draw and
     of the pull. A pull that reports success must have moved the branch the page named, from the id
@@ -191,7 +202,7 @@ def test_a_change_at_any_read_boundary_never_pulls_for_something_the_page_did_no
     for k in range(1, total + 1):
         # put the repo back exactly: branch, ids, upstream settings
         subprocess.run([b"git", b"checkout", b"-q", start], cwd=clone, check=True)
-        for ref in (b"refs/heads/main", b"refs/heads/other", b"refs/heads/side", b"refs/heads/topic\xfe", b"refs/heads/topic\xff"):
+        for ref in [b"refs/heads/main"] + [b"refs/heads/" + n for n in LOCAL]:
             subprocess.run([b"git", b"update-ref", ref, ids["H"].encode()], cwd=clone, check=True)
         subprocess.run(["git", "reset", "-q", "--hard", ids["H"]], cwd=clone, check=True)
         subprocess.run(["git", "update-ref", "refs/remotes/origin/main", ids["T"]], cwd=clone, check=True)
@@ -355,7 +366,7 @@ ROW_PULL, ROW_FETCH = "/repos/t/clone/pull", "/repos/t/clone/fetch"
 def reset(clone, ids, start=b"main"):
     """Put the lab back exactly: branch, every id, upstream settings."""
     subprocess.run([b"git", b"checkout", b"-q", start], cwd=clone, check=True)
-    for ref in (b"refs/heads/main", b"refs/heads/other", b"refs/heads/side", b"refs/heads/topic\xfe", b"refs/heads/topic\xff"):
+    for ref in [b"refs/heads/main"] + [b"refs/heads/" + n for n in LOCAL]:
         subprocess.run([b"git", b"update-ref", ref, ids["H"].encode()], cwd=clone, check=True)
     subprocess.run(["git", "reset", "-q", "--hard", ids["H"]], cwd=clone, check=True)
     subprocess.run(["git", "update-ref", "refs/remotes/origin/main", ids["T"]], cwd=clone, check=True)
@@ -385,7 +396,7 @@ def row_disagrees(drawn) -> str:
     return ""
 
 
-@pytest.mark.parametrize("change", CHANGES)
+@pytest.mark.parametrize("change", CHANGE_PARAMS)
 def test_the_library_row_shows_the_branch_its_pull_takes_at_every_read_boundary(lab, monkeypatch, change):
     """R3-C1 as a property, on every library entry point: the full dashboard, the row redrawn after a
     Fetch and the row redrawn after its own Pull. One outside change before every git process of the
@@ -438,7 +449,7 @@ def oob(repo):
     return label(ref) if ref else "(detached)", label(up), int(counts[0]), int(counts[1])
 
 
-@pytest.mark.parametrize("change", CHANGES)
+@pytest.mark.parametrize("change", CHANGE_PARAMS)
 def test_get_status_is_one_moment_at_every_read_boundary(lab, monkeypatch, change):
     """E3b as a property: with one outside change before any git process of get_status, its branch,
     upstream and counts are those of the moment before the change or the moment after it, never a mix."""
@@ -528,7 +539,7 @@ def test_a_plain_pull_of_a_branch_with_no_commits_refuses_and_changes_nothing(un
     assert raw(ws / "empty", "for-each-ref", "refs/heads/") == b""
 
 
-@pytest.mark.parametrize("change", CHANGES)
+@pytest.mark.parametrize("change", CHANGE_PARAMS)
 def test_the_fetching_pull_moves_only_the_branch_it_read_at_every_read_boundary(lab, monkeypatch, change):
     """E3e as a property (plain Pull, Pull all, CLI, MCP, add --update all run git.pull): one outside
     change before every git process of the pull. A success moved exactly the branch that the pull's

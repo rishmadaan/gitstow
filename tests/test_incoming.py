@@ -36,6 +36,12 @@ from tests.incoming_fixture import (
     push_three,
     snapshot,
 )
+from tests.pull_invariant import non_utf8_names_ok
+
+needs_byte_names = pytest.mark.skipif(
+    os.name == "nt" or not non_utf8_names_ok(),
+    reason="non-UTF-8 branch names cannot be passed exactly on Windows, and filesystems such as macOS APFS refuse them",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -223,6 +229,7 @@ class TestExactPull:
         refused(clone, snap, "changed")
         assert git("rev-parse", f"refs/heads/{one}", f"refs/heads/{two}", cwd=clone).split() == [head, head]
 
+    @needs_byte_names
     def test_refuses_on_a_branch_whose_name_decodes_the_same(self, behind):
         """Two non-UTF-8 names both decode to "topic\ufffd": only the bytes tell them apart."""
         clone, _, _ = behind
@@ -353,6 +360,7 @@ class TestUnderTheLock:
         result = refused(clone, snap, "changed")
         assert result.message == said.format(H=snap.head[:7], c1=ids[0][:7], T=ids[-1][:7], c2=ids[1][:7])
 
+    @needs_byte_names
     def test_two_names_that_read_alike_are_named_as_such(self, behind):
         clone, _, _ = behind
 
