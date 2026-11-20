@@ -1094,6 +1094,8 @@ button.htmx-request::after, .btn.htmx-request::after {
 .diff-line-add .diff-sign { color: #4ade80; }
 .diff-line-del .diff-sign { color: var(--c-conflict); }
 .diff-note.flush { padding-left: 0; }
+/* The Local changes tab's one-line states (none, could not read) keep a block's gap above Metadata. */
+.local-tab > .diff-note.flush { margin-bottom: 1.75rem; }
 .diff-note.cap { color: var(--c-dirty); border-top: 1px solid var(--border); font-family: 'JetBrains Mono', monospace; font-size: 0.76rem; }
 .diff-note.cap span { color: var(--muted); }
 /* details:not(.menu) summary out-ranks .diff-file summary; restore the file rows' padding. */
