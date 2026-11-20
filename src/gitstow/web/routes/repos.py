@@ -95,7 +95,7 @@ async def pull_single(workspace: str, key: str, request: Request):
         result = await asyncio.to_thread(git_pull, repo_path)
         succeeded = result.success
         if not succeeded:
-            error = f"Pull failed: {_git_message(result.error)}"
+            error = f"{'Pull failed' if result.merged else 'Not pulled'}: {_git_message(result.error)}"
 
     if succeeded:
         now_iso = datetime.now().isoformat(timespec="seconds")

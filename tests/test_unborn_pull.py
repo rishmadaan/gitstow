@@ -159,6 +159,44 @@ def test_the_first_pull_refuses_when_anything_sits_at_an_incoming_name(empty, tm
     assert raw(clone, "symbolic-ref", "HEAD") == b"refs/heads/main"
 
 
+def test_a_row_pull_that_changed_nothing_says_not_pulled(empty, tmp_path, monkeypatch):
+    """R5-F3: gitstow's own refusal on the row starts "Not pulled:" and says a file was in the way
+    without calling it ignored; a merge git ran and refused still reads "Pull failed:"."""
+    import html
+
+    from fastapi.testclient import TestClient
+
+    from gitstow.web.server import create_app
+
+    clone, pusher, _ = empty
+    _config(tmp_path, monkeypatch)
+    push_first(pusher)
+    (clone / "f").write_text("local untracked f\n")  # untracked, not ignored
+    app = create_app()
+    app.state.server = type("Stub", (), {"should_exit": False})()
+    client = TestClient(app, base_url="http://127.0.0.1")
+
+    def row_error():
+        text = client.post("/repos/t/clone/pull").text
+        found = re.search(r'<div class="row-error" role="alert"[^>]*><span>(.*?)</span>', text, re.S)
+        return html.unescape(found.group(1)) if found else ""
+
+    said = row_error()
+    assert (clone / "f").read_text() == "local untracked f\n" and raw(clone, "for-each-ref", "refs/heads/") == b""
+    assert said.startswith("Not pulled: this branch has no commits yet"), said
+    assert "git can replace a file there without asking, so gitstow stopped; nothing was changed." in said
+    assert "ignored" not in said and "Pull failed" not in said
+
+    (clone / "f").unlink()
+    assert row_error() == ""  # the first commits arrive
+    commit(pusher, "brings g", {"g": "upstream g\n"})
+    git("push", "-q", "origin", "HEAD:refs/heads/main", cwd=pusher)
+    (clone / "g").write_text("local untracked g\n")
+    said = row_error()  # git's own merge refuses: it ran
+    assert said.startswith("Pull failed: ") and "would be overwritten by merge" in said, said
+    assert (clone / "g").read_text() == "local untracked g\n"
+
+
 def test_a_staged_file_at_an_incoming_name_is_refused_even_with_force(empty, tmp_path, monkeypatch):
     """--force lets a named pull past the edited-files skip; the first-commit check still stops it."""
     from typer.testing import CliRunner

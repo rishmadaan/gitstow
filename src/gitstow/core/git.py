@@ -28,6 +28,7 @@ class PullResult:
     already_up_to_date: bool = False
     error: str = ""
     output: str = ""
+    merged: bool = False  # git was asked to move the branch (or a timeout left that unknown); False: nothing local changed
 
 
 @dataclass
@@ -530,10 +531,10 @@ def _pull_locked(repo_path: Path) -> PullResult:
             return PullResult(success=True, already_up_to_date=True, output="Already up to date.")
         landed = ff_checked(repo_path, cap, named, cap.tip)
         if landed.pulled:
-            return PullResult(success=True, output=landed.message)
-        return PullResult(success=False, error=landed.message)
+            return PullResult(success=True, output=landed.message, merged=True)
+        return PullResult(success=False, error=landed.message, merged=landed.merged)
     except subprocess.TimeoutExpired:
-        return PullResult(success=False, error="Pull timed out (2 minutes)")
+        return PullResult(success=False, error="Pull timed out (2 minutes)", merged=True)
 
 
 @dataclass
@@ -548,6 +549,7 @@ class Landed:
     # after), HEAD included as b"HEAD"; None when the read-back failed (nothing is known).
     moves: list[tuple[bytes, str, str]] | None = None
     git_ok: bool = False  # git's own merge reported success (a failure is then gitstow's finding, not git's)
+    merged: bool = True   # git was asked to merge; False when gitstow stopped before asking
 
 
 def failure_text(exc: BaseException) -> str:
@@ -571,7 +573,7 @@ def ff_checked(repo_path: Path, cap: BranchCapture, named: tuple[str, str], targ
     if cap.unborn:  # git overwrites ignored files when it creates a branch's first commit: check first
         clash = unborn_collisions(repo_path, target)
         if clash:
-            return Landed(False, clash, "", "", [])
+            return Landed(False, clash, "", "", [], merged=False)
     ok, message = merge_exact(repo_path, branch, target)
     try:
         after = capture_branch(repo_path)
@@ -625,8 +627,8 @@ def unborn_collisions(repo_path: Path, target: str) -> str:
     shown = ", ".join(n.decode("utf-8", "replace") for n in clash[:5]) + (
         f" and {len(clash) - 5} more" if len(clash) > 5 else "")
     return ("this branch has no commits yet, and this folder already has something where its first commits "
-            f"would put theirs: {shown}. git would replace an ignored file there without asking, so gitstow "
-            "stopped. Move or rename those in a terminal, then pull again")
+            f"would put theirs: {shown}. git can replace a file there without asking, so gitstow stopped; "
+            "nothing was changed. Move or rename those in a terminal, then pull again")
 
 
 def merge_exact(repo_path: Path, branch: str, target_oid: str) -> tuple[bool, str]:

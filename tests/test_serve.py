@@ -2208,7 +2208,7 @@ class TestSingleRowFailureShown:
         error = ("error: The following untracked working tree files would be overwritten by merge:\n"
                  "\tsecret.env\nPlease move or remove them before you merge.\nAborting")
         monkeypatch.setattr("gitstow.web.routes.repos.git_pull",
-                            lambda p: PullResult(success=False, error=error))
+                            lambda p: PullResult(success=False, error=error, merged=True))  # git's merge refused
 
         r = client.post("/repos/test-ws/acme/widget/pull")
 
