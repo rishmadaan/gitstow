@@ -262,6 +262,7 @@ def test_r2c2_pulled_then_upstream_advanced_and_the_pulls_own_list_unreadable(la
     assert git("rev-parse", "HEAD", cwd=clone) == ids["T"]
     assert f"moved from <code>{ids['H'][:7]}</code> to <code>{ids['T'][:7]}</code>" in page and "INJECTED" in page
     assert "What this pull brought in" not in page and "Files it changed" not in page  # no zero lists
+    assert f"{ids['T'][:7]}</code>. git said:" in page  # R3-F4: the command ends its sentence
     assert not re.search(r"Pulled 0|Pulling 0 commits", page)
 
 

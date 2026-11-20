@@ -83,12 +83,12 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
         title="Run the same fetch again. Does not pull.">⟳ Retry</button>
     {% else %}<a class="btn btn-primary" href="{{ page_url }}?tab=incoming">{% if inc.kind in ("behind", "stale") and inc.now_behind %}Show the {{ "{:,}".format(inc.now_behind) }} now waiting{% else %}Show what is here now{% endif %}</a>{% endif %}
   </div>
-  <p class="inc-explain">{% if res.retry %}<b>Retry</b> runs the same fetch again; nothing is retried on its own.{% else %}<b>Show</b> redraws this page with the list as it is now, to review before pulling. It does not fetch: the check that stopped the pull already read the new state. The list reviewed earlier is no longer shown, because it no longer matches this repo.{% endif %}</p>
+  <p class="inc-explain">{% if res.retry %}<b>Retry</b> runs the same fetch again; nothing is retried on its own.{% else %}<b>Show</b> redraws this page with {% if inc.kind in ("behind", "stale") %}the list as it is now, to review before pulling{% else %}this repo as it is now{% endif %}. It does not fetch: the check that stopped the pull already read the new state. The list reviewed earlier is no longer shown, because it no longer matches this repo.{% endif %}</p>
   {% endif %}
 </div>
 {% if res.lists %}{{ list_blocks(res.lists, True, "", False, "incoming-result") }}{% endif %}
 </div>
-<div class="block inc-now-head" id="incoming-now"><h4>What is here now <span class="sub">read again after the {{ 'fetch' if res.op == 'fetchfailed' else 'pull' }}</span></h4></div>
+<div class="block inc-now-head" id="incoming-now"><h4>What is here now <span class="sub">{{ 'read again after the fetch' if res.op == 'fetchfailed' else 'read again after the pull' if res.op in ('pulled', 'failed') else 'read again just now' }}</span></h4></div>
 {% endif %}
 
 {% set k = inc.kind %}

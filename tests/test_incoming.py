@@ -671,6 +671,39 @@ class TestWeb:
         assert f"You switched from <code>{one}</code> to <code>{two}</code> since this list was drawn." in r.text
         assert git("rev-parse", f"refs/heads/{one}", f"refs/heads/{two}", cwd=clone).split() == [head, head]
 
+    def _refusal_page(self, client, clone, change):
+        import json
+        import re
+        html = client.get("/repo/t/clone").text
+        vals = json.loads(re.search(r'hx-post="/repos/t/clone/incoming/pull" hx-vals=\'([^\']+)\'', html)
+                          .group(1).replace("&#34;", '"'))
+        change()
+        return client.post("/repos/t/clone/incoming/pull", data=vals).text
+
+    def test_a_refusal_into_a_diverged_repo_reads_well(self, web):
+        """R3-F3, R3-F7: the re-read is "just now" (no pull ran), and Show is not offered as review-before-pulling
+        for a repo that cannot be pulled."""
+        client, clone, _, _ = web
+        page = self._refusal_page(client, clone, lambda: commit(clone, "mine", {"mine.txt": "x\n"}))
+        assert "Not pulled: changed since review" in page and "Diverged" in page
+        assert "read again just now" in page and "read again after the pull" not in page
+        assert "Show what is here now" in page and "this repo as it is now" in page
+        assert "to review before pulling" not in page
+
+    def test_a_refusal_while_behind_offers_the_new_list_to_review(self, web):
+        client, clone, _, ids = web
+        page = self._refusal_page(client, clone, lambda: git("reset", "-q", "--hard", ids[0], cwd=clone))
+        assert "Show the 2 now waiting" in page and "the list as it is now, to review before pulling" in page
+        assert "read again just now" in page
+
+    def test_a_pull_refused_because_another_is_running_says_what_to_do(self, web):
+        """R3-F6."""
+        client, clone, _, _ = web
+        with repo_lock(clone):
+            page = self._refusal_page(client, clone, lambda: None)
+        assert "Not pulled: another pull is running" in page
+        assert "Wait for it to finish, then press Pull again: it checks everything again first." in page
+
     def test_fetch_failure_quotes_git_and_keeps_the_old_record(self, web):
         client, clone, _, _ = web
         git("remote", "set-url", "origin", str(clone.parent / "nowhere.git"), cwd=clone)

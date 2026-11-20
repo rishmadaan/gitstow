@@ -270,7 +270,7 @@ def build_result(repo, repo_path, result: dict, now: datetime) -> dict:
             res["title"] = "Pulled"
             facts.append(_fact("blocked", "not read", Markup(
                 "<b>The list of what came in could not be read.</b> In a terminal, run in this repo's folder: "
-                "{} git said: {}").format(_code(_sh("git", "log", f"{before[:7]}..{after[:7]}")), _gitsaid(rng))))
+                "{}. git said: {}").format(_code(_sh("git", "log", f"{before[:7]}..{after[:7]}")), _gitsaid(rng))))
         else:
             res["title"] = f"Pulled {_plural(rng.commit_total, 'commit')}"
             res["lists"] = _lists(rng, repo, before, after, True, now, {})
@@ -292,6 +292,9 @@ def build_result(repo, repo_path, result: dict, now: datetime) -> dict:
             facts.append(_fact("info", "what", Markup("{}.").format(message.capitalize())))
         if op == "unreadable":
             facts.append(_fact("blocked", "git said", _gitsaid(message)))
+        if op == "locked":
+            facts.append(_fact("info", "next", Markup(
+                "Wait for it to finish, then press Pull again: it checks everything again first.")))
     elif op == "failed":
         res["title"] = "Pull failed"
         facts.append(_fact("blocked", "git said", _gitsaid(message, wrap=False)))
