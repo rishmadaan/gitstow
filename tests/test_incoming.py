@@ -548,6 +548,20 @@ class TestWeb:
         assert 'class="lbl">missing<' not in strip and "re-clone" not in strip
         assert "1 could not be read" in html and "1 missing" not in html
 
+    def test_unreadable_repo_remote_cell_is_unknown_not_even(self, web):
+        client, clone, _, _ = web
+        (clone / ".git" / "index").write_bytes(b"garbage")
+        row = client.get("/dashboard/rows").text
+        assert '<span class="delta unknown"' in row and ">?</span>" in row
+        assert 'class="delta even"' not in row
+
+    def test_missing_repo_remote_cell_is_unknown_and_counts_as_missing(self, web):
+        client, clone, _, _ = web
+        clone.rename(clone.parent / "moved-away")
+        html = client.get("/").text
+        assert '<span class="delta unknown"' in html and 'class="delta even"' not in html
+        assert "1 missing" in html and "1 could not be read" not in html
+
     def test_local_edits_label_on_dirty_and_behind(self, web):
         client, clone, _, _ = web
         (clone / "src/toc.py").write_text("my edit\n")

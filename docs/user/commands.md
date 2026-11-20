@@ -602,7 +602,7 @@ Every interactive element has a hover tooltip. There's also a `?` button in the 
 
 If a single-row **Pull** or **Fetch** fails (git refuses to overwrite a local file, the network is down), git's message appears in red under the repo name and the *Last pull* stamp keeps its old value. Dismiss it with **×**.
 
-**Remote Δ** (`↑ N`, `↓ N incoming ›`, `↑N ↓N ›`, or `—`) reflects your *last fetch*, not live remote state. If the counts look stale, use **Fetch all** (or a row's ⋯ → Fetch) to refresh them. `no upstream` means the branch does not follow a remote branch although the repo has a remote (the repo page shows the one command that sets it); `local` means the repo has no remote at all; `upstream gone` means the branch follows a remote branch that no longer exists here. Bulk pulls skip all three.
+**Remote Δ** (`↑ N`, `↓ N incoming ›`, `↑N ↓N ›`, or `—`) reflects your *last fetch*, not live remote state. If the counts look stale, use **Fetch all** (or a row's ⋯ → Fetch) to refresh them. `no upstream` means the branch does not follow a remote branch although the repo has a remote (the repo page shows the one command that sets it); `local` means the repo has no remote at all; `upstream gone` means the branch follows a remote branch that no longer exists here. Bulk pulls skip all three. `?` means the repo is missing or could not be read, so nothing is known about its upstream.
 
 #### The repo page: Incoming and Local changes
 

@@ -108,7 +108,9 @@ def _delta(state: RepoState, last_fetched: str = "") -> tuple[str, str, str]:
     page's Incoming tab.
     """
     if state.presence != "ok":
-        return ("even", "—", "Unknown — repo is missing or unreadable on disk.")
+        # Never the in-sync "—": nothing about this repo's upstream is known.
+        return ("unknown", "?", "Unknown — the repo is missing or could not be read, so how it compares "
+                "with its upstream is unknown. Open the repo page for git's message.")
     if not state.has_upstream:
         if state.has_remote:
             return ("local", "no upstream",
