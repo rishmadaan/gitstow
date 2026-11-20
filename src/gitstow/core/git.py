@@ -536,6 +536,7 @@ class Landed:
     # Every ref whose id changed between that capture and the read-back, as (full ref, before,
     # after), HEAD included as b"HEAD"; None when the read-back failed (nothing is known).
     moves: list[tuple[bytes, str, str]] | None = None
+    git_ok: bool = False  # git's own merge reported success (a failure is then gitstow's finding, not git's)
 
 
 def failure_text(exc: BaseException) -> str:
@@ -568,7 +569,7 @@ def ff_checked(repo_path: Path, cap: BranchCapture, named: tuple[str, str], targ
     if isinstance(after, str):  # not verified, so never "pulled"; the branch's own id still says if it moved
         return Landed(False, (message + "\n" if message else "")
                       + f"after the merge, gitstow could not read this repo back to check it: {after}",
-                      cap.head, ref_id(repo_path, key))
+                      cap.head, ref_id(repo_path, key), git_ok=ok)
     moves = [(r, cap.heads.get(r, ""), after.heads.get(r, ""))
              for r in sorted(cap.heads.keys() | after.heads.keys()) if cap.heads.get(r) != after.heads.get(r)]
     if after.head != cap.head:
@@ -585,12 +586,12 @@ def ff_checked(repo_path: Path, cap: BranchCapture, named: tuple[str, str], targ
         wrong.append(f"{shown}'s upstream setting changed during the pull, from {cap.upstream_name} "
                      f"to {ref_label(up_after) or 'none'}")
     if ok and not wrong:
-        return Landed(True, message, cap.head, landed, moves)
+        return Landed(True, message, cap.head, landed, moves, git_ok=True)
     if ok:
         message = "git reported success, but " + "; ".join(wrong)
     elif wrong:
         message += "\n" + "; ".join(wrong)
-    return Landed(False, message, cap.head, landed, moves)
+    return Landed(False, message, cap.head, landed, moves, git_ok=ok)
 
 
 def unborn_collisions(repo_path: Path, target: str) -> str:

@@ -336,6 +336,7 @@ class ExactPullResult:
     merged: bool = False
     changes: list[dict] = field(default_factory=list)
     moves: list[tuple[bytes, str, str]] | None = None
+    git_ok: bool = False  # the merge ran and git reported success; a failure is then gitstow's finding
 
     @property
     def success(self) -> bool:
@@ -381,4 +382,4 @@ def _pull_exact_locked(repo_path: Path, expected: Snapshot, is_frozen: Callable[
         return ExactPullResult("unreadable", failure_text(exc))
     landed = ff_checked(repo_path, now, named, expected.target)
     return ExactPullResult("pulled" if landed.pulled else "failed", landed.message, before=landed.before,
-                           after=landed.after, merged=True, moves=landed.moves)
+                           after=landed.after, merged=True, moves=landed.moves, git_ok=landed.git_ok)

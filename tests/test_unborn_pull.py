@@ -312,3 +312,27 @@ def test_the_repo_page_header_shows_no_commit_for_a_branch_that_had_none_when_re
     app.state.server = type("Stub", (), {"should_exit": False})()
     page = TestClient(app, base_url="http://127.0.0.1").get("/repo/t/clone").text
     assert "No commits yet" in page and "commit on other" not in page
+
+
+@pytest.mark.parametrize("remote", [False, True])
+def test_a_branch_with_no_commits_is_told_how_it_gets_its_first(tmp_path, monkeypatch, remote):
+    """R4-F3: a `git init` folder with no remote makes a first commit; with a remote, it can also
+    take that remote's first commits."""
+    from fastapi.testclient import TestClient
+
+    from gitstow.web.server import create_app
+
+    _config(tmp_path, monkeypatch)
+    repo = tmp_path / "ws" / "clone"
+    git("init", "-q", "-b", "main", str(repo))
+    if remote:
+        git("remote", "add", "origin", str(tmp_path / "up.git"), cwd=repo)
+    app = create_app()
+    app.state.server = type("Stub", (), {"should_exit": False})()
+    page = TestClient(app, base_url="http://127.0.0.1").get("/repo/t/clone").text
+    if remote:
+        assert "take its first commits with Pull" in page and "make a first commit in a terminal" not in page
+    else:
+        assert "make a first commit in a terminal" in page and "first commits" not in page
+    result = G.pull(repo)
+    assert not result.success and "git pull can make" not in result.error

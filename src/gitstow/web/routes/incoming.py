@@ -265,7 +265,8 @@ def build_result(repo, repo_path, result: dict, now: datetime) -> dict:
     before, after = result.get("before", ""), result.get("after", "")
     message = result.get("message", "")
     stamp = f"{_day(now, now)}, {now:%H:%M}"
-    res = {"op": op, "facts": [], "lists": None, "title": "", "panel_class": "is-blocked", "retry": False}
+    res = {"op": op, "facts": [], "lists": None, "title": "", "panel_class": "is-blocked", "retry": False,
+           "merged": op == "pulled" or bool(result.get("merged"))}  # the fresh read below: after the pull, or just now
     facts = res["facts"]
     if op == "pulled":
         res["panel_class"] = "is-done"
@@ -306,9 +307,13 @@ def build_result(repo, repo_path, result: dict, now: datetime) -> dict:
             facts.append(_fact("info", "next", Markup(
                 "Wait for it to finish, then press Pull again: it checks everything again first.")))
     elif op == "failed":
-        res["title"] = "Pull failed"
-        facts.append(_fact("blocked", "git said", _gitsaid(message, wrap=False)))
         moves = result.get("moves")
+        elsewhere = [r for r, _b, _a in moves or [] if r not in ("HEAD", result.get("branch_name"))]
+        reached = bool(after) and after == result.get("target")
+        res["title"] = ("Pull not confirmed: something else changed this folder" if result.get("merged") and reached
+                        and elsewhere else "Pull failed")
+        facts.append(_fact("blocked", "gitstow found" if result.get("git_ok") else "git said",
+                           _gitsaid(message, wrap=False)))
         if not result.get("merged"):
             facts.append(_fact("clear", "checked", Markup(
                 "Nothing was pulled: gitstow stopped before asking git to move {}{}.").format(
@@ -525,8 +530,8 @@ def _inspection(repo, repo_path, view: IncomingView, now: datetime, prev_tip: st
     elif kind == "unborn":
         lede.append(Markup("{} has no commits yet, so there is nothing to compare and nothing to pull onto. "
                            "Pull all skips this repo.").format(br))
-        lede.append(Markup("Once it has a commit (make one, or take the remote's first commits with Pull once it "
-                           "has some), reload this page.") if st.has_upstream or st.has_remote else
+        lede.append(Markup("Once it has a commit (make one, or, once the remote has commits, take its first "
+                           "commits with Pull), reload this page.") if st.has_upstream or st.has_remote else
                     Markup("Once it has a commit (make a first commit in a terminal), reload this page."))
     elif kind == "detached":
         lede.append(Markup("No branch is checked out in this folder (detached HEAD at {}), so there is no "
@@ -650,7 +655,8 @@ async def incoming_pull(workspace: str, key: str, request: Request):
         store.update(repo.key, workspace=repo.workspace,
                      last_pulled=datetime.now().isoformat(timespec="seconds"))
     result = {"op": exact.outcome, "message": exact.message, "before": exact.before, "after": exact.after,
-              "merged": exact.merged, "changes": exact.changes, "branch_name": ref_label(snapshot.ref("branch")),
+              "merged": exact.merged, "git_ok": exact.git_ok, "target": snapshot.target,
+              "changes": exact.changes, "branch_name": ref_label(snapshot.ref("branch")),
               "moves": None if exact.moves is None else [(ref_label(r), b, a) for r, b, a in exact.moves]}
     return await asyncio.to_thread(render_repo_detail, request, workspace, key, result=result)
 

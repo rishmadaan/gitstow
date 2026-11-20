@@ -864,6 +864,52 @@ class TestWeb:
         assert f"<code>main</code> is still at <code>{before[:7]}</code>; whether anything else" in page
         assert "Nothing was pulled" not in page
 
+    @staticmethod
+    def _press(client):
+        import json
+        import re
+        html = client.get("/repo/t/clone").text
+        vals = json.loads(re.search(r'hx-post="/repos/t/clone/incoming/pull" hx-vals=\'([^\']+)\'', html)
+                          .group(1).replace("&#34;", '"'))
+        return client.post("/repos/t/clone/incoming/pull", data=vals).text
+
+    def test_a_refusal_before_the_merge_reads_again_just_now(self, web):
+        """R4-C4: merge options gitstow cannot switch off stop the pull before git runs."""
+        client, clone, _, _ = web
+        git("branch", "-q", "-m", "main", "a=b", cwd=clone)
+        git("config", "branch.a=b.mergeOptions", "--no-ff", cwd=clone)
+        before = git("rev-parse", "HEAD", cwd=clone)
+        page = self._press(client)
+        assert git("rev-parse", "HEAD", cwd=clone) == before
+        assert "gitstow stopped before asking git to move" in page
+        assert "read again just now" in page and "read again after the pull" not in page
+
+    def test_a_merge_git_reported_done_while_another_branch_moved_is_not_confirmed(self, web, monkeypatch):
+        """R4-F4: git's merge worked and main reached the reviewed commit, but `other` moved too: the
+        sentence is gitstow's finding, and the title says the pull was not confirmed."""
+        client, clone, _, ids = web
+        git("branch", "-q", "other", "HEAD", cwd=clone)
+        real = G.merge_exact
+
+        def merge(path, branch, target):
+            out = real(path, branch, target)
+            git("update-ref", "refs/heads/other", ids[0], cwd=path)
+            return out
+        monkeypatch.setattr(G, "merge_exact", merge)
+        page = self._press(client)
+        assert git("rev-parse", "refs/heads/main", cwd=clone) == ids[-1]
+        assert "Pull not confirmed: something else changed this folder" in page and "Pull failed" not in page
+        assert ('<span class="fact-k">✕ gitstow found</span><span><pre class="gitsaid">git reported success, but '
+                'other branches moved during the pull: other') in page
+        assert " git said<" not in page
+        assert "read again after the pull" in page
+
+    def test_a_merge_git_failed_keeps_its_label_and_title(self, web, monkeypatch):
+        client, clone, _, _ = web
+        before, page = self._post_failed_pull(client, clone, monkeypatch)
+        assert "Pull failed" in page and "Pull not confirmed" not in page
+        assert '<span class="fact-k">✕ git said</span>' in page
+
     # Names git accepts that a shell would run, split or expand when pasted unquoted.
     HOSTILE = ["fix;echo${IFS}injected", "it's", "cost$HOME"]
 

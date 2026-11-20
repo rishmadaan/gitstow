@@ -88,7 +88,7 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
 </div>
 {% if res.lists %}{{ list_blocks(res.lists, True, "", False, "incoming-result") }}{% endif %}
 </div>
-<div class="block inc-now-head" id="incoming-now"><h4>What is here now <span class="sub">{{ 'read again after the fetch' if res.op == 'fetchfailed' else 'read again after the pull' if res.op in ('pulled', 'failed') else 'read again just now' }}</span></h4></div>
+<div class="block inc-now-head" id="incoming-now"><h4>What is here now <span class="sub">{{ 'read again after the fetch' if res.op == 'fetchfailed' else 'read again after the pull' if res.merged else 'read again just now' }}</span></h4></div>
 {% endif %}
 
 {% set k = inc.kind %}
