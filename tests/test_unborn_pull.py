@@ -381,3 +381,46 @@ def test_a_branch_with_no_commits_is_told_how_it_gets_its_first(tmp_path, monkey
         assert "make a first commit in a terminal" in page and "first commits" not in page
     result = G.pull(repo)
     assert not result.success and "git pull can make" not in result.error
+
+
+@pytest.mark.parametrize("held", ["frozen", "staged", "both"])
+def test_a_branch_with_no_commits_held_back_says_so_and_offers_the_way_out(empty, tmp_path, monkeypatch, held):
+    """R5-C2: an empty clone with upstream commits that is frozen or has a staged file keeps the
+    count, states what holds Pull back (as the shared classification does), offers Unfreeze or the
+    local changes, and qualifies the pull instructions."""
+    from fastapi.testclient import TestClient
+
+    from gitstow.core.repo import RepoStore
+    from gitstow.core.status_model import classify
+    from gitstow.web.server import create_app
+
+    clone, pusher, _ = empty
+    _config(tmp_path, monkeypatch)
+    push_first(pusher)
+    git("fetch", "-q", cwd=clone)
+    if held in ("frozen", "both"):
+        RepoStore().update("clone", workspace="t", frozen=True)
+    if held in ("staged", "both"):
+        (clone / "mine.txt").write_text("mine\n")
+        git("add", "mine.txt", cwd=clone)
+    st = G.get_status(clone)
+    assert classify(exists=True, frozen=held != "staged", status=st).pull_action == (
+        "skip-local" if held == "staged" else "skip-frozen")
+
+    app = create_app()
+    app.state.server = type("Stub", (), {"should_exit": False})()
+    page = TestClient(app, base_url="http://127.0.0.1").get("/repo/t/clone").text
+    panel = page[page.index('id="incoming-panel"'):]
+    panel = panel[:panel.index("</div>\n\n")]
+    text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", panel))
+    assert "No commits yet, 1 commit upstream" in text and "has 1 commit" in text  # the count stays
+    if held == "staged":
+        assert "Pull is off while files in this folder are edited or staged (1)." in text
+        assert "Once no file here is edited or staged, Pull on this repo's row" in text
+        assert 'data-tab="local"' in panel and "Unfreeze" not in panel and "Open folder" not in panel
+    else:
+        assert "You froze this repo. Pull all skips it, and the Pull on its library row is off" in text
+        assert "Once you unfreeze it, Pull on this repo's row" in text
+        assert 'name="frozen" value="0"' in panel and "Open folder" not in panel
+        assert "the Pull button appears here" not in text  # an empty clone's page never has one
+        assert ("Pull would stay off after unfreezing until they are resolved" in text) == (held == "both")

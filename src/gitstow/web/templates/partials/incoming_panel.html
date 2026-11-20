@@ -92,6 +92,7 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
 {% endif %}
 
 {% set k = inc.kind %}
+{% set held = inc.unborn_block or k %}{# an unborn branch held back by a freeze or edits gets that state's control #}
 <div class="inc-panel {{ inc.panel_class }}" id="incoming-panel">
   <div class="inc-eyebrow"><span>{% if inc.eyebrow_label %}Incoming · <b>{{ inc.eyebrow_label }}</b>{% else %}Incoming · <b>{{ inc.upstream }}</b> → <b>{{ inc.branch }}</b>{% endif %}</span></div>
   <div class="inc-head">
@@ -111,18 +112,18 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
     {{ pull_button("↓ Pull these " ~ inc.count) if inc.snapshot }}
   {% elif k == "stale" %}
     {{ fetch_button("⟳ Fetch first") }}{{ pull_button("↓ Pull these " ~ inc.count ~ " without fetching", primary=False) if inc.snapshot }}
-  {% elif k == "blocked" %}
+  {% elif held == "blocked" %}
     <button type="button" class="btn btn-outline" data-tab="local">See your local changes →</button>
+  {% elif held == "frozen" %}
+    <form method="POST" action="/repos/{{ repo.workspace }}/{{ repo.key }}/freeze" class="inline-form">
+      <input type="hidden" name="frozen" value="0">
+      <button type="submit" class="btn btn-outline">Unfreeze</button>
+    </form>
   {% elif k in ("diverged", "noremote", "unborn") or (k in ("noupstream", "detached") and not inc.command) %}
     <button type="button" class="btn btn-outline" hx-post="/repos/{{ repo.workspace }}/{{ repo.key }}/open-folder"
             hx-swap="none" data-toast="Opened {{ repo.key }} in file manager">Open folder</button>
   {% elif k in ("noupstream", "detached") %}
     <button type="button" class="btn btn-outline js-copy" data-copy="{{ inc.command }}" data-copy-label="command">Copy the command</button>
-  {% elif k == "frozen" %}
-    <form method="POST" action="/repos/{{ repo.workspace }}/{{ repo.key }}/freeze" class="inline-form">
-      <input type="hidden" name="frozen" value="0">
-      <button type="submit" class="btn btn-outline">Unfreeze</button>
-    </form>
   {% elif k == "unknown" %}
     <a class="btn {{ 'btn-outline' if inc.secondary else 'btn-primary' }}" href="{{ page_url }}?tab=incoming">⟳ Try again</a>
   {% elif k in ("ahead", "none") %}
@@ -135,9 +136,9 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
   {% set explain %}
     {%- if k == "behind" %}<b>Pull</b> {{ how }} {{ others }} Leaving this page changes nothing.
     {%- elif k == "stale" %}<b>Fetch</b> asks the remote what is there now and redraws this list. <b>Pull without fetching</b> {{ how }} {{ others }}
-    {%- elif k == "blocked" %}<b>Resolve the local work, then come back for a fresh check.</b> gitstow shows local changes but does not alter them, so that happens in a terminal. Committing them on this branch may mean the two histories need reconciling before a pull.
+    {%- elif held == "blocked" %}<b>Resolve the local work, then come back for a fresh check.</b> gitstow shows local changes but does not alter them, so that happens in a terminal. Committing them on this branch may mean the two histories need reconciling before a pull.
     {%- elif k == "diverged" %}<b>Pull is off.</b> Bringing the two histories together (a rebase or a merge) happens in a terminal. Come back afterwards for a fresh check.
-    {%- elif k == "frozen" %}<b>Unfreezing does not pull.</b> It lets Pull and Pull all work on this repo again; the Pull button appears here once the repo is unfrozen.
+    {%- elif held == "frozen" %}<b>Unfreezing does not pull.</b> It lets Pull and Pull all work on this repo again{% if k == "frozen" %}; the Pull button appears here once the repo is unfrozen{% endif %}.
     {%- elif k == "unknown" %}<b>Try again</b> repeats the read. If git keeps failing, the repair happens in a terminal; gitstow changes nothing in this folder.
     {%- endif %}
   {% endset %}

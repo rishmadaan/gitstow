@@ -520,13 +520,26 @@ def _inspection(repo, repo_path, view: IncomingView, now: datetime, prev_tip: st
             "No edited or staged files in this folder when this page was drawn.")) if not edited
             else _fact("note", "note", Markup("Files in this folder are edited or staged ({}).").format(edited)))
 
+    # An unborn branch with upstream commits is held back like a behind one: frozen first, then edits.
+    unborn_block = ("frozen" if repo.frozen else "blocked" if edited else "") if kind == "unborn" and view.tip else ""
     if kind == "unborn" and view.tip:
         lede.append(Markup("{} has no commits yet. {} has {}; Pull takes them.").format(
             br, up, _plural(view.behind, "commit")))
-        lede.append(Markup("Pull on this repo's row in the library, Pull all, or {} in a terminal fetches first "
+        lede.append(Markup("{}Pull on this repo's row in the library, Pull all, or {} in a terminal fetches first "
                            "and takes the newest. It stops, changing nothing, if anything in this folder sits where "
                            "those commits would land. There is no list to review here: every file is new.").format(
-            _code(_sh("gitstow", "pull", repo.key))))
+            {"frozen": "Once you unfreeze it, ", "blocked": "Once no file here is edited or staged, "
+             }.get(unborn_block, ""), _code(_sh("gitstow", "pull", repo.key))))
+        if unborn_block == "frozen":
+            facts.append(_fact("note", "frozen", Markup(
+                "<b>You froze this repo.</b> Pull all skips it, and the Pull on its library row is off until "
+                "you unfreeze.")))
+        if edited:
+            facts.append(_fact("blocked", "blocked", Markup(
+                "<b>Pull is off while files in this folder are edited or staged ({}).</b>").format(edited))
+                if unborn_block == "blocked" else _fact("note", "note", Markup(
+                    "Files in this folder are edited or staged ({}); Pull would stay off after unfreezing until "
+                    "they are resolved.").format(edited)))
     elif kind == "unborn":
         lede.append(Markup("{} has no commits yet, so there is nothing to compare and nothing to pull onto. "
                            "Pull all skips this repo.").format(br))
@@ -594,9 +607,9 @@ def _inspection(repo, repo_path, view: IncomingView, now: datetime, prev_tip: st
 
     panel_class = {"none": "is-done", "blocked": "is-blocked", "diverged": "is-blocked", "frozen": "is-quiet",
                    "noupstream": "is-quiet", "detached": "is-quiet", "noremote": "is-quiet",
-                   "ahead": "is-quiet", "unborn": "is-quiet"}.get(kind, "")
+                   "ahead": "is-quiet", "unborn": "is-quiet"}.get(unborn_block or kind, "")
     return {
-        "kind": kind, "base": kind, "panel_class": panel_class,
+        "kind": kind, "base": kind, "panel_class": panel_class, "unborn_block": unborn_block,
         "eyebrow_label": {"noupstream": "no upstream", "detached": "no branch", "noremote": "no remote",
                           "unborn": "no commits"}.get(kind),
         "branch": view.branch, "upstream": view.upstream, "head7": head7, "tip7": tip7,
