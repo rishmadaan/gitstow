@@ -83,12 +83,12 @@ def _present(state: RepoState) -> tuple[str, str, str]:
         return "conflict", "error", "disabled"
     if state.frozen:
         return "frozen", "frozen", "disabled"
+    if state.ahead and state.behind:  # before edits: resolving them would not turn Pull on
+        return "conflict", "diverged", "disabled"
     if state.blocks_pull and state.behind:
         return "dirty", "local edits", "disabled"
     if state.blocks_pull:
         return "dirty", state.local_summary, "ghost"
-    if state.pull_action == "skip-diverged":
-        return "conflict", "diverged", "disabled"
     if state.behind:  # an unborn branch's commits come in by the plain Pull: no count to pin
         return "behind", "behind", "ghost" if state.unborn else "primary"
     if state.ahead:
@@ -217,6 +217,10 @@ def row_context(repo, ws, repo_path, status, num: int | None, sorted_labels: lis
     if status_label == "local edits":
         status_tooltip = (f"Local edits — files are edited or staged ({state.local_summary}) and the branch is "
                           f"{behind_n} behind. Pull is off until the edits are resolved.")
+    elif status_label == "diverged":
+        status_tooltip = (f"Diverged — {state.ahead} local commit(s) and {behind_n} upstream commit(s). Pull is off "
+                          f"until the histories are reconciled (a rebase or merge, in a terminal). Local changes: "
+                          f"{state.local_summary}.")
     if state.error:
         status_tooltip = f"Could not read this repo: {state.error}"
     return {

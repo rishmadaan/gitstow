@@ -904,6 +904,24 @@ class TestWeb:
         assert "Pull is off while files in this folder are edited or staged (1)" in page
         assert "also edited in this folder" in page and "/incoming/t/clone/pull" not in page
 
+    def test_diverged_with_edits_is_labelled_diverged_first(self, web):
+        """CR6: a diverged branch with edits says diverged (Pull stays off after the edits are
+        resolved); the edits' composition is still on the chip's tooltip."""
+        import html
+        import re
+        client, clone, _, _ = web
+        commit(clone, "mine", {"local.txt": "x\n"})
+        (clone / "src/toc.py").write_text("my edit\n")
+        row = client.get("/dashboard/rows").text
+        assert 'data-status="conflict"' in row and ">diverged<" in row and ">local edits<" not in row, row
+        tip = html.unescape(re.search(r'<span class="status status-conflict" title="([^"]*)"', row).group(1)
+                            if 'class="status-link"' not in row else
+                            re.search(r'class="status-link" href="[^"]*" title="([^"]*)"', row).group(1))
+        assert "1 modified" in tip and "until the edits are resolved" not in tip, tip
+        assert "Pull disabled — local and remote have diverged" in html.unescape(row)
+        page = client.get("/repo/t/clone").text
+        assert re.search(r'status-conflict"[^>]*><span class="dot"></span>diverged<', page), "header chip"
+
     def test_a_failed_local_listing_is_never_clean_or_zero(self, web, monkeypatch):
         """Status says one file is edited; the listing that follows fails. The page must say so."""
         from gitstow.core.git import ChangedFiles

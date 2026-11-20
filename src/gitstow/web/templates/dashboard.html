@@ -144,7 +144,7 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
           <dd>Files are edited or staged AND the branch is behind (the Remote Δ chip shows how many commits). Pull is off until the edits are resolved; nothing has been checked for conflicts. Open the repo page to see which files the update also changes.</dd>
 
           <dt><span class="status status-conflict"><span class="dot"></span>diverged</span></dt>
-          <dd>Local and remote both have commits the other lacks. gitstow only fast-forwards, so Pull is off; rebase or merge in a terminal.</dd>
+          <dd>Local and remote both have commits the other lacks, whether or not files are also edited (the tooltip shows them). gitstow only fast-forwards, so Pull is off; rebase or merge in a terminal.</dd>
 
           <dt><span class="status status-conflict"><span class="dot"></span>error</span></dt>
           <dd>gitstow could not read this repo (git failed on it, for example a corrupt index). Nothing is shown as clean and Pull is off. Click the label to open the repo page with git's message; the repair happens in a terminal. Nothing on disk was changed.</dd>
