@@ -89,7 +89,7 @@ gitstow add anthropic/claude-code --update
 - If the path exists but isn't a git repo: errors
 - Equivalent URLs passed twice in the same invocation (e.g. HTTPS and SSH forms of the same repo) are deduplicated — only the first is cloned, the rest are reported as duplicates
 - Multiple URLs are cloned concurrently (bounded by `parallel_limit`, default 6), with per-clone retry via `--retry`. Each clone runs in a hidden staging folder beside the target (`.gitstow-clone-…`) and is moved into place only when complete; if something appeared at the target in the meantime (another process got there first), that repo fails with `already exists … left untouched` and whatever is there is kept (on Linux and macOS an empty folder at the target is simply replaced; on Windows that clone stops with `already exists`). A clone that fails for good leaves no repo folder behind (an empty owner folder it created may stay). If gitstow is killed mid-clone, a hidden `.gitstow-clone-…` folder may be left beside the target; it is safe to delete
-- A URL whose owner or repo would not be a safe folder name (a `.`, `..` or empty path segment, a segment of only dots and spaces, or a `\`, `:` or control character; a control character anywhere in the URL, such as a pasted tab, is refused rather than dropped) is refused as invalid, so a repo always lands inside its workspace
+- A URL whose owner or repo would not be a safe folder name (a `.`, `..` or empty path segment, a segment of only dots and spaces, or a `\`, `:` or control character; a control character inside the URL, such as a pasted tab, is refused rather than dropped; whitespace around the whole URL, including a trailing newline, is trimmed first) is refused as invalid, so a repo always lands inside its workspace
 - **Limits:** clones and pulls follow symlinks you place inside a workspace (a delete or move refuses a folder that resolves outside it). gitstow does not check for two repos that map to one folder on a case-insensitive file system (`Acme/Widget` and `acme/widget`) or because Windows drops a trailing dot (`widget.` and `widget`), and a Windows reserved name (`con`, `nul`) makes the clone fail
 
 ---
@@ -507,7 +507,7 @@ gitstow collection import <file> [flags]
 - An entry whose folder is already used by a different repo (another host, or another owner in a flat workspace), either earlier in the file or already tracked, is not imported: `gitstow collection import` reports it as a conflict with the reason, and the dashboard's import banner lists it with the reason
 - Every entry is judged by its URL, whatever the file format: an exported YAML or JSON file is treated like a URL list (the `key` stored in an exported file is not used)
 - `--dry-run` lists every entry once with what it would do: add, skip (with the reason), conflict, or cannot add
-- A URL whose owner or repo would not be a safe folder name (a `.`, `..` or empty path segment, a segment of only dots and spaces, or a `\`, `:` or control character; a control character anywhere in the URL, such as a pasted tab, is refused rather than dropped) is refused as invalid
+- A URL whose owner or repo would not be a safe folder name (a `.`, `..` or empty path segment, a segment of only dots and spaces, or a `\`, `:` or control character; a control character inside the URL, such as a pasted tab, is refused rather than dropped; whitespace around the whole URL, including a trailing newline, is trimmed first) is refused as invalid
 
 ---
 
