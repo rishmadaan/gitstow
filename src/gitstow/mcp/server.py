@@ -171,7 +171,8 @@ def add_repo(
     if existing and not existing.get_path(root).exists():
         return json.dumps({"success": False, "status": "missing", "key": existing.key,
                            "workspace": ws.label, "path": str(existing.get_path(root)),
-                           "error": MISSING_FOLDER_HINT.format(key=existing.key, remove="remove_repo")})
+                           "error": MISSING_FOLDER_HINT.format(
+                               key=existing.key, remove=f"remove_repo with repo_key '{ws.label}:{existing.key}'")})
     if existing:
         row = {
             "success": True,
@@ -562,7 +563,8 @@ def remove_repo(repo_key: str, delete_from_disk: bool = False) -> str:
     """Remove a repo from tracking.
 
     Args:
-        repo_key: The repo identifier (owner/repo).
+        repo_key: The repo identifier (owner/repo), or workspace:owner/repo when
+            the key is tracked in more than one workspace.
         delete_from_disk: If true, also delete the files from disk.
 
     Returns:
@@ -581,7 +583,7 @@ def remove_repo(repo_key: str, delete_from_disk: bool = False) -> str:
     if delete_from_disk and path and path.exists() and not inside_workspace(path, ws.get_path()):
         return json.dumps({"success": False,
                            "error": f"refusing to delete path outside workspace: {path.resolve()}"})
-    store.remove(repo_key, workspace=repo.workspace)
+    store.remove(repo.key, workspace=repo.workspace)  # repo_key may be the global "ws:key"
 
     deleted = False
     if delete_from_disk and path and path.exists():

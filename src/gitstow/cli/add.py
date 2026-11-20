@@ -147,7 +147,8 @@ def add(
 
         # Already tracked in this workspace
         if existing and not target.exists():
-            hint = MISSING_FOLDER_HINT.format(key=repo_key, remove=f"gitstow remove {repo_key}")
+            hint = MISSING_FOLDER_HINT.format(
+                key=repo_key, remove=f"gitstow -w {ws.label} remove {shlex.quote(repo_key)}")
             results.append({"repo": repo_key, "status": "error", "error": hint})
             if show:
                 err_console.print(f"  [red]✗[/red] {escape(hint)}")

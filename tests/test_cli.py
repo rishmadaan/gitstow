@@ -774,9 +774,9 @@ class TestTrackedButFolderMissing:
 
     # Each surface names its own way to untrack the record.
     HINT = ("Tracked as owner/repo, but its folder is missing on disk. Remove it from gitstow "
-            "(gitstow remove owner/repo), then add it again to re-clone.")
-    MCP_HINT = HINT.replace("gitstow remove owner/repo", "remove_repo")
-    DASHBOARD_HINT = HINT.replace("gitstow remove owner/repo", "Remove in its row's ⋯ menu")
+            "(gitstow -w ws remove owner/repo), then add it again to re-clone.")
+    MCP_HINT = HINT.replace("gitstow -w ws remove owner/repo", "remove_repo with repo_key 'ws:owner/repo'")
+    DASHBOARD_HINT = HINT.replace("gitstow -w ws remove owner/repo", "Remove in its row's ⋯ menu")
 
     def _seed(self, tmp_path, monkeypatch):
         from gitstow.core.repo import Repo, RepoStore
@@ -832,6 +832,53 @@ class TestTrackedButFolderMissing:
         assert out == {"success": False, "status": "missing", "key": "owner/repo", "workspace": "ws",
                        "path": str(ws_dir / "owner" / "repo"), "error": self.MCP_HINT}
         assert clone.call_count == 0
+
+    def _seed_second_workspace(self, tmp_path):
+        """The same key tracked, folder present, in a second workspace: a bare key is ambiguous."""
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        other = tmp_path / "other"
+        (other / "owner" / "repo" / ".git").mkdir(parents=True)
+        save_config(Settings(workspaces=[
+            Workspace(path=str(tmp_path / "ws"), label="ws", layout="structured"),
+            Workspace(path=str(other), label="other", layout="structured")]))
+        RepoStore(path=tmp_path / "repos.yaml").add(Repo(
+            owner="owner", name="repo", remote_url="https://github.com/owner/repo.git", workspace="other"))
+
+    def test_cli_hint_command_removes_exactly_that_record(self, tmp_path, monkeypatch):
+        import shlex
+        from unittest.mock import patch
+
+        from gitstow.core.repo import RepoStore
+
+        self._seed(tmp_path, monkeypatch)
+        self._seed_second_workspace(tmp_path)
+        with patch("gitstow.cli.add.git_clone") as clone:
+            result = runner.invoke(app, ["-w", "ws", "add", "owner/repo", "--json"])
+        error = json.loads(result.stdout)["results"][0]["error"]
+        assert error == self.HINT and clone.call_count == 0
+        argv = shlex.split(error.split("(", 1)[1].split(")", 1)[0])
+        assert argv[0] == "gitstow"
+
+        removed = runner.invoke(app, [*argv[1:], "--yes"])
+
+        assert removed.exit_code == 0, removed.output
+        assert [(r.key, r.workspace) for r in RepoStore(path=tmp_path / "repos.yaml").list_all()] == [
+            ("owner/repo", "other")]
+
+    def test_mcp_hint_removes_exactly_that_record(self, tmp_path, monkeypatch):
+        from gitstow.core.repo import RepoStore
+        from gitstow.mcp.server import add_repo, remove_repo
+
+        self._seed(tmp_path, monkeypatch)
+        self._seed_second_workspace(tmp_path)
+        out = json.loads(add_repo("owner/repo", workspace="ws"))
+        assert out["error"] == self.MCP_HINT
+
+        assert json.loads(remove_repo("ws:owner/repo"))["success"] is True
+        assert [(r.key, r.workspace) for r in RepoStore(path=tmp_path / "repos.yaml").list_all()] == [
+            ("owner/repo", "other")]
 
     def test_dashboard_add(self, tmp_path, monkeypatch):
         import html
