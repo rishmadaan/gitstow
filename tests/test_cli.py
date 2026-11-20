@@ -3090,8 +3090,7 @@ class TestPullFetchThenMerge(RealGitPullFixture):
 
         assert result.success is False
         assert "no-such-remote" in result.error
-        assert calls == [["rev-parse", "--show-toplevel"], ["symbolic-ref", "-q", "HEAD"],
-                         ["fetch", "--prune"]]
+        assert calls == [["rev-parse", "--show-toplevel"], ["fetch", "--prune"]]  # nothing after it
         assert self.head() == before
 
 

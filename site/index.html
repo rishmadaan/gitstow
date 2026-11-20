@@ -99,7 +99,7 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
     <div class="center-head">
       <div class="eyebrow"><span class="bar"></span>gitstow ui<span class="bar"></span></div>
       <h2 class="section">The tab you leave open.</h2>
-      <p>A local-first browser dashboard, and the primary way to live with your library. Dirty state at a glance, one-click pulls, tags, freezes, and per-file diffs. It auto-refreshes every 30 seconds and never phones home: <code class="code-chip">127.0.0.1</code> by default — or flip on Tailscale access — right from its Settings page — and open it from any device on your tailnet. Never the public internet.</p>
+      <p>A local-first browser dashboard, and the primary way to live with your library. Dirty state at a glance, a look at what every update brings before you pull it, one-click pulls, tags, freezes, and per-file diffs. It auto-refreshes every 30 seconds and never phones home: <code class="code-chip">127.0.0.1</code> by default — or flip on Tailscale access — right from its Settings page — and open it from any device on your tailnet. Never the public internet.</p>
     </div>
     <div class="bw-scroll">
       <div class="bw">
@@ -245,6 +245,7 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
       <div class="blurb"><div class="label">local-first</div><div class="body">Binds 127.0.0.1 — plus your Tailscale network only if you opt in. Your repos, your machine, nobody else's business.</div></div>
       <div class="blurb"><div class="label">pull all, in parallel</div><div class="body">One click updates the whole library with a per-repo summary. Frozen repos politely skipped.</div></div>
       <div class="blurb"><div class="label">per-file diffs</div><div class="body">Click into any dirty repo: staged, unstaged, untracked, with colored line diffs.</div></div>
+      <div class="blurb"><div class="label">see before you pull</div><div class="body">Click "3 incoming" to read the commits and line diffs an update brings. Pull takes exactly those, nothing newer.</div></div>
     </div>
   </div>
 </section>
@@ -292,6 +293,7 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
       <div class="fcard"><div class="glyph">⌂</div><div class="title">Workspaces</div><div class="body">Open-source library here, active projects there. Structured owner/repo layout or flat, per directory.</div><code>gitstow workspace add ~/oss --layout structured</code></div>
       <div class="fcard"><div class="glyph">⇣</div><div class="title">Auto-organization</div><div class="body">Paste URLs, get owner/repo folders. Concurrent clones, deduped, and a mismatched remote errors loudly.</div><code>gitstow add anthropic/claude-code facebook/react</code></div>
       <div class="fcard"><div class="glyph">⇊</div><div class="title">Bulk operations</div><div class="body">Pull, fetch, and status across everything in parallel. One bad repo never stops the rest.</div><code>gitstow pull --tag ai --exclude-tag stale</code></div>
+      <div class="fcard"><div class="glyph">⇡</div><div class="title">What's incoming</div><div class="body">See what a pull brings before you take it: the commits and their file diffs. Pull from there takes exactly those.</div><code>gitstow diff anthropic/claude-code --incoming</code></div>
       <div class="fcard"><div class="glyph">❄</div><div class="title">Freeze &amp; tags</div><div class="body">Tag repos, filter every operation by tag, freeze the ones you want left alone.</div><code>gitstow repo freeze torvalds/linux</code></div>
       <div class="fcard"><div class="glyph">⎇</div><div class="title">Any git host</div><div class="body">GitHub shorthand, GitLab nested groups, Bitbucket, Codeberg. SSH or HTTPS, your call.</div><code>gitstow add https://gitlab.com/group/project</code></div>
       <div class="fcard"><div class="glyph">⌕</div><div class="title">Search &amp; exec</div><div class="body">ripgrep across the whole library, or run any command in every repo. Filter by tag, glob, workspace.</div><code>gitstow search "def main" --glob "*.py"</code></div>

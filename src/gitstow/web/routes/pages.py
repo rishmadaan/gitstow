@@ -16,18 +16,20 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from gitstow.core.config import load_config, save_config
 from gitstow.core.diff import parse_unified_diff
 from gitstow.core.git import (
+    CommitInfo,
     format_size,
     get_changed_files,
     get_disk_size,
     get_file_diff,
     get_last_commit,
-    get_status,
     is_git_repo,
 )
+from gitstow.core.incoming import failure_text
 from gitstow.core.repo import RepoStore
 from gitstow.core.status_model import classify
 from gitstow.core.tailscale import tailscale_available
 from gitstow.web.routes.dashboard import _present, _relative_time
+from gitstow.web.routes.incoming import build_incoming
 from gitstow.web.server import render
 
 router = APIRouter()
@@ -155,13 +157,16 @@ async def settings_save(
 
 
 @router.get("/repo/{workspace}/{key:path}", response_class=HTMLResponse)
-async def repo_detail(workspace: str, key: str, request: Request):
-    return render_repo_detail(request, workspace, key)
+def repo_detail(workspace: str, key: str, request: Request, tab: str = "incoming"):
+    # Sync def: the incoming read runs several git commands; FastAPI threads it.
+    return render_repo_detail(request, workspace, key, tab=tab)
 
 
-def render_repo_detail(request, workspace: str, key: str, error=None, status_code=200):
-    """Build the repo-detail drawer render. Shared by the GET detail route and
-    the move route's error path (so a failed move re-shows the drawer + error)."""
+def render_repo_detail(request, workspace: str, key: str, error=None, status_code=200,
+                       tab: str = "incoming", result: dict | None = None):
+    """Build the repo page. Shared by the GET route, the move route's error path
+    (so a failed move re-shows the page + error), and the Incoming tab's pull and
+    fetch routes, which pass what they just did as `result`."""
     settings = load_config()
     store = RepoStore()
     ws = settings.get_workspace(workspace)
@@ -175,19 +180,19 @@ def render_repo_detail(request, workspace: str, key: str, error=None, status_cod
     repo_path = repo.get_path(ws.get_path())
     exists = repo_path.exists() and is_git_repo(repo_path)
 
-    status = get_status(repo_path) if exists else None
-    commit = get_last_commit(repo_path) if exists else None
+    # One fresh read drives the header, both tabs and the Incoming panel.
+    inc = build_incoming(repo, repo_path, result) if exists else None
+    status = inc["status"] if inc else None
+    try:
+        commit = get_last_commit(repo_path, status.head_oid if status and not status.error else None) if exists else None
+    except Exception as exc:  # a header read that raised is shown as failed, not as no commit
+        commit = CommitInfo(error=failure_text(exc))
 
     # Classification comes from the shared status model — same semantics as
     # the dashboard rows (staged/untracked count as local changes).
     state = classify(exists=exists, frozen=repo.frozen, status=status)
     status_class, status_label, _pull_variant = _present(state)
-
-    # Changes section data — only when there is something to show (spec:
-    # section renders only for repos with local changes).
-    changes = None
-    if exists and state.has_local_changes:
-        changes = get_changed_files(repo_path)
+    changes = inc["local"] if inc else None
 
     # Disk size (can be slow; protect with try)
     try:
@@ -212,9 +217,10 @@ def render_repo_detail(request, workspace: str, key: str, error=None, status_cod
         "status_class": status_class,
         "status_label": status_label,
         "local_summary": state.local_summary,
-        "ahead": status.ahead if status else 0,
-        "behind": status.behind if status else 0,
+        "ahead": status.ahead if status and not status.error else 0,
+        "behind": status.behind if status and not status.error else 0,
         "exists": exists,
+        "status_error": state.error,
     }
     return render(
         request,
@@ -229,6 +235,8 @@ def render_repo_detail(request, workspace: str, key: str, error=None, status_cod
         last_fetched_rel=_relative_time(repo.last_fetched) if repo.last_fetched else "never",
         last_fetched_iso=repo.last_fetched,
         changes=changes,
+        inc=inc,
+        tab="local" if tab == "local" else "incoming",
     )
 
 
@@ -270,6 +278,9 @@ def file_diff(
     # Without this, any repo-relative path is a readable diff (e.g. an ignored
     # .env via --no-index), and GETs bypass the POST-only Host/Origin guard.
     changes = get_changed_files(repo_path)
+    if changes.error:
+        return render(request, "partials/diff_view.html", page="dashboard", diff=None,
+                      read_error=changes.error, retry_url=f"{request.url.path}?{request.url.query}", file=file)
     members = {
         "staged": {f.path for f in changes.staged},
         "unstaged": {f.path for f in changes.unstaged},
@@ -293,13 +304,16 @@ def file_diff(
         change = next((f for f in getattr(changes, group) if f.path == file), None)
         old_path = change.old_path if change else ""
 
-    raw = get_file_diff(
+    read = get_file_diff(
         repo_path, file,
         staged=(group == "staged"),
         untracked=(group == "untracked"),
         old_path=old_path,
     )
+    if read.error:  # a failed read is never shown as "No changes to show"
+        return render(request, "partials/diff_view.html", page="dashboard", diff=None,
+                      read_error=read.error, retry_url=f"{request.url.path}?{request.url.query}", file=file)
     return render(
         request, "partials/diff_view.html", page="dashboard",
-        diff=parse_unified_diff(raw), file=file,
+        diff=parse_unified_diff(read.text), file=file, cut=read.cut,
     )

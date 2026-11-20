@@ -161,7 +161,8 @@ def add(
                 pull_result = git_pull(target)
                 if pull_result.success:
                     from datetime import datetime
-                    store.update(repo_key, workspace=ws.label, last_pulled=datetime.now().isoformat())
+                    now = datetime.now().isoformat()  # the pull fetched first: both are on record
+                    store.update(repo_key, workspace=ws.label, last_pulled=now, last_fetched=now)
                     results.append({"repo": repo_key, "status": "updated"})
                     if show:
                         console.print(f"  [green]✓[/green] {repo_key} updated")

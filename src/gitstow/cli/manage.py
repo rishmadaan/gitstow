@@ -12,6 +12,7 @@ import typer
 from rich.console import Console
 
 from gitstow.cli.helpers import resolve_repo
+from gitstow.cli.status import remote_label
 from gitstow.core.config import load_config
 from gitstow.core.git import (
     format_size,
@@ -266,9 +267,16 @@ def info(
     }
 
     # Git info (if repo exists on disk)
-    if path.exists() and is_git_repo(path):
-        status = get_status(path)
-        commit = get_last_commit(path)
+    status = get_status(path) if path.exists() and is_git_repo(path) else None
+    if status is not None and status.error:  # never shown as clean or in sync
+        info_data.update({
+            "branch": status.branch,
+            "status": f"could not read: {status.error}",
+            "error": f"Could not read status: {status.error}",
+            **classify(exists=True, frozen=repo.frozen, status=status).to_dict(),
+        })
+    elif status is not None:
+        commit = get_last_commit(path, status.head_oid)
         size = get_disk_size(path)
         state = classify(exists=True, frozen=repo.frozen, status=status)
 
@@ -295,7 +303,7 @@ def info(
     console.print(f"\n  [bold]{repo.key}[/bold]\n")
 
     rows = [
-        ("Remote", repo.remote_url),
+        ("Remote URL", repo.remote_url),
         ("Path", str(path)),
     ]
 
@@ -303,6 +311,7 @@ def info(
         rows.extend([
             ("Branch", info_data.get("branch", "unknown")),
             ("Status", info_data.get("status", "unknown")),
+            ("Remote", remote_label(info_data["remote"]) if "remote" in info_data else "[dim]?[/dim]"),
             ("Frozen", "[cyan]yes[/cyan]" if repo.frozen else "no"),
             ("Tags", ", ".join(repo.tags) if repo.tags else "[dim]none[/dim]"),
             ("Added", repo.added or "[dim]unknown[/dim]"),

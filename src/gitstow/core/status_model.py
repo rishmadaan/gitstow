@@ -6,7 +6,8 @@ surface (CLI, web, JSON) describes a repo's state.
 
 Two SEPARATE dimensions (per the project standards in CLAUDE.md):
   local  — working-tree composition: modified / staged / untracked counts
-  remote — relationship to upstream: in-sync / ahead / behind / diverged
+  remote — relationship to upstream: in-sync / ahead / behind / diverged, or why there is
+           none to compare with (no-commits / no-upstream / upstream-gone)
 Presence (missing / unreadable) and frozen are overlays, not states of either.
 """
 
@@ -28,6 +29,10 @@ class RepoState:
     ahead: int = 0
     behind: int = 0
     has_upstream: bool = True
+    has_remote: bool = True       # meaningful only without an upstream
+    upstream_gone: bool = False   # an upstream is configured but its branch is not here
+    unborn: bool = False          # the branch has no commits yet (behind: its upstream's commits, all incoming)
+    error: str = ""               # git's message when presence is "unreadable"
 
     @property
     def has_local_changes(self) -> bool:
@@ -57,8 +62,12 @@ class RepoState:
     def remote_state(self) -> str:
         if self.presence != "ok":
             return "unknown"
+        if self.unborn:
+            return "no-commits"
         if not self.has_upstream:
             return "no-upstream"
+        if self.upstream_gone:
+            return "upstream-gone"
         if self.ahead and self.behind:
             return "diverged"
         if self.behind:
@@ -72,7 +81,7 @@ class RepoState:
         """What a bulk pull should do with this repo.
 
         One of: pull | noop | skip-local | skip-frozen | skip-missing |
-        skip-diverged | skip-no-upstream.
+        skip-diverged | skip-no-upstream | skip-no-commits | skip-upstream-gone.
         """
         if self.presence != "ok":
             return "skip-missing"
@@ -84,9 +93,13 @@ class RepoState:
             # ff-only pull always fails on divergence — skip with a clear
             # reason instead of commanding a doomed pull.
             return "skip-diverged"
+        if self.unborn and not self.behind:  # with upstream commits, the pull takes them (checked first)
+            return "skip-no-commits"
         if not self.has_upstream:
             # A repo you `git init`ed locally — there is nothing to pull from.
             return "skip-no-upstream"
+        if self.upstream_gone:  # nothing to take, and a fetch only says so again
+            return "skip-upstream-gone"
         if self.behind:
             return "pull"
         return "noop"
@@ -106,6 +119,8 @@ class RepoState:
                 "state": self.remote_state,
                 "ahead": self.ahead,
                 "behind": self.behind,
+                "has_remote": self.has_remote,        # with state "no-upstream": False means no remote at all
+                "upstream_gone": self.upstream_gone,
             },
         }
 
@@ -116,6 +131,9 @@ def classify(*, exists: bool, frozen: bool, status: RepoStatus | None) -> RepoSt
         return RepoState(presence="missing", frozen=frozen)
     if status is None:
         return RepoState(presence="unreadable", frozen=frozen)
+    if status.error:  # a failed read is never classified as clean or in sync
+        return RepoState(presence="unreadable", frozen=frozen, branch=status.branch,
+                         error=status.error)
     return RepoState(
         presence="ok",
         frozen=frozen,
@@ -126,4 +144,7 @@ def classify(*, exists: bool, frozen: bool, status: RepoStatus | None) -> RepoSt
         ahead=status.ahead,
         behind=status.behind,
         has_upstream=status.has_upstream,
+        has_remote=status.has_remote,
+        upstream_gone=status.upstream_gone,
+        unborn=status.unborn,
     )

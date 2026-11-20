@@ -5,26 +5,28 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
 {% block container_style %} style="max-width: 860px;"{% endblock %}
 {% block content %}
 
+<div id="repo-page">
   <p class="breadcrumb"><a href="/">← Library</a> / {{ repo.key }}</p>
 
   <div class="drawer-head">
     <div>
       <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.55rem;">
-        in workspace <span class="ws ws-{{ repo.ws_slot }}" style="font-size: 0.78rem;">{{ repo.workspace }}</span>
+        in workspace <span class="ws ws-{{ repo.ws_slot }}">{{ repo.workspace }}</span>
       </div>
       <h2 class="big-name">{{ repo.key }}</h2>
       <div style="display: flex; gap: 1.25rem; margin-top: 0.85rem; flex-wrap: wrap;">
         {% if not repo.exists %}
           <span class="status status-conflict"><span class="dot"></span>missing on disk</span>
+        {% elif repo.status_error %}
+          <span class="status status-conflict" title="Could not read this repo: {{ repo.status_error }}"><span class="dot"></span>error</span>
         {% else %}
           <span class="status status-{{ repo.status_class }}" title="Local changes: {{ repo.local_summary }}"><span class="dot"></span>{{ repo.status_label }}</span>
-          {% if repo.behind > 0 %}<span class="status status-behind"><span class="dot"></span>{{ repo.behind }} behind</span>{% endif %}
-          {% if repo.ahead > 0 %}<span class="status status-ahead"><span class="dot"></span>{{ repo.ahead }} ahead</span>{% endif %}
+          {% if repo.behind > 0 %}<span class="status status-behind"><span class="dot"></span>{{ "{:,}".format(repo.behind) }} behind</span>{% endif %}
+          {% if repo.ahead > 0 %}<span class="status status-ahead"><span class="dot"></span>{{ "{:,}".format(repo.ahead) }} ahead</span>{% endif %}
         {% endif %}
       </div>
     </div>
-    <div style="display: inline-flex; gap: 0.45rem; flex-wrap: wrap;">
-      <button class="btn btn-primary btn-sm">↓ Pull now</button>
+    <div class="drawer-tools">
       <button class="btn btn-outline btn-sm"
               title="Reveal this repo in your file manager"
               hx-post="/repos/{{ repo.workspace }}/{{ repo.key }}/open-folder"
@@ -46,6 +48,23 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
     </div>
   </div>
 
+  {% if inc %}
+  <div class="tabs" role="tablist" aria-label="What differs from upstream, and what you changed here">
+    <button type="button" class="tab" role="tab" id="tab-btn-incoming" aria-controls="tab-incoming"
+            aria-selected="{{ 'true' if tab == 'incoming' else 'false' }}" data-tab="incoming"
+            title="What a pull would bring: commits on the upstream branch that this folder does not have yet">Incoming <span class="ct">{{ inc.incoming_count }}</span></button>
+    <button type="button" class="tab" role="tab" id="tab-btn-local" aria-controls="tab-local"
+            aria-selected="{{ 'true' if tab == 'local' else 'false' }}" data-tab="local"
+            title="Files edited, staged or untracked in this folder">Local changes <span class="ct">{{ inc.local_count }}</span></button>
+  </div>
+  <div role="tabpanel" id="tab-incoming" aria-labelledby="tab-btn-incoming"{% if tab != 'incoming' %} hidden{% endif %}>
+    {% include "partials/incoming_panel.html" %}
+  </div>
+  <div role="tabpanel" id="tab-local" aria-labelledby="tab-btn-local"{% if tab != 'local' %} hidden{% endif %}>
+    {% include "partials/changes_section.html" %}
+  </div>
+  {% endif %}
+
   <section>
     <h4>Metadata</h4>
     <dl class="meta-grid">
@@ -54,14 +73,14 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
       <dt>Branch</dt>      <dd>{{ repo.branch }}</dd>
       {% if repo.commit and repo.commit.hash %}
       <dt>Last commit</dt> <dd>{{ repo.commit.hash }} · {{ repo.commit.date }} · "{{ repo.commit.message }}"</dd>
+      {% elif repo.commit and repo.commit.error %}
+      <dt>Last commit</dt> <dd>could not be read. git said: {{ repo.commit.error }}</dd>
       {% endif %}
       <dt>Disk size</dt>   <dd>{{ repo.disk_size }}</dd>
       <dt>Last pull</dt>   <dd>{% if last_pull_iso %}<span title="{{ last_pull_iso }}">{{ last_pull_rel }}</span>{% else %}never{% endif %}</dd>
       <dt>Last fetched</dt><dd>{% if last_fetched_iso %}<span title="{{ last_fetched_iso }}">{{ last_fetched_rel }}</span>{% else %}never{% endif %}</dd>
     </dl>
   </section>
-
-  {% if changes %}{% include "partials/changes_section.html" %}{% endif %}
 
   <section class="section" id="tags">
     <h4>Tags</h4>
@@ -130,5 +149,7 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
       </form>
     </div>
   </div>
+</div>
 
 {% endblock %}
+{% block body_extra %}<script src="/static/repo_page.js"></script>{% endblock %}

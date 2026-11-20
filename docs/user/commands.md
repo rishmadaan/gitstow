@@ -96,7 +96,7 @@ gitstow add anthropic/claude-code --update
 
 ### `gitstow pull`
 
-Bulk update repos: `git fetch --prune`, then a fast-forward-only merge of the upstream branch.
+Bulk update repos: `git fetch --prune`, then a fast-forward-only merge to the upstream commit just fetched. The branch, its upstream and that commit are read once after the fetch; afterwards the repo is read back, and the pull reports success only if that branch landed on that commit, no other branch moved and its upstream setting did not change.
 
 ```bash
 gitstow pull [repos...] [flags]
@@ -144,13 +144,14 @@ gitstow pull anthropic/claude-code --force
 - Frozen repos are skipped (shown as "Frozen" in summary)
 - Repos with modified or staged files are skipped — the composition is shown in the summary (e.g. "2 modified · 1 staged"). With `--force` the repos you name are pulled (a bulk `--force` is refused); git's ff-only pull still refuses (reported as an error, files untouched) if the pull would overwrite a modified file
 - Diverged repos (local and remote both have commits the other lacks) are skipped — resolve manually (rebase or merge). This holds with `--force`, and for frozen repos under `--include-frozen`
-- Local-only repos (no upstream configured) are skipped, likewise
+- Local-only repos (no upstream configured) are skipped, likewise, and so is a branch with no commits yet (a fresh `git init`, a clone of an empty repo) whose upstream had no commits at the last fetch. Pulling one by name fetches first: if its upstream now has commits, they are taken (its first commits); otherwise it says there was nothing to take
+- A branch with no commits yet takes its first commits only when nothing at all sits in the folder where they land: git would replace an ignored file there (a `.env`, say) without asking, so gitstow checks every top-level name the first commits bring and refuses, naming it, if anything (ignored, untracked or staged file, folder, symlink, even an empty folder) is there
 - Repos with only untracked files ARE pulled — an ff-only pull can't lose them
 - Uses `--ff-only` — won't create merge commits
 - Never overwrites your local edits or ignored files, whatever your git settings for stashing, rebasing or merge options: a pull that would replace a modified file, or an ignored local file (like a `.env`) that upstream has started tracking, is refused and reported as an error with the files left as they were. Autostash settings (`merge.autoStash`, `rebase.autoStash`), rebase settings (`pull.rebase`, `branch.<name>.rebase`), per-branch merge options (`branch.<name>.mergeOptions`) and a merge strategy set in `pull.twohead` are not used. A branch whose name contains `=` and that has merge options set is refused (pull it with git)
 - gitstow only ever changes the repo's own folder: a tracked folder whose `.git` is broken or empty is reported as an error, never treated as part of a repo around it. gitstow tells git not to look above the folder, and before it fetches or merges it checks that git sees the folder as the top of its own repository, and otherwise leaves it untouched ("… is not the top of its own git repository; left untouched"). `gitstow fetch` makes the same check
 - **Limits:** a pull only fast-forwards, and refuses when that would overwrite a modified, staged, untracked or ignored file. It does not stop programs you have told git to run during a pull, such as hooks (`post-merge`), clean/smudge filters (Git LFS) or helpers chosen through your environment (`GIT_EXEC_PATH`); those run as you configured them and can change files. Editing files while a pull runs can also race with it. `--prune` removes remote-tracking refs that are gone upstream, and with custom refspecs it can remove tags too
-- A branch whose upstream was deleted on the remote is reported as "the upstream branch no longer exists on the remote". A detached HEAD is skipped as a local-only repo here; where a single repo is pulled directly (the dashboard's row Pull, `gitstow add --update`) it is reported as "not on a branch"
+- A branch whose upstream no longer exists here (deleted on the remote, then pruned by a fetch) is skipped as "upstream gone", without fetching. Pulling one by name fetches first: if the remote has the branch again it is pulled, otherwise it is reported as "the upstream branch no longer exists on the remote". A detached HEAD is skipped as a local-only repo here; where a single repo is pulled directly (the dashboard's row Pull, `gitstow add --update`) it is reported as "not on a branch"
 - Runs in parallel (configurable, default 6 concurrent)
 - Updates `last_pulled` timestamp on success
 
@@ -256,11 +257,11 @@ gitstow status [flags]
 | `--json` | `-j` | JSON output. |
 | `--quiet` | `-q` | Minimal output. |
 
-Shows: repo name, branch, a **Local Changes** column (composition — e.g. "2 modified · 1 staged · 3 untracked", or "clean"), a separate **Remote** column (in-sync / ahead / behind / diverged / no-upstream), and last commit message and date. Local working-tree state and remote relationship are always shown as two separate dimensions — never a bare "dirty" bucket.
+Shows: repo name, branch, a **Local Changes** column (composition — e.g. "2 modified · 1 staged · 3 untracked", or "clean"), a separate **Remote** column in the dashboard's words (`—` in sync, `↑N`, `↓N`, `↑N ↓N` diverged, `no upstream`, `local` for a repo with no remote, `upstream gone`, `no commits yet`), and last commit message and date. Local working-tree state and remote relationship are always shown as two separate dimensions — never a bare "dirty" bucket.
 
 **JSON output** (`--json`) keeps all existing flat fields (`dirty`, `staged`, `untracked`, `ahead`, `behind`, `clean`, `status_symbol`, ...) and adds two keys from the shared status model:
 - `local` — `{modified, staged, untracked, summary}`
-- `remote` — `{state, ahead, behind}`, where `state` is one of `in-sync` / `ahead` / `behind` / `diverged` / `no-upstream` / `unknown`
+- `remote` — `{state, ahead, behind, has_remote, upstream_gone}`, where `state` is one of `in-sync` / `ahead` / `behind` / `diverged` / `no-upstream` / `upstream-gone` / `no-commits` / `unknown`; with `no-upstream`, `has_remote: false` means the repo has no remote at all
 
 **Status symbols** (legacy `status_symbol` JSON field):
 - `✓` clean
@@ -346,7 +347,7 @@ gitstow repo tags --quiet   # One tag per line (for scripting/completions)
 
 ### `gitstow repo info`
 
-Detailed view of a single repo: remote URL, path, branch, status, frozen, tags, disk size, last commit.
+Detailed view of a single repo: remote URL, path, branch, status, its relationship to the upstream (the same words and `remote` JSON key as `gitstow status`), frozen, tags, disk size, last commit.
 
 ```bash
 gitstow repo info anthropic/claude-code
@@ -565,8 +566,9 @@ gitstow ui --tailscale         # also serve on this machine's Tailscale address
 ```
 
 **Features:**
-- Live status across every tracked repo (clean / dirty / conflict / behind / ahead / frozen), auto-refreshes every 30s
-- Click a repo name to open its detail drawer (metadata, tags, freeze toggle, danger zone)
+- Live status across every tracked repo (clean / local changes / local edits / behind / ahead / diverged / frozen), auto-refreshes every 30s
+- Click a repo name to open its repo page (Incoming and Local changes tabs, metadata, tags, freeze toggle, danger zone)
+- **What a pull would bring:** a behind or diverged row's `↓ N incoming ›` chip opens the repo page's Incoming tab — the incoming commits, every changed file with `+/−` counts, and each file's line-by-line diff — and its Pull takes exactly those commits (see below)
 - **Pull** on a row updates in place via HTMX; **Pull all** runs the parallel semaphore and shows a summary panel with failures
 - Add / remove / freeze / tag repos without leaving the tab
 - Workspace CRUD + Scan; Collection export/import under Settings
@@ -586,20 +588,32 @@ Every interactive element has a hover tooltip. There's also a `?` button in the 
 |---|---|---|
 | clean | Working tree matches HEAD; in sync with the last fetch | Nothing |
 | dirty | Local changes — the label shows the composition (e.g. "2 modified · 1 staged · 3 untracked") | Commit/stash modified or staged files before pulling; untracked-only repos can still pull |
-| conflict | Local changes (modified/staged) AND behind remote, or local and remote have diverged | Resolve locally before pulling |
+| local edits | Modified or staged files AND behind remote (the Remote Δ chip shows how many commits). Nothing has been checked for conflicts | Resolve the local work, then come back; the repo page names the files the update also changes |
+| diverged | Local and remote both have commits the other lacks (with edited files too: the tooltip shows them) | Rebase or merge in a terminal; gitstow only fast-forwards |
+| error | gitstow could not read the repo (git's message is in the tooltip; the label opens the repo page, which shows it in full). Counted under its own "error" chip in the metrics strip; "missing" is only for a folder that is not on disk | Repair in a terminal; nothing is shown as clean and nothing on disk was changed |
 | behind | Remote has commits you don't | Click the orange Pull button |
 | ahead | You have local commits not yet pushed | Consider `git push` |
 | frozen | Intentionally skipped by "Pull all" | Unfreeze from the ⋯ menu |
 
 **The Pull button color encodes priority**:
 
-- **Orange** `↓ Pull 5` — repo is behind; clicking fast-forwards by the shown count
-- **Ghost** (gray) — already up to date, has local changes, or ahead. The button still works; it just won't change anything useful. (Untracked-only local changes still pull fine — a bulk pull only skips modified/staged files.)
-- **Disabled** — frozen, in conflict, diverged from remote, or missing on disk
+- **Orange** `↓ Pull 5` — repo is behind; takes exactly those 5 commits: it moves the branch to the commit the count came from and does **not** fetch first. If the branch or its upstream changed since the row was drawn, nothing is pulled and the row says what changed (it then shows the new count). The row's branch name, its count and its Pull all come from one read, so the button always pulls the branch the row names
+- **Ghost** (gray) — nothing known to be waiting (up to date, ahead, or untracked-only changes). It fetches, then fast-forwards if the remote has anything new. (Untracked-only local changes still pull fine — a bulk pull only skips modified/staged files.)
+- **Disabled** — frozen, local edits while behind, diverged from remote, missing on disk or unreadable
 
 If a single-row **Pull** or **Fetch** fails (git refuses to overwrite a local file, the network is down), git's message appears in red under the repo name and the *Last pull* stamp keeps its old value. Dismiss it with **×**.
 
-**Remote Δ** (`↑ N`, `↓ N`, or `—`) reflects your *last fetch*, not live remote state. If the counts look stale, pull (or run `git fetch --all` manually) to refresh them. A `local` badge means the repo has no upstream remote — bulk pulls skip it.
+**Remote Δ** (`↑ N`, `↓ N incoming ›`, `↑N ↓N ›`, or `—`) reflects your *last fetch*, not live remote state. If the counts look stale, use **Fetch all** (or a row's ⋯ → Fetch) to refresh them. `no upstream` means the branch does not follow a remote branch although the repo has a remote (the repo page shows the one command that sets it, `git branch --set-upstream-to=refs/remotes/<remote>/<branch> <branch>`, for a remote branch with exactly the same name; when a name holds characters that cannot be copied exactly, it says so instead of showing a command); `local` means the repo has no remote at all; `upstream gone` means the branch follows a remote branch that no longer exists here; `no commits` means the branch has no commits yet, and its upstream had none to take at the last fetch. Bulk pulls skip all four. `no commits · ↓ N` means the branch has no commits yet and its upstream has N: the row's plain Pull (which fetches first) and Pull all take them. `?` means the repo is missing or could not be read, so nothing is known about its upstream.
+
+#### The repo page: Incoming and Local changes
+
+Click a repo name, or a row's `↓ N incoming ›` chip, to open its page. Two tabs sit under the header:
+
+- **Incoming** — what a pull would bring, as of the last fetch: which branch is compared with which upstream and at which two commits, the last fetch gitstow recorded, the incoming commits (newest first; each with author, date and that commit's own files and lines — those rows need not add up to the totals, since two commits can change the same file), and every changed file with its kind (M/A/D/R) and `+/−` counts. Click a file for its line-by-line diff. Totals always count the whole update; a huge one lists the newest 50 commits and the 200 largest files, a file's diff stops after 500 lines, and each list says so and names the terminal command that shows everything (`gitstow diff <repo> --incoming`).
+  - **Pull** takes exactly the commits listed: it moves the branch to the newest one shown and nothing newer, and does not fetch first. Right before it, under a per-repo lock, it re-checks the folder, the branch and its upstream (their full ref names, byte for byte), both commit ids, a fresh status read, the frozen flag and that no file is edited or staged; if anything differs, nothing is pulled, the page names what changed ("You switched from `main` to `topic` since this list was drawn", "`origin/main` was at 9f3e2ab, now at 1c2d3e4") and offers to show the repo as it is now ("Show the N now waiting" when the branch is still behind). Success is shown only after git finished and gitstow read the repo back: the branch is at that commit, no other branch moved and its upstream setting did not change ("main moved from 4c81d0e to 9f3e2ab"); a failed pull says "Nothing was pulled" only when the read-back found nothing moved, and otherwise names each branch (or HEAD) that moved. When git reported success and the branch reached the reviewed commit but another branch moved too, the title is "Pull not confirmed: something else changed this folder" and the sentence is labelled "gitstow found" (it is gitstow's read-back, not git's message). The result of a Pull or Fetch comes first; below it, under "What is here now", the repo as read again — if that read fails it says "Could not check" with git's message, and the result above it keeps what the pull or fetch did. There is no undo.
+  - When gitstow's last fetch is older than 7 days (or there is none on record), **Fetch first** is the main button and "Pull these N without fetching" the second. A failed fetch quotes git and keeps showing the list as of the previous fetch.
+  - Pull is off, and the panel says why, when files are edited or staged (it names the ones the update also changes), when the branches have diverged (it names files changed on both sides — conflicts are not checked), or when the repo is frozen (**Unfreeze** is offered; it does not pull). A repo that cannot be read shows "Could not check" with git's message and no counts; when only the comparison failed, the header and the Local changes tab still show what was read. A branch whose upstream no longer exists here reads "Upstream gone", with **Fetch now**.
+- **Local changes** — staged, unstaged and untracked files in this folder; click one for its colored line diff.
 
 **Auto-refresh every 30s** re-reads local state only:
 

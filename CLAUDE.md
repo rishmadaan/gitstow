@@ -38,14 +38,15 @@ src/gitstow/
 │   ├── parallel.py      # Async execution with semaphore
 │   ├── status_model.py  # Shared repo-state classifier — local composition vs remote relationship
 │   ├── operations.py    # Shared filter + bulk-runner layer (pull/fetch/MCP)
-│   ├── locking.py       # Cross-process file lock guarding repos.yaml writes
+│   ├── locking.py       # Cross-process file locks: repos.yaml writes, one pull at a time per repo
+│   ├── incoming.py      # What a pull would bring (read between two resolved ids) + the exact pull
 │   ├── tailscale.py     # Tailscale CLI detection (tailnet IP + MagicDNS) for ui --tailscale
 │   └── __init__.py
 ├── web/          # FastAPI browser dashboard (gitstow ui)
 │   ├── server.py          # FastAPI app, uvicorn runner, app.state.server stash
 │   ├── static/app.css     # Dark theme, Bricolage Grotesque + JetBrains Mono
 │   ├── templates/         # Jinja2 — base.html + page templates + partials/
-│   └── routes/            # dashboard.py, repos.py, workspaces.py, collection.py, pages.py, system.py
+│   └── routes/            # dashboard.py, repos.py, incoming.py, workspaces.py, collection.py, pages.py, system.py
 └── skill/        # Claude Code skill (SKILL.md)
     └── SKILL.md
 ```
@@ -62,11 +63,13 @@ src/gitstow/
 - `core/repo.py` — Repo with workspace field, RepoStore with nested YAML format, legacy auto-migration.
 - `core/discovery.py` — `discover_repos(root, layout)` supports structured and flat layouts.
 - `core/url_parser.py` — URL parsing (the hardest part). Test changes here thoroughly.
-- `core/git.py` — All git subprocess calls. Uses `git status --porcelain=v2 --branch` for single-call efficiency.
+- `core/git.py` — All git subprocess calls. `get_status()` reads one capture (`capture_branch`: a byte-exact `for-each-ref` of the local branches with the HEAD marker and each upstream, then `rev-parse` of the upstream by its full name), counts ahead/behind between those two exact ids (`rev-list --left-right --count`), and runs a branch-less `git status --porcelain=v2` only for the local-edit counts.
 - `core/parallel.py` — Async execution with semaphore (max 6 concurrent).
 - `core/status_model.py` — `RepoState` — the single source of truth for local (modified/staged/untracked) vs remote (in-sync/ahead/behind/diverged) classification, consumed by CLI, web, and JSON.
 - `core/operations.py` — Shared `filter_repo_pairs()` + bulk-runner used by `pull`, `fetch`, and the MCP server so surfaces can't drift.
-- `core/locking.py` — `file_lock()` cross-process advisory lock guarding `repos.yaml` against concurrent CLI/web writes.
+- `core/locking.py` — `file_lock()` cross-process advisory lock guarding `repos.yaml` against concurrent CLI/web writes; `repo_lock()` is the per-repo pull lock every pull path takes (`git.pull()` and `incoming.pull_exact()`).
+- `core/incoming.py` — `read_incoming()` reads branch..upstream between two commit ids read once; `pull_exact()` moves the branch to exactly the reviewed commit after re-checking the `Snapshot` the page or row was drawn from, under the repo lock, never fetching. Rendered by `web/routes/incoming.py` (the repo page's Incoming tab) and `gitstow diff --incoming`.
+- `get_status()` / `get_changed_files()` / `get_file_diff()` report a failed read (`error`) instead of a clean/empty result; every caller shows it, never a clean state.
 - `core/tailscale.py` — `detect_tailscale()` / `tailscale_available()`. Shells out to the `tailscale` CLI (3s timeouts, None on any failure). Powers `gitstow ui --tailscale`: `web/server.py` binds the tailnet IP as a second socket and widens the Host/Origin guard by exact match to the machine's own tailnet identity only — never `0.0.0.0`. Every failure mode degrades to localhost-only with a warning.
 - `cli/helpers.py` — Shared workspace resolution used by all CLI commands.
 - `cli/workspace_cmd.py` — workspace list/add/remove/scan subcommands.
@@ -77,6 +80,7 @@ src/gitstow/
 - `~/.gitstow/config.yaml` — Settings (workspaces list, default host, SSH pref, `ui_tailscale` dashboard-over-tailnet toggle).
 - `~/.gitstow/repos.yaml` — Repo metadata nested by workspace label. Central location.
 - `~/.gitstow/repos.lock` — Cross-process advisory lock file (`core/locking.py`) held during `repos.yaml` writes. Not user-facing data; safe to ignore/delete if orphaned.
+- `~/.gitstow/locks/pull-<hash>.lock` — per-repo pull locks (`repo_lock()`), one per repo folder. Same: not data, safe to delete when no pull runs.
 
 ### repos.yaml format
 ```yaml
@@ -130,7 +134,7 @@ ruff check src/
 - Typer with `rich_markup_mode="rich"`, `typer.Context` for global options
 - YAML for persistence (not JSON, not SQLite)
 - asyncio with semaphore for parallel git ops
-- `git status --porcelain=v2 --branch` for single-call status (vs gita's 4-5 calls)
+- Status is one capture plus a branch-less `git status --porcelain=v2` (see `core/git.py`): every label, id and count on a surface, and the pull token built from it, comes from that one capture, never from a second read
 - Repo.global_key (`workspace:key`) for unique identification across workspaces
 - Legacy format auto-migration (flat repos.yaml → nested, root_path → workspaces) — migration happens in `load_config()` and is written to disk, never synthesized on read
 - `app.state.tailscale_serving` — `run()` records what it actually bound; the settings page compares saved config against that instead of guessing, so restart notices state facts (and direction), never implied live changes

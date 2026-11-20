@@ -30,11 +30,13 @@ console = Console()
 err_console = Console(stderr=True)
 
 
-def _pull_one_repo(repo: Repo, ws: Workspace, force: bool = False) -> dict:
+def _pull_one_repo(repo: Repo, ws: Workspace, force: bool = False, named: bool = False) -> dict:
     """Pull a single repo. Returns a result dict.
 
     force=True skips only the local-changes check; git's ff-only pull still
-    refuses to overwrite a modified file.
+    refuses to overwrite a modified file. named=True (the repo was named on the
+    command line) never skips a branch with no commits before the fetch: the
+    fetch may bring its first ones.
     """
     path = repo.get_path(ws.get_path())
 
@@ -45,6 +47,8 @@ def _pull_one_repo(repo: Repo, ws: Workspace, force: bool = False) -> dict:
         return {"repo": repo.key, "status": "error", "detail": "Not a git repo"}
 
     status = get_status(path)
+    if status.error:  # a failed read is never treated as clean enough to pull
+        return {"repo": repo.key, "status": "error", "detail": f"Could not read status: {status.error}"}
     state = classify(exists=True, frozen=repo.frozen, status=status)
     if state.blocks_pull and not force:
         return {
@@ -60,11 +64,23 @@ def _pull_one_repo(repo: Repo, ws: Workspace, force: bool = False) -> dict:
             "status": "skipped",
             "detail": "Diverged from remote — resolve manually (rebase or merge)",
         }
+    if state.remote_state == "no-commits" and not state.behind and not named:
+        return {
+            "repo": repo.key,
+            "status": "skipped",
+            "detail": "No commits yet, and none on its upstream to take as of the last fetch",
+        }
     if state.remote_state == "no-upstream":
         return {
             "repo": repo.key,
             "status": "skipped",
             "detail": "Local-only repo — no upstream configured",
+        }
+    if state.remote_state == "upstream-gone" and not named:  # named: the fetch may bring it back
+        return {
+            "repo": repo.key,
+            "status": "skipped",
+            "detail": "Upstream gone — the branch it follows no longer exists here (deleted on the remote?)",
         }
 
     result = git_pull(path)
@@ -117,6 +133,7 @@ def pull(
     local work); untracked-only repos are pulled. --force pulls such repos
     anyway, but only the ones you name: a bulk pull never forces.
     Diverged repos are skipped — resolve manually with rebase or merge.
+    So are repos whose upstream branch no longer exists here (named ones fetch first).
 
     \b
     Examples:
@@ -205,7 +222,7 @@ def pull(
 
     result_dicts = run_bulk(
         targets,
-        functools.partial(_pull_one_repo, force=force),
+        functools.partial(_pull_one_repo, force=force, named=bool(repos)),
         parallel_limit=settings.parallel_limit,
         retry=retry,
         on_attempt=None if (quiet or output_json) else _on_attempt,
@@ -219,7 +236,7 @@ def pull(
     with store.bulk():
         for (repo, _ws), outcome in zip(targets, result_dicts):
             if outcome["status"] in ("pulled", "up_to_date"):
-                store.update(repo.key, workspace=repo.workspace, last_pulled=now_iso)
+                store.update(repo.key, workspace=repo.workspace, last_pulled=now_iso, last_fetched=now_iso)  # the pull fetched first
 
     # Add frozen repos to results for completeness
     for r in sorted(frozen_repos, key=lambda x: x.global_key):

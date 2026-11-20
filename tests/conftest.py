@@ -89,3 +89,9 @@ def sample_repo():
         workspace="oss",
         tags=["ai", "tools"],
     )
+
+
+@pytest.fixture(autouse=True)
+def _private_app_home(monkeypatch, tmp_path):
+    """Keep per-repo pull lock files (and anything else under APP_HOME) out of the real ~/.gitstow."""
+    monkeypatch.setattr("gitstow.core.paths.APP_HOME", tmp_path / ".gitstow-home")

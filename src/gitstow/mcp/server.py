@@ -32,6 +32,7 @@ from gitstow.core.git import (
     is_git_repo,
 )
 from gitstow.core.repo import MISSING_FOLDER_HINT, Repo, RepoStore, inside_workspace, target_for
+from gitstow.core.status_model import classify
 from gitstow.core.url_parser import parse_git_url
 
 mcp = FastMCP(
@@ -241,7 +242,8 @@ def pull_repos(
 
     Frozen repos are skipped unless include_frozen is true. Repos with modified
     or staged changes are skipped (never risk losing local work); untracked-only
-    repos are pulled. Diverged repos are skipped — resolve manually.
+    repos are pulled. Diverged repos are skipped — resolve manually — and so are
+    repos whose upstream branch no longer exists here ("upstream gone").
 
     Args:
         tag: Only pull repos with this tag.
@@ -287,7 +289,7 @@ def pull_repos(
     with store.bulk():
         for outcome, (r, _ws) in zip(results, pairs):
             if outcome.get("status") in ("pulled", "up_to_date"):
-                store.update(r.key, workspace=r.workspace, last_pulled=now)
+                store.update(r.key, workspace=r.workspace, last_pulled=now, last_fetched=now)  # the pull fetched first
 
     for r, _ws in sorted(frozen_pairs, key=lambda p: p[0].global_key):
         results.append({"repo": r.key, "workspace": r.workspace, "status": "skipped_frozen",
@@ -399,7 +401,11 @@ def repo_status(
             continue
 
         status = get_status(path)
-        commit = get_last_commit(path)
+        if status.error:
+            statuses.append({"repo": repo.key, "workspace": repo.workspace,
+                             "error": f"could not read status: {status.error}"})
+            continue
+        commit = get_last_commit(path, status.head_oid)
 
         entry = {
             "repo": repo.key,
@@ -415,6 +421,7 @@ def repo_status(
             "tags": repo.tags,
             "last_commit": commit.message,
             "last_commit_date": commit.date,
+            "remote": classify(exists=True, frozen=repo.frozen, status=status).to_dict()["remote"],
         }
         statuses.append(entry)
 
@@ -457,9 +464,11 @@ def repo_info(repo_key: str) -> str:
         "exists_on_disk": path.exists() if path else False,
     }
 
-    if path and path.exists() and is_git_repo(path):
-        status = get_status(path)
-        commit = get_last_commit(path)
+    status = get_status(path) if path and path.exists() and is_git_repo(path) else None
+    if status is not None and status.error:
+        info["error"] = f"could not read status: {status.error}"
+    elif status is not None:
+        commit = get_last_commit(path, status.head_oid)
         size = get_disk_size(path)
 
         info.update({
@@ -473,6 +482,7 @@ def repo_info(repo_key: str) -> str:
             "last_commit_date": commit.date,
             "disk_size_bytes": size,
             "disk_size": format_size(size),
+            "remote": classify(exists=True, frozen=repo.frozen, status=status).to_dict()["remote"],
         })
 
     return json.dumps(info, indent=2)

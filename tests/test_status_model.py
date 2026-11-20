@@ -79,6 +79,12 @@ class TestClassify:
         state = classify(exists=True, frozen=False, status=_status(has_upstream=False, dirty=1))
         assert state.pull_action == "skip-local"
 
+    def test_upstream_gone_is_its_own_remote_state_and_skips_pull(self):
+        state = classify(exists=True, frozen=False, status=_status(upstream_gone=True))
+        assert state.remote_state == "upstream-gone" and state.pull_action == "skip-upstream-gone"
+        edited = classify(exists=True, frozen=False, status=_status(upstream_gone=True, dirty=1))
+        assert edited.pull_action == "skip-local"  # local work is reported first, as for no-upstream
+
     def test_behind_pulls(self):
         state = classify(exists=True, frozen=False, status=_status(behind=5))
         assert state.pull_action == "pull"
@@ -87,4 +93,4 @@ class TestClassify:
         d = classify(exists=True, frozen=False, status=_status(dirty=1, ahead=2)).to_dict()
         assert d["presence"] == "ok"
         assert d["local"] == {"modified": 1, "staged": 0, "untracked": 0, "summary": "1 modified"}
-        assert d["remote"] == {"state": "ahead", "ahead": 2, "behind": 0}
+        assert d["remote"] == {"state": "ahead", "ahead": 2, "behind": 0, "has_remote": True, "upstream_gone": False}

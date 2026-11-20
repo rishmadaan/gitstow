@@ -34,7 +34,10 @@ def _get_repo_status(repo: Repo, ws: Workspace) -> dict:
         return {"repo": repo.key, "workspace": repo.workspace, "error": "Not a git repo"}
 
     status = get_status(path)
-    commit = get_last_commit(path)
+    if status.error:  # same shape as the other unreadable cases: never a clean row
+        return {"repo": repo.key, "workspace": repo.workspace,
+                "error": f"Could not read status: {status.error}"}
+    commit = get_last_commit(path, status.head_oid)
     state = classify(exists=True, frozen=repo.frozen, status=status)
 
     return {
@@ -58,6 +61,22 @@ def _get_repo_status(repo: Repo, ws: Workspace) -> dict:
         # Shared status model (new)
         **state.to_dict(),
     }
+
+
+def remote_label(remote: dict) -> str:
+    """The Remote cell for one repo's `remote` dict (RepoState.to_dict), in the dashboard's words."""
+    remote_state = remote.get("state", "unknown")
+    remote_styles = {
+        "in-sync": "[dim]—[/dim]",
+        "ahead": f"[blue]↑{remote.get('ahead', 0)}[/blue]",
+        "behind": f"[magenta]↓{remote.get('behind', 0)}[/magenta]",
+        "diverged": f"[red]↑{remote.get('ahead', 0)} ↓{remote.get('behind', 0)}[/red]",
+        "no-upstream": "[dim]no upstream[/dim]" if remote.get("has_remote", True) else "[dim]local[/dim]",
+        "upstream-gone": "[yellow]upstream gone[/yellow]",
+        "no-commits": "[dim]no commits yet[/dim]",
+        "unknown": "[dim]?[/dim]",
+    }
+    return remote_styles.get(remote_state, remote_state)
 
 
 def status(
@@ -183,17 +202,7 @@ def status(
             local_str = f"[yellow]{summary}[/yellow]"
 
         # Remote relationship (separate dimension from local state)
-        remote = s.get("remote", {})
-        remote_state = remote.get("state", "unknown")
-        remote_styles = {
-            "in-sync": "[dim]—[/dim]",
-            "ahead": f"[blue]↑{remote.get('ahead', 0)}[/blue]",
-            "behind": f"[magenta]↓{remote.get('behind', 0)}[/magenta]",
-            "diverged": f"[red]↑{remote.get('ahead', 0)} ↓{remote.get('behind', 0)}[/red]",
-            "no-upstream": "[dim]no upstream[/dim]",
-            "unknown": "[dim]?[/dim]",
-        }
-        remote_str = remote_styles.get(remote_state, remote_state)
+        remote_str = remote_label(s.get("remote", {}))
 
         # Last commit
         commit_str = s.get("last_commit", "")

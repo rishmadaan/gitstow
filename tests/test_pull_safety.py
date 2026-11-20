@@ -507,13 +507,14 @@ class TestRefNames:
         (clone / "x.txt").write_bytes(b"MY LOCAL EDIT\n")
         (pusher / "x.txt").write_text("UPSTREAM EDIT\n")
         push(pusher)
-        refs = git("for-each-ref", cwd=clone).stdout
+        # The pull fetches first (it reads the branch after the fetch), so only refs/remotes may change.
+        refs = git("for-each-ref", "refs/heads/", "refs/foo/", "refs/tags/", cwd=clone).stdout
         head = git("rev-parse", "HEAD", cwd=clone).stdout.strip()
 
         ok, msg = check_pull(clone, ["x.txt"], head, lambda: pulled(clone))
 
         assert (ok, msg) == (False, "not on a branch (HEAD points at refs/foo/bar): check out a branch, then pull")
-        assert git("for-each-ref", cwd=clone).stdout == refs
+        assert git("for-each-ref", "refs/heads/", "refs/foo/", "refs/tags/", cwd=clone).stdout == refs
         assert git("symbolic-ref", "HEAD", cwd=clone).stdout.strip() == "refs/foo/bar"
 
     def test_lookalike_upstream_names_do_not_redirect_the_merge(self, hermetic_git, tmp_path):

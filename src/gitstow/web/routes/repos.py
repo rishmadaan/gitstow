@@ -19,87 +19,50 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from gitstow.core.config import load_config
+from gitstow.core.git import PullResult, get_status, is_git_repo
 from gitstow.core.git import clone as git_clone
 from gitstow.core.git import fetch as git_fetch
-from gitstow.core.git import get_status, is_git_repo
 from gitstow.core.git import pull as git_pull
+from gitstow.core.incoming import Snapshot, pull_exact
 from gitstow.core.operations import move_repo
 from gitstow.core.parallel import run_parallel
 from gitstow.core.repo import MISSING_FOLDER_HINT, Repo, RepoStore, inside_workspace, target_for
 from gitstow.core.status_model import classify
 from gitstow.core.url_parser import parse_git_url
-from gitstow.web.routes.dashboard import (
-    _STATUS_TOOLTIPS,
-    _delta,
-    _present,
-    _pull_tooltip,
-    _relative_time,
-    _row_number,
-    _workspace_slot,
-)
+from gitstow.web.routes.dashboard import _row_number, row_context
 from gitstow.web.server import render
 
 router = APIRouter()
 
 
 def _row_context(repo, settings, sorted_labels, num: int | None) -> dict | None:
-    """Build the template context for a single row partial."""
+    """Build the template context for a single row partial (re-read now)."""
     ws = settings.get_workspace(repo.workspace)
     if ws is None:
         return None
     repo_path = repo.get_path(ws.get_path())
     exists = repo_path.exists() and is_git_repo(repo_path)
     status = get_status(repo_path) if exists else None
-    state = classify(exists=exists, frozen=repo.frozen, status=status)
-    status_class, status_label, pull_variant = _present(state)
-    behind_n = status.behind if status else 0
-    delta_cls, delta_txt, delta_tip = _delta(state, repo.last_fetched)
+    return row_context(repo, ws, repo_path, status, num, sorted_labels)
 
-    pull_tooltip = _pull_tooltip(pull_variant, status_class, behind_n, status_label)
-    if state.presence == "ok" and not state.has_upstream:
-        pull_tooltip = "Pull not applicable — local-only repo with no upstream. Bulk pulls skip it."
 
-    return {
-        "num": f"{num:02d}" if num else "—",
-        "key": repo.key,
-        "display_name": repo.key,
-        "workspace": repo.workspace,
-        "remote_url": repo.remote_url or "",
-        "local_path": str(repo_path),
-        "ws_slot": _workspace_slot(repo.workspace, sorted_labels),
-        "ws_tooltip": f"Workspace '{repo.workspace}' — {ws.path} ({ws.layout} layout)",
-        "branch": status.branch if status else "—",
-        "branch_tooltip": (
-            f"Current local branch: {status.branch}" if status
-            else "Branch unknown — repo missing or unreadable"
-        ),
-        "delta_class": delta_cls,
-        "delta_text": delta_txt,
-        "delta_tooltip": delta_tip,
-        "tags": repo.tags,
-        "last_pull": _relative_time(repo.last_pulled),
-        "last_pull_tooltip": (
-            f"gitstow last pulled this repo at {repo.last_pulled}"
-            if repo.last_pulled else
-            "gitstow hasn't pulled this repo yet"
-        ),
-        "status_class": status_class,
-        "status_label": status_label,
-        "status_tooltip": f"{_STATUS_TOOLTIPS.get(status_class, status_label)} ({state.local_summary})",
-        "frozen": repo.frozen,
-        "pull_variant": pull_variant,
-        "pull_tooltip": pull_tooltip,
-        "behind": behind_n,
-        "repo_link_tooltip": f"Open details for {repo.key}",
-        "changes_link": (
-            f"/repo/{repo.workspace}/{repo.key}#changes"
-            if state.presence == "ok" and state.has_local_changes else ""
-        ),
-    }
+#: What a library row says when its exact pull refused; the row is re-read and redrawn.
+_ROW_REFUSALS = {
+    "changed": "Not pulled: upstream or your branch changed since this row was drawn. The row now shows what is waiting.",
+    "edited": "Not pulled: files in this folder are now edited or staged.",
+    "frozen": "Not pulled: this repo is frozen.",
+}
 
 
 @router.post("/repos/{workspace}/{key:path}/pull", response_class=HTMLResponse)
 async def pull_single(workspace: str, key: str, request: Request):
+    """A library row's Pull.
+
+    A row that showed a count ("Pull 3") sends the snapshot it was drawn from and
+    gets the exact pull: the branch moves to the commit that count came from, with
+    no fetch, or nothing happens. A row with no count (plain "Pull") has nothing
+    reviewed to honour and keeps the fetching pull.
+    """
     settings = load_config()
     store = RepoStore()
     ws = settings.get_workspace(workspace)
@@ -113,20 +76,40 @@ async def pull_single(workspace: str, key: str, request: Request):
     if not repo_path.exists() or not is_git_repo(repo_path):
         raise HTTPException(status_code=404, detail="repo directory missing")
 
-    # Run the pull in a thread — git is blocking
-    result = await asyncio.to_thread(git_pull, repo_path)
+    snapshot = Snapshot.from_form(await request.form())
+    error = ""
+    if snapshot is not None:
+        def _frozen() -> bool:
+            current = RepoStore().get(key, workspace=workspace)
+            return current is None or current.frozen
+        exact = await asyncio.to_thread(pull_exact, repo_path, snapshot, _frozen)
+        succeeded = exact.success
+        if not succeeded:
+            error = (f"Not pulled: since this row was drawn, {exact.message}. The row now shows what is waiting."
+                     if exact.outcome == "changed" and exact.changes
+                     else _ROW_REFUSALS.get(exact.outcome)) or (
+                f"Not pulled: {_git_message(exact.message)}" if exact.outcome in ("locked", "unreadable")
+                else f"Pull failed: {_git_message(exact.message)}")
+    else:
+        # Run the pull in a thread — git is blocking
+        result = await asyncio.to_thread(git_pull, repo_path)
+        succeeded = result.success
+        if not succeeded:
+            error = f"{'Pull failed' if result.merged else 'Not pulled'}: {_git_message(result.error)}"
 
-    # On success, stamp last_pulled
-    if result.success:
+    if succeeded:
         now_iso = datetime.now().isoformat(timespec="seconds")
-        store.update(repo.key, workspace=repo.workspace, last_pulled=now_iso)
+        stamps = {"last_pulled": now_iso}
+        if snapshot is None:  # the fetching pull fetched; the exact pull did not
+            stamps["last_fetched"] = now_iso
+        store.update(repo.key, workspace=repo.workspace, **stamps)
         repo = store.get(key, workspace=workspace)
 
     num = _row_number(settings, store, repo)
     sorted_labels = sorted(w.label for w in settings.get_workspaces())
     ctx = _row_context(repo, settings, sorted_labels, num)
-    if not result.success:  # shown in the row where Pull was pressed; last_pulled keeps its old stamp
-        ctx["action_error"] = f"Pull failed: {_git_message(result.error)}"
+    if error:  # shown in the row where Pull was pressed; last_pulled keeps its old stamp
+        ctx["action_error"] = error
 
     return render(request, "partials/repo_row.html", repo=ctx)
 
@@ -170,13 +153,20 @@ async def fetch_single(workspace: str, key: str, request: Request):
 def _pull_if_safe(path):
     """Bulk-pull worker: same skip rules as the CLI — modified/staged and
     diverged skip; untracked-only pulls."""
-    state = classify(exists=True, frozen=False, status=get_status(path))
+    status = get_status(path)
+    if status.error:  # a failed read is never treated as clean enough to pull
+        return PullResult(success=False, error=f"could not read status: {status.error}")
+    state = classify(exists=True, frozen=False, status=status)
     if state.blocks_pull:
         return {"skipped_local": True, "detail": state.local_summary}
     if state.pull_action == "skip-diverged":
         return {"skipped_local": True, "detail": "diverged — resolve manually"}
+    if state.pull_action == "skip-no-commits":
+        return {"skipped_local": True, "detail": "no commits yet"}
     if state.pull_action == "skip-no-upstream":
         return {"skipped_local": True, "detail": "local-only — no upstream"}
+    if state.pull_action == "skip-upstream-gone":
+        return {"skipped_local": True, "detail": "upstream gone — the branch it follows no longer exists here"}
     return git_pull(path)
 
 
@@ -256,7 +246,8 @@ async def pull_all(request: Request):
             if pull_result and pull_result.success:
                 ok += 1
                 ws_label, _, rkey = r.key.partition(":")
-                store.update(rkey, workspace=ws_label, last_pulled=now_iso)
+                # Pull all fetches before it merges, so the fetch is on record too.
+                store.update(rkey, workspace=ws_label, last_pulled=now_iso, last_fetched=now_iso)
             else:
                 err = (pull_result.error if pull_result else r.error) or "unknown error"
                 failed.append({"key": r.key, "error": err.strip()[:240]})
@@ -534,12 +525,18 @@ async def open_folder(workspace: str, key: str):
 
 @router.post("/repos/{workspace}/{key:path}/freeze")
 async def toggle_freeze(workspace: str, key: str, request: Request):
-    """Toggle the frozen flag on a repo."""
+    """Toggle the frozen flag on a repo, or set it when the form says which ("frozen": 0/1).
+
+    The repo page's Unfreeze sends frozen=0, so pressing it on a page drawn before
+    someone else unfroze the repo cannot freeze it again.
+    """
     store = RepoStore()
     repo = store.get(key, workspace=workspace)
     if repo is None:
         raise HTTPException(status_code=404, detail="repo not found")
-    store.update(key, workspace=workspace, frozen=not repo.frozen)
+    wanted = (await request.form()).get("frozen")
+    store.update(key, workspace=workspace,
+                 frozen=(wanted == "1") if wanted in ("0", "1") else not repo.frozen)
 
     if _is_htmx(request):
         return _render_row_for(key, workspace, request)

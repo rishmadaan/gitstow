@@ -101,6 +101,7 @@ For commands shown to the user to run themselves, use the human-readable form (n
 | Status for one workspace | `gitstow -w active status` |
 | See repos with local changes | `gitstow status --dirty` |
 | View a repo's uncommitted changes | `gitstow diff owner/repo` (add `--staged` for staged changes only; `--json` lists changed files; clean repo prints "no local changes") |
+| See what a pull would bring (before pulling) | `gitstow diff owner/repo --incoming --json` — commits and files from the branch to its upstream as of the last fetch (`gitstow fetch` first for fresh data); never pulls. Without `--json` it hands git's log and patch to the terminal |
 | Freeze a repo | `gitstow repo freeze owner/repo` |
 | Unfreeze a repo | `gitstow repo unfreeze owner/repo` |
 | Tag a repo | `gitstow repo tag owner/repo tagname` |

@@ -134,16 +134,6 @@ class TestCloneTimeout:
         assert mock_run.call_args.kwargs["timeout"] == 900
 
 
-def _pull_steps(merge_stdout="", merge_rc=0):
-    """`_run_git` results for one pull, in call order: symbolic-ref, fetch, rev-parse, merge."""
-    return [
-        MagicMock(returncode=0, stdout=b"refs/heads/main\n", stderr=b""),  # read as bytes
-        MagicMock(returncode=0, stdout="", stderr=""),
-        MagicMock(returncode=0, stdout="abc\n", stderr=""),
-        MagicMock(returncode=merge_rc, stdout=merge_stdout, stderr=""),
-    ]
-
-
 class TestNotOwnToplevel:
     """When rev-parse fails, git's own stderr is the reason; the generic text only as a fallback."""
 
@@ -169,40 +159,39 @@ class TestPull:
         with patch("gitstow.core.git._not_own_toplevel", return_value=None):
             yield
 
-    @patch("gitstow.core.git._run_git")
-    def test_pull_success(self, mock_run):
-        mock_run.side_effect = _pull_steps("Updating abc123..def456\n1 file changed")
-        result = pull(Path("/tmp/repo"))
+    def test_pull_success(self, tmp_path, monkeypatch):
+        """Real git: fetch, one status read, then the merge to exactly the commit that read named."""
+        from tests.incoming_fixture import clone_into, git, make_upstream, push_three
+        import gitstow.core.git as G
+        up, pusher = make_upstream(tmp_path)
+        clone = clone_into(up, tmp_path / "clone")
+        tip = push_three(pusher)[-1]
+        calls, real = [], G._run_git
+        monkeypatch.setattr(G, "_run_git", lambda args, *a, **kw: calls.append(args) or real(args, *a, **kw))
+        result = pull(clone)
         assert result.success is True
         assert result.already_up_to_date is False
-        assert result.output == "Updating abc123..def456\n1 file changed"
-        assert [c.args[0] for c in mock_run.call_args_list] == [
-            ["symbolic-ref", "-q", "HEAD"],
-            ["fetch", "--prune"],
-            ["rev-parse", "--verify", "-q", "@{upstream}"],
-            ["-c", "merge.autoStash=false", "-c", "pull.twohead=recursive",
-             "-c", "branch.main.mergeOptions=",
-             "merge", "--no-stat", "--ff-only", "--no-overwrite-ignore", "@{upstream}"],
-        ]
+        assert result.output.startswith("Updating ")
+        assert git("rev-parse", "HEAD", cwd=clone) == tip
+        assert calls[0] == ["fetch", "--prune"]
+        assert ["-c", "merge.autoStash=false", "-c", "pull.twohead=recursive",
+                "-c", "branch.main.mergeOptions=",
+                "merge", "--no-stat", "--ff-only", "--no-overwrite-ignore", tip] in calls
 
-    @patch("gitstow.core.git._run_git")
-    def test_pull_already_up_to_date(self, mock_run):
-        mock_run.side_effect = _pull_steps("Already up to date.")
-        result = pull(Path("/tmp/repo"))
+    def test_pull_already_up_to_date(self, tmp_path):
+        from tests.incoming_fixture import clone_into, make_upstream
+        up, _ = make_upstream(tmp_path)
+        result = pull(clone_into(up, tmp_path / "clone"))
         assert result.success is True
         assert result.already_up_to_date is True
 
     @patch("gitstow.core.git._run_git")
     def test_pull_failure(self, mock_run):
-        mock_run.return_value = MagicMock(
-            returncode=128,
-            stdout=b"",
-            stderr=b"fatal: not a git repo",
-        )
+        mock_run.return_value = MagicMock(returncode=128, stdout="", stderr="fatal: not a git repo")
         result = pull(Path("/tmp/repo"))
         assert result.success is False
         assert "not a git repo" in result.error
-        assert mock_run.call_count == 1  # nothing after the failed branch lookup
+        assert mock_run.call_count == 1  # nothing after the failed fetch
 
     @patch("gitstow.core.git._run_git")
     def test_pull_timeout(self, mock_run):
@@ -259,31 +248,46 @@ class TestFetch:
 
 
 class TestGetStatus:
-    @patch("gitstow.core.git._run_git")
-    def test_clean_repo(self, mock_run):
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="# branch.oid abc123\n# branch.head main\n# branch.upstream origin/main\n# branch.ab +0 -0\n",
-        )
-        status = get_status(Path("/tmp/repo"))
-        assert status.branch == "main"
+    def test_clean_repo(self, tmp_path):
+        from tests.incoming_fixture import clone_into, make_upstream
+        up, _ = make_upstream(tmp_path)
+        status = get_status(clone_into(up, tmp_path / "clone"))
+        assert status.branch == "main" and status.upstream == "origin/main"
         assert status.clean is True
         assert status.ahead == 0
         assert status.behind == 0
+        assert status.error == "" and status.cap is not None and status.cap.branch == b"refs/heads/main"
 
-    @patch("gitstow.core.git._run_git")
-    def test_dirty_repo(self, mock_run):
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="# branch.head main\n# branch.upstream origin/main\n# branch.ab +2 -1\n1 .M src/file.py\n? untracked.txt\n",
-        )
-        status = get_status(Path("/tmp/repo"))
+    def test_dirty_repo(self, tmp_path):
+        from tests.incoming_fixture import clone_into, commit, git, make_upstream, push_three
+        up, pusher = make_upstream(tmp_path)
+        clone = clone_into(up, tmp_path / "clone")
+        push_three(pusher)
+        git("fetch", "-q", cwd=clone)
+        git("reset", "-q", "--hard", "HEAD~0", cwd=clone)
+        commit(clone, "mine 1", {"a.txt": "1\n"})
+        commit(clone, "mine 2", {"b.txt": "2\n"})
+        git("reset", "-q", "--hard", git("rev-parse", "HEAD", cwd=clone), cwd=clone)
+        (clone / "README.md").write_text("edited\n")
+        (clone / "untracked.txt").write_text("new\n")
+        status = get_status(clone)
         assert status.branch == "main"
         assert status.dirty == 1
         assert status.untracked == 1
         assert status.ahead == 2
-        assert status.behind == 1
+        assert status.behind == 3
         assert status.clean is False
+
+    def test_counts_branch_and_ids_come_from_one_capture(self, tmp_path, monkeypatch):
+        """`git status` is asked only for local edits (no --branch: it would walk ahead/behind again)."""
+        from tests.incoming_fixture import clone_into, make_upstream
+        import gitstow.core.git as G
+        up, _ = make_upstream(tmp_path)
+        clone = clone_into(up, tmp_path / "clone")
+        calls, real = [], G._run_git
+        monkeypatch.setattr(G, "_run_git", lambda args, *a, **kw: calls.append(args) or real(args, *a, **kw))
+        get_status(clone)
+        assert [c for c in calls if "status" in c] == [["status", "--porcelain=v2", "--untracked-files=normal"]]
 
     def test_untracked_survives_showuntrackedfiles_no_real_git(self, tmp_path):
         """A user's `status.showUntrackedFiles=no` config must not hide
@@ -471,9 +475,24 @@ class TestGetChangedFiles:
             assert "--find-renames" in args
 
     @patch("gitstow.core.git._run_git")
-    def test_unreadable_repo_returns_empty(self, mock_run):
-        mock_run.return_value = _proc("fatal: not a git repository", returncode=128)
-        assert get_changed_files(Path("/repo")) == ChangedFiles()
+    def test_unreadable_repo_reports_the_failure(self, mock_run):
+        """A failed listing is an explicit failure with git's words, never an empty (clean) list."""
+        proc = _bproc("", returncode=128)
+        proc.stderr = b"fatal: not a git repository"
+        mock_run.return_value = proc
+        assert get_changed_files(Path("/repo")) == ChangedFiles(error="fatal: not a git repository")
+
+    @patch("gitstow.core.git._run_git")
+    def test_failed_numstat_reports_the_failure(self, mock_run):
+        """A numstat read that fails must not turn into made-up zero line counts."""
+        def fake(args, cwd=None, **kw):
+            if "status" in args:
+                return _bproc("1 .M N... 100644 100644 100644 abc abc f.txt\0")
+            proc = _bproc("", returncode=128)
+            proc.stderr = b"fatal: bad object"
+            return proc
+        mock_run.side_effect = fake
+        assert get_changed_files(Path("/repo")) == ChangedFiles(error="fatal: bad object")
 
     @patch("gitstow.core.git._run_git")
     def test_unmerged_appears_in_unstaged_as_modified(self, mock_run):
@@ -599,7 +618,7 @@ class TestGetChangedFiles:
         assert "back\\slash.txt" in c.untracked
 
         diff = get_file_diff(tmp_path, 'with"quote.txt')
-        assert "-two" in diff and "+CHANGED" in diff
+        assert "-two" in diff.text and "+CHANGED" in diff.text and diff.error == ""
 
 
 from gitstow.core.git import get_file_diff, run_interactive_diff
@@ -625,17 +644,19 @@ class TestGetFileDiff:
         # Unstaged edit
         f.write_text("one\nCHANGED\nthree\n")
         unstaged = get_file_diff(tmp_path, "f.txt")
-        assert "-two" in unstaged and "+CHANGED" in unstaged
+        assert "-two" in unstaged.text and "+CHANGED" in unstaged.text
+        assert (unstaged.error, unstaged.cut) == ("", False)
 
         # Stage it → staged diff shows it, unstaged now empty
         git("add", "f.txt")
         staged = get_file_diff(tmp_path, "f.txt", staged=True)
-        assert "-two" in staged and "+CHANGED" in staged
+        assert "-two" in staged.text and "+CHANGED" in staged.text
 
         # Untracked file diffs against /dev/null → all-new lines
         (tmp_path / "new.txt").write_text("alpha\nbeta\n")
         untracked = get_file_diff(tmp_path, "new.txt", untracked=True)
-        assert "+alpha" in untracked and "+beta" in untracked
+        assert "+alpha" in untracked.text and "+beta" in untracked.text
+        assert untracked.error == ""  # --no-index exits 1 when files differ: still a good read
 
     def test_max_bytes_caps_read(self, tmp_path):
         """A diff larger than max_bytes is truncated at the byte boundary,
@@ -652,13 +673,30 @@ class TestGetFileDiff:
         big.write_text("".join(f"line {i}\n" for i in range(5000)))
 
         out = get_file_diff(tmp_path, "big.txt", untracked=True, max_bytes=200)
-        assert len(out.encode("utf-8", errors="replace")) <= 200
+        assert len(out.text.encode("utf-8", errors="replace")) <= 200
+        assert out.cut and out.error == ""  # the page must say only the start was read
+
+    def test_diff_that_fits_exactly_is_not_reported_cut(self, tmp_path):
+        import subprocess as sp
+        sp.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+        (tmp_path / "f.txt").write_text("a\n")
+        whole = get_file_diff(tmp_path, "f.txt", untracked=True)
+        exact = get_file_diff(tmp_path, "f.txt", untracked=True, max_bytes=len(whole.text.encode()))
+        assert exact.text == whole.text and not exact.cut
+
+    def test_git_failure_is_an_error_not_an_empty_diff(self, tmp_path):
+        import subprocess as sp
+        sp.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+        out = get_file_diff(tmp_path, "f.txt", revs=("0" * 40, "1" * 40))
+        assert out.error and out.text == ""
 
     def test_argv_uses_literal_pathspecs(self):
         """Caller-supplied paths go through --literal-pathspecs so a file
         literally named `*.txt` is a plain path, not a glob."""
         fake = MagicMock()
         fake.stdout.read.return_value = b""  # immediate EOF so the reader exits at once
+        fake.stderr.read.return_value = b""
+        fake.returncode = 0
         with patch("gitstow.core.git.subprocess.Popen", return_value=fake) as mp:
             get_file_diff(Path("/repo"), "*.txt")
         argv = mp.call_args[0][0]
@@ -670,6 +708,8 @@ class TestGetFileDiff:
         renders the rename edit, not a full add of an all-new file."""
         fake = MagicMock()
         fake.stdout.read.return_value = b""
+        fake.stderr.read.return_value = b""
+        fake.returncode = 0
         with patch("gitstow.core.git.subprocess.Popen", return_value=fake) as mp:
             get_file_diff(Path("/repo"), "new.py", staged=True, old_path="old.py")
         argv = mp.call_args[0][0]
@@ -693,10 +733,12 @@ class TestGetFileDiff:
 
         fake = MagicMock()
         fake.stdout.read.side_effect = fake_read
+        fake.stderr.read.return_value = b""
         fake.kill.side_effect = gate.set  # kill unblocks the stalled read → EOF
         with patch("gitstow.core.git.subprocess.Popen", return_value=fake):
             out = get_file_diff(Path("/repo"), "f.txt", timeout_s=0.2)
-        assert out == "partial diff\n"  # partial IS returned, not empty
+        assert out.text == "partial diff\n"  # partial IS returned, not empty
+        assert "timed out" in out.error  # ...and labelled a failed read, never a complete diff
         fake.kill.assert_called_once()
 
     def test_staged_rename_real_git(self, tmp_path):
@@ -724,8 +766,8 @@ class TestGetFileDiff:
         diff = get_file_diff(tmp_path, "b.txt", staged=True, old_path="a.txt")
         # git emits a pure rename (100% similarity) as a "rename from/to" header
         # with no +/- body — assert it is NOT rendered as an all-new file add.
-        assert "rename from a.txt" in diff
-        assert "new file mode" not in diff
+        assert "rename from a.txt" in diff.text
+        assert "new file mode" not in diff.text
 
 
 class TestRunInteractiveDiff:
