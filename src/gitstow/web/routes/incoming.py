@@ -477,7 +477,7 @@ def build_incoming(repo, repo_path, result: dict | None = None) -> dict:
     rest_c = (f"The messages of all {n_all}, in a terminal, run in this repo's folder: "
               + _sh("git", "log", f"{before[:7]}..{after[:7]}") if pinned
               else f"All {n_all}, uncut, in a terminal: {uncut}")
-    rest_f = (f"Every file and its patch, in a terminal, run in this repo's folder: "
+    rest_f = ("Every file and its patch, in a terminal, run in this repo's folder: "
               + _sh("git", "diff", before[:7], after[:7]) if pinned
               else f"Everything, uncut, in a terminal: {uncut}")
     kinds_line = (" · ".join(f"{_n(c)} {k}" for k, c in sorted(rng.kind_counts.items(), key=lambda kv: -kv[1]))
