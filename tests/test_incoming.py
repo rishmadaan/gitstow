@@ -819,6 +819,18 @@ class TestWeb:
         assert "so the list below is as of the previous fetch" in r.text
         assert not self.record().last_fetched
 
+    def test_a_failed_fetch_with_no_earlier_tip_claims_no_partial_fetch(self, web):
+        """CR8: with no tip to compare (the page had none), nothing can be said about what got through."""
+        import re
+        client, clone, _, _ = web
+        git("remote", "set-url", "origin", str(clone.parent / "nowhere.git"), cwd=clone)
+        tip = git("rev-parse", "origin/main", cwd=clone)
+        r = client.post("/incoming/t/clone/fetch", data={"prev_tip": ""})
+        assert "Fetch failed" in r.text
+        assert "part of the fetch got through" not in r.text, re.search(r"Re-read after[^.]*\.[^.]*\.", r.text).group(0)
+        assert (f"Re-read after the failed fetch: <code>origin/main</code> is at <code>{tip[:7]}</code>, "
+                "as of the last fetch that worked") in r.text
+
     def test_fetch_success_stamps_and_redraws(self, web):
         client, clone, pusher, _ = web
         commit(pusher, "c4", {"README.md": "4\n"})

@@ -441,7 +441,11 @@ def _inspection(repo, repo_path, view: IncomingView, now: datetime, prev_tip: st
     command = ""
 
     if after_failed_fetch and view.tip:
-        if prev_tip == view.tip:
+        if not prev_tip:  # the page had no tip to compare with: nothing is known about what got through
+            facts.append(_fact("info", "checked", Markup(
+                "Re-read after the failed fetch: {} is at {}, as of the last fetch that worked. Newer upstream "
+                "changes may be missing.").format(up, _code(tip7))))
+        elif prev_tip == view.tip:
             facts.append(_fact("info", "checked", Markup(
                 "Re-read after the failed fetch: {} is still at {}, so {} as of the previous fetch. Newer upstream "
                 "changes may be missing.").format(
