@@ -69,8 +69,10 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
     {{ fetch_button("⟳ Fetch now", primary=False) }}
   {% elif k == "pulled" %}
     {{ fetch_button("⟳ Fetch again", primary=False) }}
-  {% elif k in ("failed", "locked") %}
+  {% elif k in ("failed", "locked") and inc.snapshot %}
     {{ pull_button("↓ Try the pull again") }}
+  {% elif k in ("failed", "locked") %}
+    <a class="btn btn-primary" href="{{ page_url }}?tab=incoming">Show what is here now</a>
   {% elif k == "changed" %}
     <a class="btn btn-primary" href="{{ page_url }}?tab=incoming">{% if inc.now_behind %}Show the {{ "{:,}".format(inc.now_behind) }} now waiting{% else %}Show what is here now{% endif %}</a>
   {% elif k == "fetchfailed" %}
@@ -87,6 +89,7 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
     {%- elif k == "diverged" %}<b>Pull is off.</b> Bringing the two histories together (a rebase or a merge) happens in a terminal. Come back afterwards for a fresh check.
     {%- elif k == "frozen" %}<b>Unfreezing does not pull.</b> It lets Pull and Pull all work on this repo again; the Pull button appears here once the repo is unfrozen.
     {%- elif k == "unknown" %}<b>Try again</b> repeats the read. If git keeps failing, the repair happens in a terminal; gitstow changes nothing in this folder.
+    {%- elif k in ("failed", "locked") and not inc.snapshot %}Nothing is retried on its own. <b>Show</b> redraws this page with what is here now.
     {%- elif k in ("failed", "locked") %}Nothing is retried on its own. The pull on offer is the same one: {{ br }} from <code>{{ inc.head7 }}</code> to <code>{{ inc.tip7 }}</code>, the {{ inc.count }} commit{{ '' if inc.count == '1' else 's' }} listed below.
     {%- elif k == "changed" %}<b>Show</b> redraws this page with the list as it is now, to review before pulling. It does not fetch: the check that stopped the pull already read the new state.
     {%- elif k == "fetchfailed" %}<b>Retry</b> runs the same fetch again; nothing is retried on its own.{% if inc.snapshot %} <b>Pull without fetching</b> {{ how }} {{ others }}{% endif %}

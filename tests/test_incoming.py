@@ -600,6 +600,43 @@ class TestWeb:
         assert "Pulled 0 commits" not in r.text and "0 files" not in r.text
         assert "What this pull brought in" not in r.text
 
+    def _post_failed_pull(self, client, clone, monkeypatch, move_to=""):
+        """The page's Pull, with a merge that reports failure (after moving the branch when move_to is set)."""
+        import json
+        import re
+
+        from gitstow.core.incoming import ExactPullResult
+        html = client.get("/repo/t/clone").text
+        vals = json.loads(re.search(r'hx-post="/repos/t/clone/incoming/pull" hx-vals=\'([^\']+)\'', html)
+                          .group(1).replace("&#34;", '"'))
+        before = git("rev-parse", "HEAD", cwd=clone)
+
+        def failing(path, snap, is_frozen):
+            if move_to:
+                git("merge", "-q", "--ff-only", move_to, cwd=clone)
+            return ExactPullResult("failed", "error: the merge timed out (2 minutes)",
+                                   before=before, after=git("rev-parse", "HEAD", cwd=clone))
+        monkeypatch.setattr("gitstow.web.routes.incoming.pull_exact", failing)
+        return before, client.post("/repos/t/clone/incoming/pull", data=vals).text
+
+    def test_a_failure_after_the_branch_moved_never_says_nothing_was_pulled(self, web, monkeypatch):
+        client, clone, _, ids = web
+        before, page = self._post_failed_pull(client, clone, monkeypatch, move_to=ids[-1])
+        assert git("rev-parse", "HEAD", cwd=clone) == ids[-1]
+        assert "Pull failed" in page and "the merge timed out (2 minutes)" in page
+        assert f"moved from <code>{before[:7]}</code> to <code>{ids[-1][:7]}</code>" in page
+        assert "part of the pull may have happened" in page
+        assert "Nothing was pulled" not in page and "changed since review" not in page
+        assert "Try the pull again" not in page and "Show what is here now" in page
+
+    def test_a_failure_with_the_branch_unmoved_says_nothing_was_pulled(self, web, monkeypatch):
+        client, clone, _, _ = web
+        before, page = self._post_failed_pull(client, clone, monkeypatch)
+        assert git("rev-parse", "HEAD", cwd=clone) == before
+        assert "Pull failed" in page and "the merge timed out (2 minutes)" in page
+        assert f"is still at <code>{before[:7]}</code>" in page and "Nothing was pulled." in page
+        assert "Try the pull again" in page
+
     def test_diff_route_only_serves_files_of_the_comparison(self, web):
         client, clone, _, ids = web
         head = git("rev-parse", "HEAD", cwd=clone)

@@ -174,9 +174,11 @@ def build_incoming(repo, repo_path, result: dict | None = None) -> dict:
     kind = base
     if op == "pulled":
         kind = "pulled"
-    elif op in ("failed", "locked") and base in ("behind", "stale"):
-        kind = op
-    elif op == "changed" or (op in ("failed", "locked") and base not in ("behind", "stale")):
+    elif op == "failed":  # git's message always shows; where the branch is now is re-read below
+        kind = "failed"
+    elif op == "locked" and base in ("behind", "stale"):
+        kind = "locked"
+    elif op in ("changed", "locked"):  # both refuse before any change
         kind = "changed"
     elif op == "fetchfailed":
         kind = "fetchfailed"
@@ -315,13 +317,22 @@ def build_incoming(repo, repo_path, result: dict | None = None) -> dict:
         else:
             facts.insert(0, _fact("blocked", "stopped", Markup(
                 "<b>Nothing was pulled.</b> Another gitstow pull is running on this repo.")))
-        still = (Markup("{} is still at {}").format(br, _code(head7)) if view.head == result.get("before")
-                 else Markup("{} is now at {}").format(br, _code(head7)))
-        facts.append(_fact("clear" if not edited else "note", "checked", Markup(
+        # "Nothing was pulled" only when the branch is still where the pull found it: a command
+        # can fail after moving it (a merge that timed out once HEAD was updated).
+        was, now_id = result.get("before", ""), st.head_oid
+        unmoved = bool(was) and now_id == was
+        still = (Markup("{} is still at {}").format(br, _code(was[:7])) if unmoved
+                 else Markup("{} moved from {} to {}").format(br, _code(was[:7]), _code(now_id[:7]))
+                 if was and now_id else Markup("where {} is now could not be read").format(br))
+        facts.append(_fact("clear" if unmoved and not edited else "note", "checked", Markup(
             "Re-read after the failure: {}, and {}.").format(
             still, Markup("no file in this folder shows as edited or staged") if not edited
             else Markup("{} files in this folder are edited or staged").format(edited))))
-        if kind == "failed":
+        if kind == "failed" and not unmoved:
+            facts.append(_fact("info", "next", Markup(
+                "git reported a failure, but {} is not where the pull found it, so part of the pull may have "
+                "happened. Check this folder in a terminal (git status, git log) before going on.").format(br)))
+        elif kind == "failed":
             blocked_files = [line.strip() for line in message.splitlines() if line.startswith("\t")]
             if "untracked working tree files would be overwritten" in message and blocked_files:
                 facts.append(_fact("info", "next", Markup(
