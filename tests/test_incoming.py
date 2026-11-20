@@ -899,7 +899,7 @@ class TestWeb:
         page = self._press(client)
         assert git("rev-parse", "refs/heads/main", cwd=clone) == ids[-1]
         assert "Pull not confirmed: something else changed this folder" in page and "Pull failed" not in page
-        assert ('<span class="fact-k">✕ gitstow found</span><span><pre class="gitsaid">git reported success, but '
+        assert ('<span class="fact-k">✕ gitstow found</span><span><pre class="gitsaid wrap">git reported success, but '
                 'other branches moved during the pull: other') in page
         assert " git said<" not in page
         assert "read again after the pull" in page

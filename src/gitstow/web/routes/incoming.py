@@ -313,7 +313,7 @@ def build_result(repo, repo_path, result: dict, now: datetime) -> dict:
         res["title"] = ("Pull not confirmed: something else changed this folder" if result.get("merged") and reached
                         and elsewhere else "Pull failed")
         facts.append(_fact("blocked", "gitstow found" if result.get("git_ok") else "git said",
-                           _gitsaid(message, wrap=False)))
+                           _gitsaid(message, wrap=bool(result.get("git_ok")))))  # gitstow's sentence wraps; git's keeps its lines
         if not result.get("merged"):
             facts.append(_fact("clear", "checked", Markup(
                 "Nothing was pulled: gitstow stopped before asking git to move {}{}.").format(
