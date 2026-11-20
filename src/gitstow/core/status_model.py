@@ -30,7 +30,7 @@ class RepoState:
     has_upstream: bool = True
     has_remote: bool = True       # meaningful only without an upstream
     upstream_gone: bool = False   # an upstream is configured but its branch is not here
-    unborn: bool = False          # the branch has no commits yet: nothing to compare or pull onto
+    unborn: bool = False          # the branch has no commits yet (behind: its upstream's commits, all incoming)
     error: str = ""               # git's message when presence is "unreadable"
 
     @property
@@ -90,7 +90,7 @@ class RepoState:
             # ff-only pull always fails on divergence — skip with a clear
             # reason instead of commanding a doomed pull.
             return "skip-diverged"
-        if self.unborn:
+        if self.unborn and not self.behind:  # with upstream commits, the pull takes them (checked first)
             return "skip-no-commits"
         if not self.has_upstream:
             # A repo you `git init`ed locally — there is nothing to pull from.

@@ -30,11 +30,13 @@ console = Console()
 err_console = Console(stderr=True)
 
 
-def _pull_one_repo(repo: Repo, ws: Workspace, force: bool = False) -> dict:
+def _pull_one_repo(repo: Repo, ws: Workspace, force: bool = False, named: bool = False) -> dict:
     """Pull a single repo. Returns a result dict.
 
     force=True skips only the local-changes check; git's ff-only pull still
-    refuses to overwrite a modified file.
+    refuses to overwrite a modified file. named=True (the repo was named on the
+    command line) never skips a branch with no commits before the fetch: the
+    fetch may bring its first ones.
     """
     path = repo.get_path(ws.get_path())
 
@@ -62,11 +64,11 @@ def _pull_one_repo(repo: Repo, ws: Workspace, force: bool = False) -> dict:
             "status": "skipped",
             "detail": "Diverged from remote — resolve manually (rebase or merge)",
         }
-    if state.remote_state == "no-commits":
+    if state.remote_state == "no-commits" and not state.behind and not named:
         return {
             "repo": repo.key,
             "status": "skipped",
-            "detail": "No commits yet — nothing to pull onto",
+            "detail": "No commits yet, and none on its upstream to take as of the last fetch",
         }
     if state.remote_state == "no-upstream":
         return {
@@ -213,7 +215,7 @@ def pull(
 
     result_dicts = run_bulk(
         targets,
-        functools.partial(_pull_one_repo, force=force),
+        functools.partial(_pull_one_repo, force=force, named=bool(repos)),
         parallel_limit=settings.parallel_limit,
         retry=retry,
         on_attempt=None if (quiet or output_json) else _on_attempt,

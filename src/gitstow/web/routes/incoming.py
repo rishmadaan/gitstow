@@ -505,11 +505,19 @@ def _inspection(repo, repo_path, view: IncomingView, now: datetime, prev_tip: st
             "No edited or staged files in this folder when this page was drawn.")) if not edited
             else _fact("note", "note", Markup("Files in this folder are edited or staged ({}).").format(edited)))
 
-    if kind == "unborn":
+    if kind == "unborn" and view.tip:
+        lede.append(Markup("{} has no commits yet. {} has {}; Pull takes them.").format(
+            br, up, _plural(view.behind, "commit")))
+        lede.append(Markup("Pull on this repo's row in the library, Pull all, or {} in a terminal fetches first "
+                           "and takes the newest. It stops, changing nothing, if anything in this folder sits where "
+                           "those commits would land. There is no list to review here: every file is new.").format(
+            _code(_sh("gitstow", "pull", repo.key))))
+    elif kind == "unborn":
         lede.append(Markup("{} has no commits yet, so there is nothing to compare and nothing to pull onto. "
                            "Pull all skips this repo.").format(br))
-        lede.append(Markup("Once it has a commit (make one, or take the remote's first commits with "
-                           "<code>git pull</code> in a terminal), reload this page."))
+        lede.append(Markup("Once it has a commit (make one, or take the remote's first commits with Pull once it "
+                           "has some), reload this page.") if st.has_upstream or st.has_remote else
+                    Markup("Once it has a commit (make a first commit in a terminal), reload this page."))
     elif kind == "detached":
         lede.append(Markup("No branch is checked out in this folder (detached HEAD at {}), so there is no "
                            "upstream to compare with and gitstow cannot list incoming commits. Pull all skips "
@@ -547,7 +555,8 @@ def _inspection(repo, repo_path, view: IncomingView, now: datetime, prev_tip: st
 
     titles = {
         "detached": "No upstream selected", "noupstream": "No upstream selected",
-        "noremote": "No remote", "none": "Up to date", "unborn": "No commits yet",
+        "noremote": "No remote", "none": "Up to date",
+        "unborn": f"No commits yet, {_plural(view.behind, 'commit')} upstream" if view.tip else "No commits yet",
         "ahead": f"Nothing incoming, {_n(view.ahead)} ahead",
         "diverged": f"Diverged: {_n(view.behind)} incoming, {_n(view.ahead)} local",
     }
@@ -577,7 +586,8 @@ def _inspection(repo, repo_path, view: IncomingView, now: datetime, prev_tip: st
         "local_commits": _commit_rows(view.local_commits, now), "local_commit_total": _n(view.ahead),
         "local_commits_cut": view.ahead > len(view.local_commits),
         "local_log_cmd": _sh("git", "log", f"{view.upstream}..{view.branch}"),
-        "incoming_count": ("?" if kind in ("detached", "noupstream") else "none" if kind in ("noremote", "unborn")
+        "incoming_count": ("?" if kind in ("detached", "noupstream")
+                           else "none" if kind == "noremote" or (kind == "unborn" and not view.tip)
                            else _n(view.behind)),
         "local_count": ("?" if local_error else
                         _n(len(edited_paths) + len(view.local.untracked)) if view.local else "0"),

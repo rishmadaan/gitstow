@@ -89,7 +89,7 @@ def _present(state: RepoState) -> tuple[str, str, str]:
         return "dirty", state.local_summary, "ghost"
     if state.pull_action == "skip-diverged":
         return "conflict", "diverged", "disabled"
-    if state.behind:
+    if state.behind and not state.unborn:  # an unborn branch's commits come in by the plain Pull: no count to pin
         return "behind", "behind", "primary"
     if state.ahead:
         return "ahead", "ahead", "ghost"
@@ -98,7 +98,7 @@ def _present(state: RepoState) -> tuple[str, str, str]:
     return "clean", "clean", "ghost"
 
 
-def _delta(state: RepoState, last_fetched: str = "") -> tuple[str, str, str]:
+def _delta(state: RepoState, last_fetched: str = "", upstream: str = "") -> tuple[str, str, str]:
     """Return (css_class, display_label, tooltip) for the Remote Δ column.
 
     The fetch-age suffix lives here so it can be gated on presence AND upstream
@@ -111,9 +111,14 @@ def _delta(state: RepoState, last_fetched: str = "") -> tuple[str, str, str]:
         # Never the in-sync "—": nothing about this repo's upstream is known.
         return ("unknown", "?", ("Unknown — the repo is missing or could not be read, so how it compares "
                                  "with its upstream is unknown. Open the repo page for git's message."))
+    if state.unborn and state.behind:
+        return ("local", f"no commits · ↓ {state.behind}",
+                (f"No commits yet — {upstream} has {state.behind} commit(s) as of the last fetch; Pull takes them. "
+                 "It fetches first, and stops if anything in this folder sits where they would land."))
     if state.unborn:
         return ("local", "no commits",
-                "No commits yet — this branch has nothing to compare with a remote yet. Bulk pulls skip it.")
+                ("No commits yet — this branch has nothing to compare with a remote yet, and its upstream has "
+                 "no commits to take as of the last fetch. Bulk pulls skip it."))
     if not state.has_upstream:
         if state.has_remote:
             return ("local", "no upstream",
@@ -189,12 +194,20 @@ def row_context(repo, ws, repo_path, status, num: int | None, sorted_labels: lis
     state = classify(exists=exists, frozen=repo.frozen, status=status)
     status_class, status_label, pull_variant = _present(state)
     behind_n = state.behind
-    delta_cls, delta_txt, delta_tip = _delta(state, repo.last_fetched)
+    delta_cls, delta_txt, delta_tip = _delta(state, repo.last_fetched, status.upstream if status else "")
 
     pull_tooltip = _pull_tooltip(pull_variant, status_class, behind_n, status_label)
-    if state.presence == "ok" and not state.has_upstream:
-        pull_tooltip = ("Pull not applicable — this branch has no commits yet. Bulk pulls skip it." if state.unborn
-                        else "Pull not applicable — no upstream to pull from. Bulk pulls skip it.")
+    if state.presence == "ok" and state.unborn and pull_variant != "disabled":
+        if state.behind:
+            pull_tooltip = (f"Pull — this branch has no commits yet; {status.upstream} has {behind_n} as of the "
+                            "last fetch. Pull fetches, then takes the newest, and stops if anything in this folder "
+                            "sits where they would land.")
+        else:  # nothing to take: a Pull here could only fetch and refuse
+            pull_variant = "disabled"
+            pull_tooltip = ("Pull not applicable — this branch has no commits yet, and its upstream has none to "
+                            "take as of the last fetch. Bulk pulls skip it.")
+    elif state.presence == "ok" and not state.has_upstream and not state.unborn:
+        pull_tooltip = "Pull not applicable — no upstream to pull from. Bulk pulls skip it."
     # "Pull N" takes exactly the commit its count came from: the row carries it. A row is
     # "primary" only when its status is purely behind, so the same status always has one.
     pull = row_pull(repo_path, status) if pull_variant == "primary" else None

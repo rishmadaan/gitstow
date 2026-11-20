@@ -355,7 +355,7 @@ class BranchCapture:
 
     branch: bytes = b""    # the checked-out branch's full ref; b"" when no branch with a commit is checked out
     head: str = ""         # HEAD's commit id: the branch's, or a detached HEAD's; "" when unborn
-    upstream: bytes = b""  # its upstream's full ref; b"" when none is set
+    upstream: bytes = b""  # its upstream's full ref; b"" when none is set (unborn: or not readable)
     tip: str = ""          # the upstream's full commit id; "" when none is set or it is gone
     heads: dict[bytes, str] = field(default_factory=dict)    # every local branch -> its id, same read
     ups: dict[bytes, bytes] = field(default_factory=dict)    # every local branch -> its upstream's full ref
@@ -366,8 +366,13 @@ class BranchCapture:
         return self.branch, self.head, self.upstream, self.tip
 
     @property
+    def ref(self) -> bytes:
+        """The checked-out branch's full ref, with commits or not; b"" when HEAD is detached."""
+        return self.branch or self.unborn
+
+    @property
     def branch_name(self) -> str:
-        return ref_label(self.branch or self.unborn)
+        return ref_label(self.ref)
 
     @property
     def upstream_name(self) -> str:
@@ -418,11 +423,34 @@ def _capture_head(repo_path: Path, heads: dict[bytes, str], ups: dict[bytes, byt
         if not ref.startswith(b"refs/heads/"):
             return (f"not on a branch (HEAD points at {ref.decode('utf-8', 'replace')}): "
                     "check out a branch, then pull")
-        return BranchCapture(heads=heads, ups=ups, unborn=ref)
+        cap = BranchCapture(heads=heads, ups=ups, unborn=ref)
+        cap.upstream, cap.tip = _unborn_upstream(repo_path, ref)
+        return cap
     oid = _run_git(["rev-parse", "--verify", "-q", "HEAD"], cwd=repo_path)
     if oid.returncode != 0 or not oid.stdout.strip():
         return oid.stderr.strip() or "could not read the commit HEAD points at"
     return BranchCapture(head=oid.stdout.strip(), heads=heads, ups=ups)
+
+
+def _unborn_upstream(repo_path: Path, ref: bytes) -> tuple[bytes, str]:
+    """An unborn branch's upstream full ref and its commit id, or (b"", "") when either cannot be read.
+
+    for-each-ref lists no branch without a commit, so its upstream is asked for by name:
+    `<name>@{upstream}` (the full ref form does not resolve there). A name starting with
+    "-" would read as an option, so it gets no upstream, and so no pull is offered.
+    """
+    name = ref[len(b"refs/heads/"):]
+    if name.startswith(b"-"):
+        return b"", ""
+    up = _run_git(["rev-parse", "--symbolic-full-name", os.fsdecode(name) + "@{upstream}"],
+                  cwd=repo_path, binary=True)
+    upstream = up.stdout.strip()
+    if up.returncode != 0 or not upstream.startswith(b"refs/"):
+        return b"", ""
+    tip = _run_git(["rev-parse", "--verify", "-q", os.fsdecode(upstream) + "^{commit}"], cwd=repo_path)
+    if tip.returncode != 0 or not tip.stdout.strip():
+        return b"", ""
+    return upstream, tip.stdout.strip()
 
 
 def ref_id(repo_path: Path, ref: bytes) -> str:
@@ -474,13 +502,13 @@ def _pull_locked(repo_path: Path) -> PullResult:
         if status.error:
             return PullResult(success=False, error=status.error)
         cap = status.cap
-        if cap.unborn:
+        if cap.unborn and not cap.tip:
             return PullResult(success=False, error=(
-                f"branch '{status.branch}' has no commits yet; gitstow only fast-forwards a branch that "
-                "has commits (git pull can make its first one)"))
-        if not cap.branch:
+                f"branch '{status.branch}' has no commits yet, and gitstow found no upstream commits for it "
+                "to take; nothing was pulled"))
+        if not cap.ref:
             return PullResult(success=False, error="not on a branch (detached HEAD): check out a branch, then pull")
-        named = merge_name(repo_path, cap.branch)
+        named = merge_name(repo_path, cap.ref)
         if isinstance(named, str):
             return PullResult(success=False, error=named)
         if not cap.upstream:
@@ -527,6 +555,11 @@ def ff_checked(repo_path: Path, cap: BranchCapture, named: tuple[str, str], targ
     it makes the merge move another branch or a detached HEAD, which the read-back sees.
     """
     branch, shown = named
+    key = cap.ref
+    if cap.unborn:  # git overwrites ignored files when it creates a branch's first commit: check first
+        clash = unborn_collisions(repo_path, target)
+        if clash:
+            return Landed(False, clash, "", "", [])
     ok, message = merge_exact(repo_path, branch, target)
     try:
         after = capture_branch(repo_path)
@@ -535,19 +568,19 @@ def ff_checked(repo_path: Path, cap: BranchCapture, named: tuple[str, str], targ
     if isinstance(after, str):  # not verified, so never "pulled"; the branch's own id still says if it moved
         return Landed(False, (message + "\n" if message else "")
                       + f"after the merge, gitstow could not read this repo back to check it: {after}",
-                      cap.head, ref_id(repo_path, cap.branch))
+                      cap.head, ref_id(repo_path, key))
     moves = [(r, cap.heads.get(r, ""), after.heads.get(r, ""))
              for r in sorted(cap.heads.keys() | after.heads.keys()) if cap.heads.get(r) != after.heads.get(r)]
     if after.head != cap.head:
         moves.append((b"HEAD", cap.head, after.head))
-    landed = after.heads.get(cap.branch, "")
-    others = [r for r, _, _ in moves if r not in (cap.branch, b"HEAD")]
+    landed = after.heads.get(key, "")
+    others = [r for r, _, _ in moves if r not in (key, b"HEAD")]
     wrong = []
     if landed != target and (ok or landed != cap.head):  # a failed merge that left it alone says so itself
         wrong.append(f"{shown} is at {landed[:7] or 'an unreadable commit'}, not {target[:7]}")
     if others:
         wrong.append("other branches moved during the pull: " + ", ".join(ref_label(r) for r in others))
-    up_after = after.ups.get(cap.branch, b"")
+    up_after = after.ups.get(key, b"")
     if up_after != cap.upstream:
         wrong.append(f"{shown}'s upstream setting changed during the pull, from {cap.upstream_name} "
                      f"to {ref_label(up_after) or 'none'}")
@@ -558,6 +591,30 @@ def ff_checked(repo_path: Path, cap: BranchCapture, named: tuple[str, str], targ
     elif wrong:
         message += "\n" + "; ".join(wrong)
     return Landed(False, message, cap.head, landed, moves)
+
+
+def unborn_collisions(repo_path: Path, target: str) -> str:
+    """Why the first commits of a branch with none must not be merged here, or "" when nothing is in the way.
+
+    On a branch with no commits, `git merge --ff-only --no-overwrite-ignore` replaces an
+    ignored file, folder or symlink at a path the commit brings (git 2.43; untracked ones
+    it refuses). So anything at all at one of the commit's top-level names stops the pull:
+    a top-level check also catches an ignored file `a` where the commit brings `a/b`. It
+    over-refuses (a local docs/notes.md blocks an incoming docs/readme.md), never under.
+    """
+    names = _run_git(["ls-tree", "-z", "--name-only", target], cwd=repo_path, binary=True)
+    if names.returncode != 0:
+        return ("gitstow could not list what the first commits bring, so it did not pull: "
+                + (names.stderr.decode("utf-8", "replace").strip() or f"git ls-tree failed (exit {names.returncode})"))
+    root = os.fsencode(repo_path)
+    clash = [n for n in names.stdout.split(b"\0") if n and os.path.lexists(os.path.join(root, n))]
+    if not clash:
+        return ""
+    shown = ", ".join(n.decode("utf-8", "replace") for n in clash[:5]) + (
+        f" and {len(clash) - 5} more" if len(clash) > 5 else "")
+    return ("this branch has no commits yet, and this folder already has something where its first commits "
+            f"would put theirs: {shown}. git would replace an ignored file there without asking, so gitstow "
+            "stopped. Move or rename those in a terminal, then pull again")
 
 
 def merge_exact(repo_path: Path, branch: str, target_oid: str) -> tuple[bool, str]:
@@ -627,7 +684,13 @@ def _get_status(repo_path: Path) -> RepoStatus:
     status = RepoStatus(branch=cap.branch_name if cap.branch or cap.unborn else "(detached)",
                         head_oid=cap.head, upstream=cap.upstream_name, has_upstream=bool(cap.upstream),
                         upstream_gone=cap.upstream_gone, upstream_oid=cap.tip, cap=cap)
-    if cap.tip and cap.tip != cap.head:
+    if cap.unborn and cap.tip:  # nothing here yet: every commit of the upstream is incoming
+        counts = _run_git(["rev-list", "--count", cap.tip], cwd=repo_path)
+        if counts.returncode != 0 or not counts.stdout.strip().isdigit():
+            status.error = counts.stderr.strip() or f"could not count the commits in {cap.tip[:7]}"
+            return status
+        status.behind = int(counts.stdout.strip())
+    elif cap.tip and cap.tip != cap.head:
         counts = count_between(repo_path, cap.head, cap.tip)
         if isinstance(counts, str):
             status.error = counts
@@ -658,7 +721,7 @@ def _get_status(repo_path: Path) -> RepoStatus:
             # Unmerged entry — count as dirty
             status.dirty += 1
             status.edited += 1
-    if not cap.upstream and not cap.unborn:
+    if not cap.upstream:
         remotes = _run_git(["remote"], cwd=repo_path)
         if remotes.returncode != 0:
             status.error = remotes.stderr.strip() or "git remote failed"
