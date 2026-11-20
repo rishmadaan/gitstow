@@ -922,6 +922,16 @@ class TestWeb:
         page = client.get("/repo/t/clone").text
         assert re.search(r'status-conflict"[^>]*><span class="dot"></span>diverged<', page), "header chip"
 
+    def test_a_detached_head_is_titled_no_branch_checked_out(self, web):
+        """CR7: a detached HEAD has a branch problem, not an upstream one."""
+        import re
+        client, clone, _, _ = web
+        git("checkout", "-q", "--detach", cwd=clone)
+        page = client.get("/repo/t/clone").text
+        title = re.search(r'<span class="idle-only">([^<]*)</span>', page).group(1)
+        assert title == "No branch checked out" and "No upstream selected" not in page, title
+        assert "Incoming · <b>no branch</b>" in page
+
     def test_a_failed_local_listing_is_never_clean_or_zero(self, web, monkeypatch):
         """Status says one file is edited; the listing that follows fails. The page must say so."""
         from gitstow.core.git import ChangedFiles

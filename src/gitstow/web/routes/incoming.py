@@ -616,7 +616,7 @@ def _inspection(repo, repo_path, view: IncomingView, now: datetime, prev_tip: st
                                                                       "Fetch to check.").format(fetch_sentence)))
 
     titles = {
-        "detached": "No upstream selected", "noupstream": "No upstream selected",
+        "detached": "No branch checked out", "noupstream": "No upstream selected",
         "noremote": "No remote", "upstream-gone": "Upstream gone", "none": "Up to date",
         "unborn": f"No commits yet, {_plural(view.behind, 'commit')} upstream" if view.tip else "No commits yet",
         "ahead": f"Nothing incoming, {_n(view.ahead)} ahead",
