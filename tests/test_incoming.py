@@ -694,6 +694,30 @@ class TestWeb:
         r = client.get(f"/repos/t/clone/incoming/diff?file={quote(name)}&base={head}&tip={tip}&pinned=1")
         assert self._copied(r.text, "run in this repo's folder: ") == ["git", "diff", head[:7], tip[:7], "--", name]
 
+    @staticmethod
+    def _staged_and_edited_again(clone):
+        (clone / "README.md").write_text("staged\n")
+        git("add", "README.md", cwd=clone)
+        (clone / "README.md").write_text("staged, then edited again\n")
+        st = get_status(clone)
+        assert (st.staged, st.dirty, st.edited) == (1, 1, 1)
+
+    def test_one_file_staged_and_edited_counts_once_when_frozen(self, web):
+        from gitstow.core.repo import RepoStore
+        client, clone, _, _ = web
+        self._staged_and_edited_again(clone)
+        RepoStore().update("clone", workspace="t", frozen=True)
+        page = client.get("/repo/t/clone").text
+        assert "Files in this folder are edited or staged (1)" in page and "(2)" not in page
+        assert "Local changes <span class=\"ct\">1</span>" in page
+
+    def test_one_file_staged_and_edited_counts_once_when_diverged(self, web):
+        client, clone, _, _ = web
+        commit(clone, "local", {"notes.md": "n\n"})
+        self._staged_and_edited_again(clone)
+        page = client.get("/repo/t/clone").text
+        assert "Files in this folder are edited or staged (1)" in page and "(2)" not in page
+
     def test_diff_route_only_serves_files_of_the_comparison(self, web):
         client, clone, _, ids = web
         head = git("rev-parse", "HEAD", cwd=clone)

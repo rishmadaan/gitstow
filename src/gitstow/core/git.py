@@ -47,6 +47,7 @@ class RepoStatus:
     dirty: int = 0            # Count of modified (unstaged) files
     staged: int = 0           # Count of staged files
     untracked: int = 0        # Count of untracked files
+    edited: int = 0           # Files with a staged or unstaged change: one in both counts once
     ahead: int = 0            # Commits ahead of upstream
     behind: int = 0           # Commits behind upstream
     has_upstream: bool = True  # Whether upstream is configured
@@ -503,6 +504,7 @@ def get_status(repo_path: Path) -> RepoStatus:
             # Changed entry: 1 XY ... or 2 XY ...
             # X = staged, Y = unstaged
             xy = line.split(" ")[1]
+            status.edited += 1
             if len(xy) >= 2:
                 if xy[0] != ".":
                     status.staged += 1
@@ -513,6 +515,7 @@ def get_status(repo_path: Path) -> RepoStatus:
         elif line.startswith("u "):
             # Unmerged entry — count as dirty
             status.dirty += 1
+            status.edited += 1
 
     # Detect if no upstream is set (branch.upstream line is absent)
     if "# branch.upstream" not in result.stdout:

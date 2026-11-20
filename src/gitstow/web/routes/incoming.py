@@ -166,7 +166,7 @@ def build_incoming(repo, repo_path, result: dict | None = None) -> dict:
     fetched = _fetch_info(repo.last_fetched, now)
     br, up = _code(st.branch), _code(st.upstream)
     head7, tip7 = view.head[:7], view.tip[:7]
-    edited = st.dirty + st.staged
+    edited = st.edited  # distinct files: one both staged and edited again is one file
     rng = view.incoming
 
     # The state of the repo, then what just happened to it on top.
