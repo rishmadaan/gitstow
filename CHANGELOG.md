@@ -4,6 +4,28 @@ All notable changes to gitstow will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **See what a pull would bring, before you pull** — after a fetch, a behind (or diverged) repo's Remote Δ cell in the dashboard reads `↓ 3 incoming ›`; clicking it, or the repo name, opens the repo page on its new **Incoming** tab: which branch is compared with which and at which commits, the incoming commits (newest first, with author, date and each commit's own files and lines), every changed file with its kind and `+/−` counts, and each file's line-by-line diff. Totals always count the whole update; a huge one lists the newest 50 commits and the 200 largest files and says so, and a file's diff stops after 500 lines and says so. Binary files, renames and permission changes say what they are. The panel states the facts that decide a pull (fast-forward or not, files edited or staged, frozen, how old gitstow's last fetch is) before its one main button.
+- **Pull on the Incoming tab takes exactly the commits listed** — it moves the branch to the newest commit shown and nothing newer, without fetching. Immediately before it, under a lock, it checks that the folder, the branch (by name), its upstream, both commit ids, a fresh status read, the frozen flag and the absence of edited or staged files are all as the list was drawn; if anything differs, nothing is pulled and the page says "changed since review" and offers the list as it is now. The result names the commit the branch moved from and to, read back from git. A fetch from the page that fails quotes git and keeps showing the list as of the previous fetch.
+- **`gitstow diff <repo> --incoming`** — git's own log and patch for the incoming range (branch → upstream, as of the last fetch), in git's colours and pager; `--json` gives every commit and file as data. It never pulls.
+
+### Changed
+
+- **A library row's "Pull 3" pulls exactly those 3 commits** — it moves the branch to the commit that count came from and no longer fetches first; if the branch or upstream changed since the row was drawn, nothing is pulled and the row says so. A row's plain "Pull" (no count shown) and **Pull all** still fetch and take the newest.
+- **"local edits" replaces "conflict"** for a repo with edited or staged files that is also behind (row, repo page, legend, count strip): nothing has been checked for conflicts. The commits waiting show beside it. JSON and CLI keep their names.
+- **The repo page's Changes section is now the Local changes tab**, and the header's "Pull now" button, which did nothing, is gone: the Incoming tab's Pull replaces it.
+- **A branch with no upstream reads "no upstream"** in the Remote Δ column when the repo has a remote; "local" is kept for repos with no remote at all. An upstream that is configured but no longer exists reads "upstream gone".
+- **Every pull is one at a time per repo** — `gitstow pull`, `gitstow add --update`, the MCP `pull_repos` tool, the dashboard's row Pull and Pull all, and the Incoming tab's Pull take the same per-repo lock (a file under `~/.gitstow/locks`, never inside your repo); a second pull of the same folder while one runs is refused with a message, nothing pulled.
+- **A successful fetching pull also records the fetch** (`last_fetched`), from every surface: it fetched before it merged.
+
+### Fixed
+
+- **A failed read is never shown as clean** — when `git status` fails for a repo (a corrupt index, say), the dashboard row reads "error" with git's message instead of "clean", `gitstow status`/`repo info`, the MCP `repo_status`/`repo_info` tools and `gitstow diff` report the failure, and pulls skip it as an error; the repo page's local changes and a file's diff say "could not load" (with git's message or "timed out") instead of "no changes", and a diff cut at its size limit says so.
+- **File rows in the diff viewer show `+` and `−` signs** beside the colours.
+
 ## [0.9.0] - 2026-11-20
 
 ### Fixed

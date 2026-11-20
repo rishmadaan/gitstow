@@ -87,8 +87,10 @@ gitstow -w active status --dirty # Repos with local changes in active workspace
 gitstow diff <repo>              # View a repo's uncommitted changes (staged/unstaged) — view-only
 gitstow diff <repo> --staged     # View staged changes only
 gitstow diff <repo> --json       # List changed files (staged/unstaged/untracked) as JSON
+gitstow diff <repo> --incoming   # What a pull would bring: git's log and patch, branch → upstream
+gitstow diff <repo> --incoming --json  # The same, as data (every commit and file, uncut)
 ```
-`status` shows local changes as a composition (e.g. "2 modified · 1 staged · 3 untracked") rather than a single "dirty" bucket, and keeps the remote relationship (ahead/behind/diverged) in its own column. `diff` prints the colored git diff for a single repo (clean repos print "no local changes").
+`status` shows local changes as a composition (e.g. "2 modified · 1 staged · 3 untracked") rather than a single "dirty" bucket, and keeps the remote relationship (ahead/behind/diverged) in its own column. `diff` prints the colored git diff for a single repo (clean repos print "no local changes"); with `--incoming` it shows the commits and patch a pull would bring, as of the last fetch, and never pulls.
 
 ### Freeze & Tags
 ```bash
@@ -157,7 +159,7 @@ gitstow ui --port 8080
 gitstow ui --no-browser
 gitstow ui --tailscale      # also serve on your Tailscale address (VPS-friendly)
 ```
-Persistent local web dashboard for daily repo management — a tab you leave open. Shows dirty state across your library, pulls single repos or all-of-them with a parallel summary panel, adds/removes repos, edits tags, freezes stale ones. The repo detail page has a Changes section — staged/unstaged/untracked groups, click a file to expand its colored line diff. Auto-refreshes row status every 30 seconds. Click **Shutdown** in the footer — or Ctrl+C — to stop.
+Persistent local web dashboard for daily repo management — a tab you leave open. Shows dirty state across your library, pulls single repos or all-of-them with a parallel summary panel, adds/removes repos, edits tags, freezes stale ones. **See what a pull would bring before you take it:** after a fetch, a behind repo's row shows `↓ 3 incoming ›`; click it for the repo page's **Incoming** tab — the commits, every file with its `+/−` counts, and each file's line-by-line diff — then press **Pull** to take exactly those commits (no fetch first; if the branch or upstream moved since the list was drawn, nothing is pulled and the page shows the new list). The **Local changes** tab beside it lists staged/unstaged/untracked files, click one for its colored line diff. Auto-refreshes row status every 30 seconds. Click **Shutdown** in the footer — or Ctrl+C — to stop.
 
 Private by default: binds `127.0.0.1` (arbitrary git execution must not be LAN-reachable). Running gitstow on a VPS or home server? Enable **Tailscale access** and the dashboard is also served on your tailnet address — open it from any of your devices, encrypted by WireGuard, invisible to the public internet. It never binds `0.0.0.0`:
 ```bash
@@ -185,6 +187,7 @@ gitstow status --json
 | `gitstow list` | List repos grouped by owner/workspace |
 | `gitstow status` | Git status dashboard |
 | `gitstow diff <repo> [--staged]` | View a repo's uncommitted changes (staged/unstaged) — view-only |
+| `gitstow diff <repo> --incoming` | View what a pull would bring (git's log and patch, branch → upstream) — never pulls |
 | `gitstow remove <repo>` | Remove a repo from tracking |
 | `gitstow migrate <path>` | Adopt existing repos into structure |
 | **Workspaces** | |
