@@ -234,8 +234,9 @@ def row_context(repo, ws, repo_path, status, num: int | None, sorted_labels: lis
         "behind": behind_n,
         "repo_link_tooltip": f"Open details for {repo.key}",
         "changes_link": (
-            f"{page}?tab=local"
-            if state.presence == "ok" and state.has_local_changes else ""
+            f"{page}?tab=local" if state.presence == "ok" and state.has_local_changes
+            else f"{page}?tab=incoming" if state.presence == "unreadable"  # where git's message is shown
+            else ""
         ),
     }
 

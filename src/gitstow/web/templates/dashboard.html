@@ -146,6 +146,12 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
           <dt><span class="status status-conflict"><span class="dot"></span>diverged</span></dt>
           <dd>Local and remote both have commits the other lacks. gitstow only fast-forwards, so Pull is off; rebase or merge in a terminal.</dd>
 
+          <dt><span class="status status-conflict"><span class="dot"></span>error</span></dt>
+          <dd>gitstow could not read this repo (git failed on it, for example a corrupt index). Nothing is shown as clean and Pull is off. Click the label to open the repo page with git's message; the repair happens in a terminal. Nothing on disk was changed.</dd>
+
+          <dt><span class="status status-conflict"><span class="dot"></span>missing</span></dt>
+          <dd>Tracked in gitstow, but the folder is not on disk. Re-clone it or remove it from gitstow.</dd>
+
           <dt><span class="status status-behind"><span class="dot"></span>behind</span></dt>
           <dd>Remote has commits you don't. The Pull button turns orange and shows the count.</dd>
 

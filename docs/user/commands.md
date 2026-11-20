@@ -589,7 +589,7 @@ Every interactive element has a hover tooltip. There's also a `?` button in the 
 | dirty | Local changes — the label shows the composition (e.g. "2 modified · 1 staged · 3 untracked") | Commit/stash modified or staged files before pulling; untracked-only repos can still pull |
 | local edits | Modified or staged files AND behind remote (the Remote Δ chip shows how many commits). Nothing has been checked for conflicts | Resolve the local work, then come back; the repo page names the files the update also changes |
 | diverged | Local and remote both have commits the other lacks | Rebase or merge in a terminal; gitstow only fast-forwards |
-| error | gitstow could not read the repo (git's message is in the tooltip). Counted under its own "error" chip in the metrics strip; "missing" is only for a folder that is not on disk | Repair in a terminal; nothing is shown as clean and nothing on disk was changed |
+| error | gitstow could not read the repo (git's message is in the tooltip; the label opens the repo page, which shows it in full). Counted under its own "error" chip in the metrics strip; "missing" is only for a folder that is not on disk | Repair in a terminal; nothing is shown as clean and nothing on disk was changed |
 | behind | Remote has commits you don't | Click the orange Pull button |
 | ahead | You have local commits not yet pushed | Consider `git push` |
 | frozen | Intentionally skipped by "Pull all" | Unfreeze from the ⋯ menu |
