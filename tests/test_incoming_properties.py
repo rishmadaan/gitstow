@@ -29,7 +29,7 @@ BYTES_OK = os.name != "nt" and non_utf8_names_ok()
 LOCAL = {b"other": b"origin/main", b"side": b"origin/forkmain",
          **({b"topic\xfe": b"origin/main", b"topic\xff": b"origin/main"} if BYTES_OK else {})}
 
-PAGE, PULL, FETCH = "/repo/t/clone", "/repos/t/clone/incoming/pull", "/repos/t/clone/incoming/fetch"
+PAGE, PULL, FETCH = "/repo/t/clone", "/incoming/t/clone/pull", "/incoming/t/clone/fetch"
 
 
 @pytest.fixture(autouse=True)

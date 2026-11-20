@@ -4,7 +4,7 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
    first, in its own panel built only from what the operation measured; the fresh read of the
    repo follows under its own heading. Every word is computed by web/routes/incoming.py. #}
 {% set page_url = "/repo/" ~ repo.workspace ~ "/" ~ repo.key %}
-{% set act = "/repos/" ~ repo.workspace ~ "/" ~ repo.key ~ "/incoming" %}
+{% set act = "/incoming/" ~ repo.workspace ~ "/" ~ repo.key %}
 {% set br %}<code>{{ inc.branch }}</code>{% endset %}
 {% set how %}moves {{ br }} forward to <code>{{ inc.tip7 }}</code>, the newest commit listed here, and nothing newer. It does not fetch first. If {{ br }} or <code>{{ inc.upstream }}</code> has changed since this list was drawn, it stops and shows the new list.{% endset %}
 {% set others %}<b>Pull all</b> in the library toolbar is different: it fetches and takes the newest.{% endset %}

@@ -437,7 +437,7 @@ def _inspection(repo, repo_path, view: IncomingView, now: datetime, prev_tip: st
         fetch_btn = Markup('<button type="button" class="linkbtn" data-busy="fetching" '
                            'hx-post="{}" hx-vals=\'{}\' hx-target="#repo-page" hx-select="#repo-page" '
                            'hx-swap="outerHTML">⟳ Fetch again</button>').format(
-            f"/repos/{repo.workspace}/{repo.key}/incoming/fetch",
+            f"/incoming/{repo.workspace}/{repo.key}/fetch",
             Markup(escape(_json({"prev_tip": view.tip}))))
         if fetched["none"]:
             facts.append(_fact("note", "old fetch", Markup(
@@ -653,7 +653,7 @@ def _resolve(workspace: str, key: str):
     return store, repo, path
 
 
-@router.post("/repos/{workspace}/{key:path}/incoming/pull", response_class=HTMLResponse)
+@router.post("/incoming/{workspace}/{key:path}/pull", response_class=HTMLResponse)
 async def incoming_pull(workspace: str, key: str, request: Request):
     """The Incoming tab's Pull: exactly the reviewed commits, or nothing. Answers with the whole page."""
     from gitstow.web.routes.pages import render_repo_detail
@@ -678,7 +678,7 @@ async def incoming_pull(workspace: str, key: str, request: Request):
     return await asyncio.to_thread(render_repo_detail, request, workspace, key, result=result)
 
 
-@router.post("/repos/{workspace}/{key:path}/incoming/fetch", response_class=HTMLResponse)
+@router.post("/incoming/{workspace}/{key:path}/fetch", response_class=HTMLResponse)
 async def incoming_fetch(workspace: str, key: str, request: Request):
     """Fetch this repo, then redraw the page from a fresh read (or say the fetch failed)."""
     from gitstow.web.routes.pages import render_repo_detail
@@ -695,7 +695,7 @@ async def incoming_fetch(workspace: str, key: str, request: Request):
     return await asyncio.to_thread(render_repo_detail, request, workspace, key, result=result)
 
 
-@router.get("/repos/{workspace}/{key:path}/incoming/diff", response_class=HTMLResponse)
+@router.get("/incoming/{workspace}/{key:path}/diff", response_class=HTMLResponse)
 def incoming_diff(workspace: str, key: str, request: Request, file: str,
                   base: str = "", tip: str = "", pinned: int = 0):
     """One file's line-by-line diff between the two commits the page was drawn from.

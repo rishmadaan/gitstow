@@ -607,7 +607,7 @@ class TestWeb:
                 f"<span class=\"diff-del\">−{removed}</span>") in html
         assert "Incoming <span class=\"ct\">3</span>" in html
         assert "Pull now" not in html  # the dead header button is gone
-        assert "/incoming/pull" in html and ids[-1] in html
+        assert "/incoming/t/clone/pull" in html and ids[-1] in html
 
     def test_no_pull_on_the_page_is_ever_disabled_with_a_hidden_reason(self, web):
         """R2-C5/R2-F2: the page's Pull comes from the same capture as its list, so a behind
@@ -616,19 +616,19 @@ class TestWeb:
         client, clone, _, _ = web
         for _ in range(2):  # no fetch on record (the old-fetch layout), then a fresh fetch
             html = client.get("/repo/t/clone").text
-            assert 'hx-post="/repos/t/clone/incoming/pull"' in html
+            assert 'hx-post="/incoming/t/clone/pull"' in html
             assert not re.search(r"<button[^>]*\bdisabled\b[^>]*>[^<]*Pull", html)
-            client.post("/repos/t/clone/incoming/fetch", data={"prev_tip": ""})
+            client.post("/incoming/t/clone/fetch", data={"prev_tip": ""})
 
     def test_incoming_pull_result_reads_back_from_git(self, web):
         import json
         import re
         client, clone, _, ids = web
         html = client.get("/repo/t/clone").text
-        vals = json.loads(re.search(r'hx-post="/repos/t/clone/incoming/pull" hx-vals=\'([^\']+)\'', html)
+        vals = json.loads(re.search(r'hx-post="/incoming/t/clone/pull" hx-vals=\'([^\']+)\'', html)
                           .group(1).replace("&#34;", '"'))
         before = git("rev-parse", "HEAD", cwd=clone)
-        r = client.post("/repos/t/clone/incoming/pull", data=vals)
+        r = client.post("/incoming/t/clone/pull", data=vals)
         assert "Pulled 3 commits" in r.text
         assert f"<code>{before[:7]}</code> to <code>{ids[-1][:7]}</code>" in r.text
         assert git("rev-parse", "HEAD", cwd=clone) == ids[-1]
@@ -640,14 +640,14 @@ class TestWeb:
         import re
         client, clone, pusher, ids = web
         html = client.get("/repo/t/clone").text
-        vals = json.loads(re.search(r'hx-post="/repos/t/clone/incoming/pull" hx-vals=\'([^\']+)\'', html)
+        vals = json.loads(re.search(r'hx-post="/incoming/t/clone/pull" hx-vals=\'([^\']+)\'', html)
                           .group(1).replace("&#34;", '"'))
         commit(pusher, "a", {"README.md": "1\n"})
         commit(pusher, "b", {"README.md": "2\n"})
         git("push", "-q", "origin", "HEAD:refs/heads/main", cwd=pusher)
         git("fetch", "-q", cwd=clone)
         head = git("rev-parse", "HEAD", cwd=clone)
-        r = client.post("/repos/t/clone/incoming/pull", data=vals)
+        r = client.post("/incoming/t/clone/pull", data=vals)
         assert "Not pulled: changed since review" in r.text and "Show the 5 now waiting" in r.text
         assert "What this pull brought in" not in r.text and 'class="commit"' not in r.text
         assert git("rev-parse", "HEAD", cwd=clone) == head
@@ -663,10 +663,10 @@ class TestWeb:
             git("checkout", "-q", "-b", name, "--track", "origin/main", cwd=clone)
             git("reset", "-q", "--hard", head, cwd=clone)
         html = client.get("/repo/t/clone").text
-        vals = json.loads(re.search(r'hx-post="/repos/t/clone/incoming/pull" hx-vals=\'([^\']+)\'', html)
+        vals = json.loads(re.search(r'hx-post="/incoming/t/clone/pull" hx-vals=\'([^\']+)\'', html)
                           .group(1).replace("&#34;", '"'))
         git("checkout", "-q", two, cwd=clone)
-        r = client.post("/repos/t/clone/incoming/pull", data=vals)
+        r = client.post("/incoming/t/clone/pull", data=vals)
         assert "Not pulled: changed since review" in r.text
         assert f"You switched from <code>{one}</code> to <code>{two}</code> since this list was drawn." in r.text
         assert git("rev-parse", f"refs/heads/{one}", f"refs/heads/{two}", cwd=clone).split() == [head, head]
@@ -675,10 +675,10 @@ class TestWeb:
         import json
         import re
         html = client.get("/repo/t/clone").text
-        vals = json.loads(re.search(r'hx-post="/repos/t/clone/incoming/pull" hx-vals=\'([^\']+)\'', html)
+        vals = json.loads(re.search(r'hx-post="/incoming/t/clone/pull" hx-vals=\'([^\']+)\'', html)
                           .group(1).replace("&#34;", '"'))
         change()
-        return client.post("/repos/t/clone/incoming/pull", data=vals).text
+        return client.post("/incoming/t/clone/pull", data=vals).text
 
     def test_a_refusal_into_a_diverged_repo_reads_well(self, web):
         """R3-F3, R3-F7: the re-read is "just now" (no pull ran), and Show is not offered as review-before-pulling
@@ -708,7 +708,7 @@ class TestWeb:
         client, clone, _, _ = web
         git("remote", "set-url", "origin", str(clone.parent / "nowhere.git"), cwd=clone)
         tip = git("rev-parse", "origin/main", cwd=clone)
-        r = client.post("/repos/t/clone/incoming/fetch", data={"prev_tip": tip})
+        r = client.post("/incoming/t/clone/fetch", data={"prev_tip": tip})
         assert "Fetch failed" in r.text and "nowhere.git" in r.text
         assert "so the list below is as of the previous fetch" in r.text
         assert not self.record().last_fetched
@@ -717,7 +717,7 @@ class TestWeb:
         client, clone, pusher, _ = web
         commit(pusher, "c4", {"README.md": "4\n"})
         git("push", "-q", "origin", "HEAD:refs/heads/main", cwd=pusher)
-        r = client.post("/repos/t/clone/incoming/fetch", data={})
+        r = client.post("/incoming/t/clone/fetch", data={})
         assert "4 commits waiting" in r.text and self.record().last_fetched
 
     def test_unreadable_repo_shows_could_not_check_and_no_pull(self, web):
@@ -725,7 +725,7 @@ class TestWeb:
         (clone / ".git" / "index").write_bytes(b"garbage")
         page = client.get("/repo/t/clone").text
         assert "Could not check" in page and "index" in page
-        assert "/incoming/pull" not in page and "Incoming <span class=\"ct\">?</span>" in page
+        assert "/incoming/t/clone/pull" not in page and "Incoming <span class=\"ct\">?</span>" in page
         row = client.get("/dashboard/rows").text
         assert ">error<" in row and "↓ Pull" not in row and ">clean<" not in row
 
@@ -763,7 +763,7 @@ class TestWeb:
         assert ">local edits<" in row and ">conflict<" not in row and "↓ 3 incoming" in row
         page = client.get("/repo/t/clone").text
         assert "Pull is off while files in this folder are edited or staged (1)" in page
-        assert "also edited in this folder" in page and "/incoming/pull" not in page
+        assert "also edited in this folder" in page and "/incoming/t/clone/pull" not in page
 
     def test_a_failed_local_listing_is_never_clean_or_zero(self, web, monkeypatch):
         """Status says one file is edited; the listing that follows fails. The page must say so."""
@@ -778,7 +778,7 @@ class TestWeb:
         assert "Local changes <span class=\"ct\">?</span>" in page
         assert "Which files, and whether this update changes any of them, could not be checked" in page
         assert "(0)" not in page and "None of them is a file this update changes" not in page
-        assert "/incoming/pull" not in page
+        assert "/incoming/t/clone/pull" not in page
 
     def test_a_failed_listing_of_untracked_files_is_stated(self, web, monkeypatch):
         from gitstow.core.git import ChangedFiles
@@ -797,7 +797,7 @@ class TestWeb:
         monkeypatch.setattr("gitstow.core.incoming.read_changed_paths", lambda *a: "fatal: compare exploded")
         page = client.get("/repo/t/clone").text
         assert "Could not check" in page and "compare exploded" in page
-        assert "Diverged:" not in page and "/incoming/pull" not in page
+        assert "Diverged:" not in page and "/incoming/t/clone/pull" not in page
 
     def test_a_failed_read_after_a_pull_keeps_the_move_and_shows_no_zero_totals(self, web, monkeypatch):
         import json
@@ -805,12 +805,12 @@ class TestWeb:
 
         client, clone, _, ids = web
         html = client.get("/repo/t/clone").text
-        vals = json.loads(re.search(r'hx-post="/repos/t/clone/incoming/pull" hx-vals=\'([^\']+)\'', html)
+        vals = json.loads(re.search(r'hx-post="/incoming/t/clone/pull" hx-vals=\'([^\']+)\'', html)
                           .group(1).replace("&#34;", '"'))
         before = git("rev-parse", "HEAD", cwd=clone)
         monkeypatch.setattr("gitstow.web.routes.incoming.read_range",
                             lambda *a: "fatal: range exploded")  # a failed read: git's message, no counts
-        r = client.post("/repos/t/clone/incoming/pull", data=vals)
+        r = client.post("/incoming/t/clone/pull", data=vals)
         assert git("rev-parse", "HEAD", cwd=clone) == ids[-1]
         assert f"moved from <code>{before[:7]}</code> to <code>{ids[-1][:7]}</code>" in r.text
         assert "The list of what came in could not be read" in r.text and "range exploded" in r.text
@@ -825,7 +825,7 @@ class TestWeb:
 
         from gitstow.core.incoming import ExactPullResult
         html = client.get("/repo/t/clone").text
-        vals = json.loads(re.search(r'hx-post="/repos/t/clone/incoming/pull" hx-vals=\'([^\']+)\'', html)
+        vals = json.loads(re.search(r'hx-post="/incoming/t/clone/pull" hx-vals=\'([^\']+)\'', html)
                           .group(1).replace("&#34;", '"'))
         before = git("rev-parse", "HEAD", cwd=clone)
 
@@ -837,7 +837,7 @@ class TestWeb:
             return ExactPullResult("failed", "error: the merge timed out (2 minutes)", merged=True,
                                    before=before, after=after, moves=None if unread else moves)
         monkeypatch.setattr("gitstow.web.routes.incoming.pull_exact", failing)
-        return before, client.post("/repos/t/clone/incoming/pull", data=vals).text
+        return before, client.post("/incoming/t/clone/pull", data=vals).text
 
     def test_a_failure_after_the_branch_moved_never_says_nothing_was_pulled(self, web, monkeypatch):
         client, clone, _, ids = web
@@ -848,7 +848,7 @@ class TestWeb:
         assert "HEAD moved" not in page  # HEAD following its branch is one move, not two
         assert "Part of the pull, or something else, changed this folder" in page
         assert "Nothing was pulled" not in page and "changed since review" not in page
-        assert "Up to date" in page and "/incoming/pull" not in page  # the fresh read below, on its own
+        assert "Up to date" in page and "/incoming/t/clone/pull" not in page  # the fresh read below, on its own
 
     def test_a_failure_with_the_branch_unmoved_says_nothing_was_pulled(self, web, monkeypatch):
         client, clone, _, _ = web
@@ -856,7 +856,7 @@ class TestWeb:
         assert git("rev-parse", "HEAD", cwd=clone) == before
         assert "Pull failed" in page and "the merge timed out (2 minutes)" in page
         assert f"is still at <code>{before[:7]}</code>" in page and "Nothing was pulled." in page
-        assert 'hx-post="/repos/t/clone/incoming/pull"' in page  # the fresh read below offers the same pull
+        assert 'hx-post="/incoming/t/clone/pull"' in page  # the fresh read below offers the same pull
 
     def test_a_failure_that_could_not_be_read_back_never_says_nothing_was_pulled(self, web, monkeypatch):
         client, clone, _, _ = web
@@ -869,9 +869,9 @@ class TestWeb:
         import json
         import re
         html = client.get("/repo/t/clone").text
-        vals = json.loads(re.search(r'hx-post="/repos/t/clone/incoming/pull" hx-vals=\'([^\']+)\'', html)
+        vals = json.loads(re.search(r'hx-post="/incoming/t/clone/pull" hx-vals=\'([^\']+)\'', html)
                           .group(1).replace("&#34;", '"'))
-        return client.post("/repos/t/clone/incoming/pull", data=vals).text
+        return client.post("/incoming/t/clone/pull", data=vals).text
 
     def test_a_refusal_before_the_merge_reads_again_just_now(self, web):
         """R4-C4: merge options gitstow cannot switch off stop the pull before git runs."""
@@ -1053,7 +1053,7 @@ class TestWeb:
         git("fetch", "-q", cwd=clone)
         head, tip = git("rev-parse", "HEAD", cwd=clone), git("rev-parse", "origin/main", cwd=clone)
         from urllib.parse import quote
-        r = client.get(f"/repos/t/clone/incoming/diff?file={quote(name)}&base={head}&tip={tip}&pinned=1")
+        r = client.get(f"/incoming/t/clone/diff?file={quote(name)}&base={head}&tip={tip}&pinned=1")
         assert self._copied(r.text, "run in this repo's folder: ") == ["git", "diff", head[:7], tip[:7], "--", name]
 
     @staticmethod
@@ -1083,11 +1083,11 @@ class TestWeb:
     def test_diff_route_only_serves_files_of_the_comparison(self, web):
         client, clone, _, ids = web
         head = git("rev-parse", "HEAD", cwd=clone)
-        ok = client.get(f"/repos/t/clone/incoming/diff?file=src/slug.py&base={head}&tip={ids[-1]}")
+        ok = client.get(f"/incoming/t/clone/diff?file=src/slug.py&base={head}&tip={ids[-1]}")
         assert 'class="diff-sign" aria-hidden="true">+</span>' in ok.text
-        other = client.get(f"/repos/t/clone/incoming/diff?file=README.md&base={head}&tip={ids[-1]}")
+        other = client.get(f"/incoming/t/clone/diff?file=README.md&base={head}&tip={ids[-1]}")
         assert "not part of this comparison" in other.text
-        bad = client.get(f"/repos/t/clone/incoming/diff?file=src/slug.py&base=HEAD&tip={ids[-1]}")
+        bad = client.get(f"/incoming/t/clone/diff?file=src/slug.py&base=HEAD&tip={ids[-1]}")
         assert bad.status_code == 400
 
     def test_unfreeze_sets_rather_than_toggles(self, web):
@@ -1104,13 +1104,13 @@ class TestWeb:
         client, _, _, _ = web
         RepoStore().update("clone", workspace="t", frozen=True)
         page = client.get("/repo/t/clone").text
-        assert "You froze this repo." in page and ">Unfreeze<" in page and "/incoming/pull" not in page
+        assert "You froze this repo." in page and ">Unfreeze<" in page and "/incoming/t/clone/pull" not in page
         assert "3 commits waiting" in page  # what is waiting is still shown
 
     def test_incoming_pull_needs_the_list_it_was_drawn_from(self, web):
         client, clone, _, _ = web
         head = git("rev-parse", "HEAD", cwd=clone)
-        assert client.post("/repos/t/clone/incoming/pull", data={}).status_code == 400
+        assert client.post("/incoming/t/clone/pull", data={}).status_code == 400
         assert git("rev-parse", "HEAD", cwd=clone) == head
 
 
@@ -1123,3 +1123,72 @@ def test_date_span_is_one_date_when_every_commit_is_from_one_day():
     assert _span(datetime(2026, 11, 3, 9), datetime(2026, 11, 20, 18), now) == "Commits dated 3 Nov to 20 Nov 2026"
     assert _span(datetime(2025, 12, 30), datetime(2026, 1, 2), now) == "Commits dated 30 Dec 2025 to 2 Jan"
     assert _span(datetime(2025, 5, 1, 1), datetime(2025, 5, 1, 2), now) == "Commits dated 1 May 2025"
+
+
+# ---------- a repo whose key ends in "incoming" keeps every row and page route ----------
+
+@pytest.fixture
+def named_incoming(tmp_path, monkeypatch):
+    """Two clones 3 behind: `someone/incoming` in a structured workspace and `incoming` in a flat one."""
+    from fastapi.testclient import TestClient
+
+    from gitstow.core.config import Settings, Workspace, save_config
+    from gitstow.core.repo import Repo, RepoStore
+    from gitstow.web.server import create_app
+
+    up, pusher = make_upstream(tmp_path)
+    s_clone = clone_into(up, tmp_path / "s" / "someone" / "incoming")
+    f_clone = clone_into(up, tmp_path / "f" / "incoming")
+    ids = push_three(pusher)
+    for c in (s_clone, f_clone):
+        git("fetch", "-q", cwd=c)
+    monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", tmp_path / "config.yaml")
+    monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", tmp_path / "config.yaml")
+    monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", tmp_path / "repos.yaml")
+    save_config(Settings(workspaces=[Workspace(path=str(tmp_path / "s"), label="s", layout="structured"),
+                                     Workspace(path=str(tmp_path / "f"), label="f", layout="flat")]))
+    RepoStore().add(Repo(owner="someone", name="incoming", remote_url="x", workspace="s"))
+    RepoStore().add(Repo(owner="", name="incoming", remote_url="x", workspace="f"))
+    app = create_app()
+
+    class _Stub:
+        should_exit = False
+    app.state.server = _Stub()
+    client = TestClient(app, base_url="http://127.0.0.1")
+    return client, {"s/someone/incoming": s_clone, "f/incoming": f_clone}, ids
+
+
+@pytest.mark.parametrize("which", ["s/someone/incoming", "f/incoming"])
+def test_a_repo_keyed_incoming_reaches_the_row_routes(named_incoming, which):
+    from gitstow.core.repo import RepoStore
+    client, clones, ids = named_incoming
+    clone = clones[which]
+    ws, key = which.split("/", 1)
+    r = client.post(f"/repos/{which}/fetch")
+    assert r.status_code == 200 and "<tr" in r.text, r.text[:300]  # the row partial, not the repo page
+    assert RepoStore().get(key, workspace=ws).last_fetched
+    r = client.post(f"/repos/{which}/pull", data={})
+    assert r.status_code == 200 and "<tr" in r.text and "row-error" not in r.text, r.text[:300]
+    assert git("rev-parse", "HEAD", cwd=clone) == ids[-1]
+    (clone / "README.md").write_text("edited here\n")  # the Local changes diff route needs an edit
+    r = client.get(f"/repos/{which}/diff?file=README.md")
+    assert r.status_code == 200 and "edited here" in r.text, r.text[:300]
+
+
+@pytest.mark.parametrize("which", ["s/someone/incoming", "f/incoming"])
+def test_a_repo_keyed_incoming_reaches_its_incoming_routes(named_incoming, which):
+    import json
+    import re
+    client, clones, ids = named_incoming
+    clone = clones[which]
+    page = client.get(f"/repo/{which}?tab=incoming").text
+    m = re.search(r'hx-post="([^"]+/pull)" hx-vals=\'([^\']+)\'', page)
+    assert m, page[:500]
+    diff_url = re.search(r'hx-get="([^"]+/diff\?[^"]+)"', page).group(1).replace("&amp;", "&")
+    d = client.get(diff_url)
+    assert d.status_code == 200 and "diff" in d.text.lower(), d.text[:300]
+    f = client.post(re.search(r'hx-post="([^"]+/fetch)"', page).group(1), data={"prev_tip": ""})
+    assert f.status_code == 200 and 'id="repo-page"' in f.text, f.text[:300]
+    r = client.post(m.group(1), data=json.loads(m.group(2).replace("&#34;", '"')))
+    assert r.status_code == 200 and 'id="repo-page"' in r.text, r.text[:300]
+    assert git("rev-parse", "HEAD", cwd=clone) == ids[-1]

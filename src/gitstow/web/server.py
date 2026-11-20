@@ -121,10 +121,8 @@ def create_app(extra_allowed_hostnames: set[str] | None = None) -> FastAPI:
     # Late imports to avoid circular imports at module load
     from gitstow.web.routes import collection, dashboard, incoming, pages, repos, system, workspaces
 
-    # First: `{key:path}` is greedy, so ".../incoming/pull" would otherwise match the
-    # row Pull route with "incoming" as part of the repo key.
-    app.include_router(incoming.router)
     app.include_router(dashboard.router)
+    app.include_router(incoming.router)
     app.include_router(workspaces.router)
     app.include_router(collection.router)
     app.include_router(pages.router)
