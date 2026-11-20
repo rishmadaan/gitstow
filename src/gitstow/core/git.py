@@ -757,7 +757,9 @@ def search_repo(
 ) -> list[dict]:
     """Search one repo with ripgrep, or `git grep` when ripgrep is absent.
 
-    rg lives here beside git grep so both run with `_git_env()`. The pattern
+    rg lives here beside git grep so both run with the repo-locating variables
+    scrubbed and GIT_TERMINAL_PROMPT=0, but in the caller's locale: under LC_ALL=C
+    `-i` would not fold non-ASCII letters (café / CAFÉ). The pattern
     goes after `-e`, so one starting with "-" is searched for, not read as an
     option. Returns {"file", "line_number", "text"} dicts ({"file"} only with
     files_only); [] on any error. Exit 1 is "no matches", not an error.
@@ -794,7 +796,7 @@ def search_repo(
             timeout=30,
             encoding="utf-8",
             errors="replace",
-            env=_git_env(repo_path),
+            env={**_cwd_only_env(repo_path), "GIT_TERMINAL_PROMPT": "0"},
         )
     except (OSError, ValueError, subprocess.TimeoutExpired):  # missing binary, NUL in pattern, slow repo
         return []

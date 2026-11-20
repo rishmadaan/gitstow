@@ -763,8 +763,10 @@ class TestSearchRepo:
 
     @pytest.mark.parametrize("use_rg", [True, False])
     @patch("gitstow.core.git.subprocess.run")
-    def test_command_uses_dash_e_and_git_env(self, mock_run, use_rg, tmp_path):
+    def test_command_uses_dash_e_and_git_env(self, mock_run, use_rg, tmp_path, monkeypatch):
         from gitstow.core.git import search_repo
+        monkeypatch.setenv("LC_ALL", "C.UTF-8")
+        monkeypatch.setenv("GIT_DIR", str(tmp_path / "elsewhere"))
         mock_run.return_value = MagicMock(returncode=1, stdout="")
         assert search_repo(tmp_path, "-foo", use_rg=use_rg, glob_filter="*.md") == []
         cmd = mock_run.call_args.args[0]
@@ -775,7 +777,26 @@ class TestSearchRepo:
             assert cmd[cmd.index("--max-depth") + 1] == "10"
         env = mock_run.call_args.kwargs["env"]
         assert env["GIT_TERMINAL_PROMPT"] == "0"
-        assert env["LC_ALL"] == "C"
+        assert "GIT_DIR" not in env
+        assert env["LC_ALL"] == "C.UTF-8"  # the caller's locale, so -i folds non-ASCII
+
+    def test_git_grep_case_insensitive_folds_non_ascii(self, tmp_path, monkeypatch):
+        import subprocess
+
+        from gitstow.core.git import search_repo
+        repo = self._repo(tmp_path)
+        (repo / "menu.txt").write_text("CAF\u00c9 open\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+        for loc in ("C.UTF-8", "C.utf8", "en_US.UTF-8", "en_US.utf8"):
+            monkeypatch.setenv("LC_ALL", loc)
+            plain = subprocess.run(["git", "grep", "-l", "-i", "-e", "caf\u00e9"], cwd=repo,
+                                   capture_output=True, text=True, encoding="utf-8")
+            if plain.stdout.strip() == "menu.txt":
+                break
+        else:
+            pytest.skip("no UTF-8 locale in which this git's grep -i folds \u00c9/\u00e9")
+        matches = search_repo(repo, "caf\u00e9", use_rg=False, case_insensitive=True)
+        assert matches == [{"file": "menu.txt", "line_number": "1", "text": "CAF\u00c9 open"}]
 
     def test_mcp_search_keeps_line_key_and_finds_dash_pattern(self, tmp_path, monkeypatch):
         import json
