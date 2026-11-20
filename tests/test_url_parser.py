@@ -298,6 +298,10 @@ class TestPathSegmentsStayInsideTheWorkspace:
         "git@github.com:acme/wid\nget.git",
         # a browse tail is not checked, but the repo path before it still is
         "https://github.com/acme//widget/blob/main/a:b.py",
+        "https://github.com/acme//widget/labels/type:bug",
+        "https://github.com/acme/wid\\get/labels/type:bug",
+        "owner/re:po",
+        "owner/re:po/labels/x",
         "https://github.com/acme/\\Documents/tree/main",
         "https://gitlab.com/group//sub/repo/-/blob/main/a:b.py",
     ])
@@ -320,6 +324,10 @@ class TestPathSegmentsStayInsideTheWorkspace:
         ("https://github.com/owner/repo/blob/main/a:b.py", "owner/repo"),
         ("https://github.com/owner/repo/tree/main/dir\\file", "owner/repo"),
         ("https://gitlab.com/group/sub/repo/-/blob/main/a:b.py", "group/sub/repo"),
+        # two-segment hosts: anything after owner/repo is a page, not a folder (CR5)
+        ("https://github.com/acme/widget/labels/type:bug", "acme/widget"),
+        ("https://github.com/acme/widget/settings/a\\b", "acme/widget"),
+        ("https://codeberg.org/acme/widget/milestone/v1:rc", "acme/widget"),
     ])
     def test_dots_inside_a_name_still_parse(self, url, key):
         assert parse_git_url(url).key == key

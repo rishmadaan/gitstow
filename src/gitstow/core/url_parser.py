@@ -141,8 +141,12 @@ def parse_git_url(
     # owner/repo becomes a folder path under the workspace. Every raw segment of the
     # repo path is checked before anything drops empty ones, so `acme//widget`, `..`,
     # `\\Documents` or `D:` can never turn into a path outside it. A browse link's tail
-    # (…/blob/main/a:b.py) is cut off later and never becomes a folder, so it is not checked.
-    if path and not all(valid_segment(seg) for seg in _before_browse_marker(host, path.split("/"))):
+    # (…/blob/main/a:b.py, or on a two-segment host anything after owner/repo, such as
+    # …/labels/type:bug) is cut off later and never becomes a folder, so it is not checked.
+    repo_path = _before_browse_marker(host, path.split("/"))
+    if host in _TWO_SEGMENT_HOSTS:
+        repo_path = repo_path[:2]
+    if path and not all(valid_segment(seg) for seg in repo_path):
         raise ValueError(f"Cannot use '{original}': {_SEGMENT_RULE}")
 
     # Azure DevOps SSH (git@ssh.dev.azure.com:v3/org/project/repo, or the legacy
