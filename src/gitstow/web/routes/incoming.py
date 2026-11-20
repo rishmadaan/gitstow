@@ -60,6 +60,14 @@ def _day(dt: datetime, now: datetime) -> str:
     return f"{dt.day} {_MON[dt.month - 1]}" + ("" if dt.year == now.year else f" {dt.year}")
 
 
+def _span(first: datetime, last: datetime, now: datetime) -> str:
+    """'Commits dated 3 Nov to 20 Nov 2026', or one date when every commit is from the same day."""
+    year = "" if first.year != last.year or last.year != now.year else f" {now.year}"
+    if first.date() == last.date():
+        return f"Commits dated {_day(first, now)}{year}"
+    return f"Commits dated {_day(first, now)} to {_day(last, now)}{year}"
+
+
 def _local(ts: int) -> datetime:
     """A unix time as naive local time, comparable with datetime.now()."""
     return datetime.fromtimestamp(ts, tz=timezone.utc).astimezone().replace(tzinfo=None)
@@ -443,9 +451,7 @@ def build_incoming(repo, repo_path, result: dict | None = None) -> dict:
             f" · {_n(rng.binary_total)} binary" if rng.binary_total else "", _plural(rng.authors, "author"))
     span_bits = []
     if show_lists and rng.commits_cut and rng.first_time:
-        first, last = _local(rng.first_time), _local(rng.last_time)
-        span_bits.append(f"Commits dated {_day(first, now)} to {_day(last, now)}"
-                         + ("" if first.year != last.year or last.year != now.year else f" {now.year}"))
+        span_bits.append(_span(_local(rng.first_time), _local(rng.last_time), now))
     if show_lists and rng.tags:
         shown_tags = ", ".join(rng.tags[:8]) + (f" and {len(rng.tags) - 8} more" if len(rng.tags) > 8 else "")
         span_bits.append(f"{'Tag' if len(rng.tags) == 1 else 'Tags'} inside this update: {shown_tags}")

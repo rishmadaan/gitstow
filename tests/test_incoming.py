@@ -777,3 +777,14 @@ class TestWeb:
         head = git("rev-parse", "HEAD", cwd=clone)
         assert client.post("/repos/t/clone/incoming/pull", data={}).status_code == 400
         assert git("rev-parse", "HEAD", cwd=clone) == head
+
+
+def test_date_span_is_one_date_when_every_commit_is_from_one_day():
+    from datetime import datetime
+
+    from gitstow.web.routes.incoming import _span
+    now = datetime(2026, 11, 20, 22)
+    assert _span(datetime(2026, 11, 20, 9), datetime(2026, 11, 20, 18), now) == "Commits dated 20 Nov 2026"
+    assert _span(datetime(2026, 11, 3, 9), datetime(2026, 11, 20, 18), now) == "Commits dated 3 Nov to 20 Nov 2026"
+    assert _span(datetime(2025, 12, 30), datetime(2026, 1, 2), now) == "Commits dated 30 Dec 2025 to 2 Jan"
+    assert _span(datetime(2025, 5, 1, 1), datetime(2025, 5, 1, 2), now) == "Commits dated 1 May 2025"
