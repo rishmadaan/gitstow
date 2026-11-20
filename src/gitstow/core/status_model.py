@@ -6,7 +6,8 @@ surface (CLI, web, JSON) describes a repo's state.
 
 Two SEPARATE dimensions (per the project standards in CLAUDE.md):
   local  — working-tree composition: modified / staged / untracked counts
-  remote — relationship to upstream: in-sync / ahead / behind / diverged
+  remote — relationship to upstream: in-sync / ahead / behind / diverged, or why there is
+           none to compare with (no-commits / no-upstream / upstream-gone)
 Presence (missing / unreadable) and frozen are overlays, not states of either.
 """
 
@@ -65,6 +66,8 @@ class RepoState:
             return "no-commits"
         if not self.has_upstream:
             return "no-upstream"
+        if self.upstream_gone:
+            return "upstream-gone"
         if self.ahead and self.behind:
             return "diverged"
         if self.behind:
@@ -78,7 +81,7 @@ class RepoState:
         """What a bulk pull should do with this repo.
 
         One of: pull | noop | skip-local | skip-frozen | skip-missing |
-        skip-diverged | skip-no-upstream | skip-no-commits.
+        skip-diverged | skip-no-upstream | skip-no-commits | skip-upstream-gone.
         """
         if self.presence != "ok":
             return "skip-missing"
@@ -95,6 +98,8 @@ class RepoState:
         if not self.has_upstream:
             # A repo you `git init`ed locally — there is nothing to pull from.
             return "skip-no-upstream"
+        if self.upstream_gone:  # nothing to take, and a fetch only says so again
+            return "skip-upstream-gone"
         if self.behind:
             return "pull"
         return "noop"

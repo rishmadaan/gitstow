@@ -76,6 +76,12 @@ def _pull_one_repo(repo: Repo, ws: Workspace, force: bool = False, named: bool =
             "status": "skipped",
             "detail": "Local-only repo — no upstream configured",
         }
+    if state.remote_state == "upstream-gone" and not named:  # named: the fetch may bring it back
+        return {
+            "repo": repo.key,
+            "status": "skipped",
+            "detail": "Upstream gone — the branch it follows no longer exists here (deleted on the remote?)",
+        }
 
     result = git_pull(path)
     if result.success:
@@ -127,6 +133,7 @@ def pull(
     local work); untracked-only repos are pulled. --force pulls such repos
     anyway, but only the ones you name: a bulk pull never forces.
     Diverged repos are skipped — resolve manually with rebase or merge.
+    So are repos whose upstream branch no longer exists here (named ones fetch first).
 
     \b
     Examples:

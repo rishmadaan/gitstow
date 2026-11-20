@@ -552,6 +552,49 @@ class TestCli:
         assert data["state"] == "upstream-gone" and data["branch"] == "main" and data["commits"] == []
         assert "origin/main, which does not exist in this folder" in data["note"]
 
+    @staticmethod
+    def _gone(clone):
+        """origin/main deleted here only: the remote still has main, so any fetch brings it back."""
+        git("update-ref", "-d", "refs/remotes/origin/main", cwd=clone)
+        return git("rev-parse", "HEAD", cwd=clone)
+
+    @staticmethod
+    def _fetched(clone) -> bool:
+        return bool(git("for-each-ref", "refs/remotes/origin/main", cwd=clone))
+
+    def test_bulk_pulls_skip_an_upstream_gone_repo_without_fetching(self, behind, tmp_path, monkeypatch):
+        """CR4: the CLI's bulk pull and the MCP pull_repos say "upstream gone" and never fetch it."""
+        import json
+
+        from typer.testing import CliRunner
+
+        from gitstow.cli.main import app
+        from gitstow.mcp.server import pull_repos
+        clone, _, _ = behind
+        self._seed(clone, tmp_path, monkeypatch)
+        head = self._gone(clone)
+        out = CliRunner().invoke(app, ["pull", "--json"])
+        (row,) = json.loads(out.stdout)["results"]
+        assert row["status"] == "skipped" and "upstream gone" in row["detail"].lower(), row
+        (row,) = json.loads(pull_repos())["results"]
+        assert row["status"] == "skipped" and "upstream gone" in row["detail"].lower(), row
+        assert git("rev-parse", "HEAD", cwd=clone) == head and not self._fetched(clone)
+
+    def test_a_named_pull_of_an_upstream_gone_repo_still_fetches(self, behind, tmp_path, monkeypatch):
+        """Named, the pull fetches first (as for a branch with no commits): the fetch may bring it back."""
+        import json
+
+        from typer.testing import CliRunner
+
+        from gitstow.cli.main import app
+        clone, _, ids = behind
+        self._seed(clone, tmp_path, monkeypatch)
+        self._gone(clone)
+        out = CliRunner().invoke(app, ["pull", clone.name, "--json"])
+        (row,) = json.loads(out.stdout)["results"]
+        assert row["status"] == "pulled", row
+        assert git("rev-parse", "HEAD", cwd=clone) == ids[-1]
+
     def test_nothing_incoming_says_so(self, behind, tmp_path, monkeypatch):
         from typer.testing import CliRunner
 
@@ -761,6 +804,15 @@ class TestWeb:
         assert "/incoming/t/clone/pull" not in page and "Incoming <span class=\"ct\">?</span>" in page
         row = client.get("/dashboard/rows").text
         assert ">error<" in row and "↓ Pull" not in row and ">clean<" not in row
+
+    def test_pull_all_skips_an_upstream_gone_repo_without_fetching(self, web):
+        client, clone, _, _ = web
+        git("update-ref", "-d", "refs/remotes/origin/main", cwd=clone)
+        head = git("rev-parse", "HEAD", cwd=clone)
+        text = client.post("/repos/pull-all").text
+        assert "1 skipped" in text and "upstream gone" in text and "failed" not in text, text
+        assert git("rev-parse", "HEAD", cwd=clone) == head
+        assert not git("for-each-ref", "refs/remotes/origin/main", cwd=clone)
 
     def test_upstream_gone_keeps_the_header_and_local_changes(self, web):
         client, clone, _, _ = web

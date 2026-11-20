@@ -132,7 +132,7 @@ def _delta(state: RepoState, last_fetched: str = "", upstream: str = "") -> tupl
     if state.upstream_gone:
         return ("local", "upstream gone",
                 ("The upstream this branch follows does not exist here (deleted on the remote?). "
-                 "Open the repo page for git's message."))
+                 "Bulk pulls skip it; Fetch checks whether the remote has it again."))
     ahead, behind = state.ahead, state.behind
     suffix = ""
     if last_fetched and state.presence == "ok" and state.has_upstream:

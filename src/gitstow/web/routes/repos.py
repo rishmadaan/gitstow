@@ -165,6 +165,8 @@ def _pull_if_safe(path):
         return {"skipped_local": True, "detail": "no commits yet"}
     if state.pull_action == "skip-no-upstream":
         return {"skipped_local": True, "detail": "local-only — no upstream"}
+    if state.pull_action == "skip-upstream-gone":
+        return {"skipped_local": True, "detail": "upstream gone — the branch it follows no longer exists here"}
     return git_pull(path)
 
 

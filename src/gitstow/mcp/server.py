@@ -241,7 +241,8 @@ def pull_repos(
 
     Frozen repos are skipped unless include_frozen is true. Repos with modified
     or staged changes are skipped (never risk losing local work); untracked-only
-    repos are pulled. Diverged repos are skipped — resolve manually.
+    repos are pulled. Diverged repos are skipped — resolve manually — and so are
+    repos whose upstream branch no longer exists here ("upstream gone").
 
     Args:
         tag: Only pull repos with this tag.
