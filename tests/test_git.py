@@ -3,6 +3,7 @@
 
 """Tests for git wrapper module (mocked subprocess)."""
 
+import os
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -778,6 +779,28 @@ class TestSearchRepo:
         from gitstow.core.git import search_repo
         matches = search_repo(self._repo(tmp_path), "-foo", use_rg=True, glob_filter="*.py")
         assert [m["file"] for m in matches] == ["a.py"]
+
+    @pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                        reason="needs a file the test user cannot read")
+    def test_rg_keeps_matches_when_one_file_is_unreadable(self, tmp_path):
+        import shutil
+        if shutil.which("rg") is None:
+            pytest.skip("ripgrep not installed")
+        from gitstow.core.git import search_repo
+        repo = self._repo(tmp_path)
+        (repo / "locked.py").write_text("-foo locked\n")
+        (repo / "locked.py").chmod(0)
+        try:
+            matches = search_repo(repo, "-foo", use_rg=True, glob_filter="*.py")
+        finally:
+            (repo / "locked.py").chmod(0o644)
+        assert matches == [{"file": "a.py", "line_number": "1", "text": "x = 1  # -foo flag"}]
+
+    @patch("gitstow.core.git.subprocess.run")
+    def test_git_grep_exit_2_is_still_an_error(self, mock_run, tmp_path):
+        from gitstow.core.git import search_repo
+        mock_run.return_value = MagicMock(returncode=2, stdout="a.py:1:-foo\n")
+        assert search_repo(tmp_path, "-foo", use_rg=False) == []
 
     @pytest.mark.parametrize("files_only", [False, True])
     def test_rg_searches_the_repo_not_a_piped_stdin(self, tmp_path, files_only):

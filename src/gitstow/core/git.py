@@ -769,7 +769,8 @@ def search_repo(
     `-i` would not fold non-ASCII letters (café / CAFÉ). The pattern
     goes after `-e`, so one starting with "-" is searched for, not read as an
     option. Returns {"file", "line_number", "text"} dicts ({"file"} only with
-    files_only); [] on any error. Exit 1 is "no matches", not an error.
+    files_only); [] on any error. Exit 1 is "no matches", not an error; rg's exit 2
+    (an unreadable file) keeps the matches it printed.
     """
     if use_rg:
         cmd = ["rg", "--no-heading", "--with-filename", "--line-number"]
@@ -810,7 +811,8 @@ def search_repo(
         )
     except (OSError, ValueError, subprocess.TimeoutExpired):  # missing binary, NUL in pattern, slow repo
         return []
-    if result.returncode not in (0, 1):
+    # rg exits 2 when some file could not be read; what it did print are real matches.
+    if result.returncode not in ((0, 1, 2) if use_rg else (0, 1)):
         return []
 
     matches = []
