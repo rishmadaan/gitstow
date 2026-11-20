@@ -222,8 +222,11 @@ def clone(
     Returns:
         (success, error_message)
     """
-    target.parent.mkdir(parents=True, exist_ok=True)
-    staging = Path(tempfile.mkdtemp(prefix=".gitstow-clone-", dir=target.parent))
+    try:  # a read-only or full workspace is a failed clone, not a crash
+        target.parent.mkdir(parents=True, exist_ok=True)
+        staging = Path(tempfile.mkdtemp(prefix=".gitstow-clone-", dir=target.parent))
+    except OSError as exc:
+        return False, f"could not create {target}: {exc.strerror or exc}"
     work = staging / target.name
     args = ["clone", "--progress"]
     if shallow:

@@ -830,6 +830,70 @@ class TestTrackedButFolderMissing:
             ("owner/repo", "ws", "https://github.com/owner/repo.git", ["keep"])]
 
 
+@pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                    reason="needs a folder the test user cannot write to")
+class TestAddIntoReadOnlyWorkspace:
+    """A workspace gitstow cannot write to is a failed add on every surface: no traceback, no 500."""
+
+    @pytest.fixture
+    def ws_dir(self, tmp_path, monkeypatch):
+        ws_dir = TestAddParallelAndConflicts()._setup(tmp_path, monkeypatch)
+        ws_dir.chmod(0o555)
+        yield ws_dir
+        ws_dir.chmod(0o755)
+
+    def _nothing_created(self, tmp_path, ws_dir):
+        from gitstow.core.repo import RepoStore
+        assert list(ws_dir.iterdir()) == []
+        assert RepoStore(path=tmp_path / "repos.yaml").list_all() == []
+
+    @pytest.mark.parametrize("owner_exists", [False, True])  # fails at mkdir / at mkdtemp
+    def test_clone_returns_the_error(self, tmp_path, ws_dir, owner_exists):
+        from gitstow.core.git import clone
+        target = ws_dir / "owner" / "repo"
+        if owner_exists:
+            ws_dir.chmod(0o755)
+            target.parent.mkdir()
+            target.parent.chmod(0o555)
+        try:
+            assert clone("https://github.com/owner/repo.git", target) == (
+                False, f"could not create {target}: Permission denied")
+            assert list(ws_dir.iterdir()) == ([target.parent] if owner_exists else [])
+            assert not owner_exists or list(target.parent.iterdir()) == []
+        finally:
+            target.parent.exists() and target.parent.chmod(0o755)
+
+    def test_cli_add(self, tmp_path, ws_dir):
+        result = runner.invoke(app, ["add", "owner/repo", "--json"])
+        assert result.exit_code == 1, result.output
+        assert json.loads(result.stdout)["results"] == [{
+            "repo": "owner/repo", "status": "error",
+            "error": f"could not create {ws_dir / 'owner' / 'repo'}: Permission denied"}]
+        self._nothing_created(tmp_path, ws_dir)
+
+    def test_mcp_add_repo(self, tmp_path, ws_dir):
+        from gitstow.mcp.server import add_repo
+        assert json.loads(add_repo("owner/repo")) == {
+            "success": False,
+            "error": f"could not create {ws_dir / 'owner' / 'repo'}: Permission denied"}
+        self._nothing_created(tmp_path, ws_dir)
+
+    def test_dashboard_add(self, tmp_path, ws_dir):
+        import html
+
+        from fastapi.testclient import TestClient
+
+        from gitstow.web.server import create_app
+
+        client = TestClient(create_app(), base_url="http://127.0.0.1", raise_server_exceptions=False)
+        r = client.post("/repos/add", data={"url": "owner/repo", "workspace": "ws"},
+                        follow_redirects=False)
+        assert r.status_code == 200
+        assert (f"Clone failed: could not create {ws_dir / 'owner' / 'repo'}: Permission denied"
+                in html.unescape(r.text))
+        self._nothing_created(tmp_path, ws_dir)
+
+
 class TestAddNeverDeletesLocalRepo:
     """`add` must never clone over, or delete, a local repo that has no remote."""
 
