@@ -63,6 +63,22 @@ def _get_repo_status(repo: Repo, ws: Workspace) -> dict:
     }
 
 
+def remote_label(remote: dict) -> str:
+    """The Remote cell for one repo's `remote` dict (RepoState.to_dict), in the dashboard's words."""
+    remote_state = remote.get("state", "unknown")
+    remote_styles = {
+        "in-sync": "[dim]—[/dim]",
+        "ahead": f"[blue]↑{remote.get('ahead', 0)}[/blue]",
+        "behind": f"[magenta]↓{remote.get('behind', 0)}[/magenta]",
+        "diverged": f"[red]↑{remote.get('ahead', 0)} ↓{remote.get('behind', 0)}[/red]",
+        "no-upstream": "[dim]no upstream[/dim]" if remote.get("has_remote", True) else "[dim]local[/dim]",
+        "upstream-gone": "[yellow]upstream gone[/yellow]",
+        "no-commits": "[dim]no commits yet[/dim]",
+        "unknown": "[dim]?[/dim]",
+    }
+    return remote_styles.get(remote_state, remote_state)
+
+
 def status(
     ctx: typer.Context,
     tag: list[str] | None = typer.Option(
@@ -186,18 +202,7 @@ def status(
             local_str = f"[yellow]{summary}[/yellow]"
 
         # Remote relationship (separate dimension from local state)
-        remote = s.get("remote", {})
-        remote_state = remote.get("state", "unknown")
-        remote_styles = {
-            "in-sync": "[dim]—[/dim]",
-            "ahead": f"[blue]↑{remote.get('ahead', 0)}[/blue]",
-            "behind": f"[magenta]↓{remote.get('behind', 0)}[/magenta]",
-            "diverged": f"[red]↑{remote.get('ahead', 0)} ↓{remote.get('behind', 0)}[/red]",
-            "no-upstream": "[dim]no upstream[/dim]",
-            "no-commits": "[dim]no commits yet[/dim]",
-            "unknown": "[dim]?[/dim]",
-        }
-        remote_str = remote_styles.get(remote_state, remote_state)
+        remote_str = remote_label(s.get("remote", {}))
 
         # Last commit
         commit_str = s.get("last_commit", "")

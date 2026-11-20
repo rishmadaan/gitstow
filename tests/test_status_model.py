@@ -93,4 +93,4 @@ class TestClassify:
         d = classify(exists=True, frozen=False, status=_status(dirty=1, ahead=2)).to_dict()
         assert d["presence"] == "ok"
         assert d["local"] == {"modified": 1, "staged": 0, "untracked": 0, "summary": "1 modified"}
-        assert d["remote"] == {"state": "ahead", "ahead": 2, "behind": 0}
+        assert d["remote"] == {"state": "ahead", "ahead": 2, "behind": 0, "has_remote": True, "upstream_gone": False}

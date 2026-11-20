@@ -32,6 +32,7 @@ from gitstow.core.git import (
     is_git_repo,
 )
 from gitstow.core.repo import MISSING_FOLDER_HINT, Repo, RepoStore, inside_workspace, target_for
+from gitstow.core.status_model import classify
 from gitstow.core.url_parser import parse_git_url
 
 mcp = FastMCP(
@@ -420,6 +421,7 @@ def repo_status(
             "tags": repo.tags,
             "last_commit": commit.message,
             "last_commit_date": commit.date,
+            "remote": classify(exists=True, frozen=repo.frozen, status=status).to_dict()["remote"],
         }
         statuses.append(entry)
 
@@ -480,6 +482,7 @@ def repo_info(repo_key: str) -> str:
             "last_commit_date": commit.date,
             "disk_size_bytes": size,
             "disk_size": format_size(size),
+            "remote": classify(exists=True, frozen=repo.frozen, status=status).to_dict()["remote"],
         })
 
     return json.dumps(info, indent=2)

@@ -119,6 +119,8 @@ class RepoState:
                 "state": self.remote_state,
                 "ahead": self.ahead,
                 "behind": self.behind,
+                "has_remote": self.has_remote,        # with state "no-upstream": False means no remote at all
+                "upstream_gone": self.upstream_gone,
             },
         }
 

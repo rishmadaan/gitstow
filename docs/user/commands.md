@@ -257,11 +257,11 @@ gitstow status [flags]
 | `--json` | `-j` | JSON output. |
 | `--quiet` | `-q` | Minimal output. |
 
-Shows: repo name, branch, a **Local Changes** column (composition — e.g. "2 modified · 1 staged · 3 untracked", or "clean"), a separate **Remote** column (in-sync / ahead / behind / diverged / no-upstream), and last commit message and date. Local working-tree state and remote relationship are always shown as two separate dimensions — never a bare "dirty" bucket.
+Shows: repo name, branch, a **Local Changes** column (composition — e.g. "2 modified · 1 staged · 3 untracked", or "clean"), a separate **Remote** column in the dashboard's words (`—` in sync, `↑N`, `↓N`, `↑N ↓N` diverged, `no upstream`, `local` for a repo with no remote, `upstream gone`, `no commits yet`), and last commit message and date. Local working-tree state and remote relationship are always shown as two separate dimensions — never a bare "dirty" bucket.
 
 **JSON output** (`--json`) keeps all existing flat fields (`dirty`, `staged`, `untracked`, `ahead`, `behind`, `clean`, `status_symbol`, ...) and adds two keys from the shared status model:
 - `local` — `{modified, staged, untracked, summary}`
-- `remote` — `{state, ahead, behind}`, where `state` is one of `in-sync` / `ahead` / `behind` / `diverged` / `no-upstream` / `unknown`
+- `remote` — `{state, ahead, behind, has_remote, upstream_gone}`, where `state` is one of `in-sync` / `ahead` / `behind` / `diverged` / `no-upstream` / `upstream-gone` / `no-commits` / `unknown`; with `no-upstream`, `has_remote: false` means the repo has no remote at all
 
 **Status symbols** (legacy `status_symbol` JSON field):
 - `✓` clean
@@ -347,7 +347,7 @@ gitstow repo tags --quiet   # One tag per line (for scripting/completions)
 
 ### `gitstow repo info`
 
-Detailed view of a single repo: remote URL, path, branch, status, frozen, tags, disk size, last commit.
+Detailed view of a single repo: remote URL, path, branch, status, its relationship to the upstream (the same words and `remote` JSON key as `gitstow status`), frozen, tags, disk size, last commit.
 
 ```bash
 gitstow repo info anthropic/claude-code

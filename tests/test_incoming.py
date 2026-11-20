@@ -595,6 +595,36 @@ class TestCli:
         assert row["status"] == "pulled", row
         assert git("rev-parse", "HEAD", cwd=clone) == ids[-1]
 
+    @pytest.mark.parametrize("case", ["upstream-gone", "no-remote"])
+    def test_status_info_and_mcp_say_what_the_dashboard_says(self, behind, tmp_path, monkeypatch, case):
+        """CR5: upstream gone and no remote read the same in `status`, `repo info` (text and JSON)
+        and the MCP status tools as in the dashboard row, never in sync."""
+        import json
+
+        from typer.testing import CliRunner
+
+        from gitstow.cli.main import app
+        from gitstow.mcp.server import repo_info, repo_status
+        clone, _, _ = behind
+        self._seed(clone, tmp_path, monkeypatch)
+        if case == "upstream-gone":
+            git("update-ref", "-d", "refs/remotes/origin/main", cwd=clone)
+            word, want = "upstream gone", {"state": "upstream-gone", "upstream_gone": True, "has_remote": True}
+        else:
+            git("remote", "remove", "origin", cwd=clone)
+            word, want = "local", {"state": "no-upstream", "upstream_gone": False, "has_remote": False}
+        r = CliRunner()
+        (st,) = json.loads(r.invoke(app, ["status", "--json"]).stdout)
+        info = json.loads(r.invoke(app, ["repo", "info", clone.name, "--json"]).stdout)
+        (mcp_st,) = json.loads(repo_status())
+        for remote in (st["remote"], info["remote"], mcp_st["remote"], json.loads(repo_info(clone.name))["remote"]):
+            assert {k: remote[k] for k in want} == want, remote
+        (row,) = [ln for ln in r.invoke(app, ["status"], env={"COLUMNS": "200"}).stdout.splitlines() if "clone" in ln]
+        assert word in row and "—" not in row, row  # "—" is the in-sync cell
+        (row,) = [ln for ln in r.invoke(app, ["repo", "info", clone.name], env={"COLUMNS": "200"}).stdout.splitlines()
+                  if ln.split()[:1] == ["Remote"] and ln.split()[1:2] != ["URL"]]
+        assert row.split()[1:] == word.split(), row
+
     def test_nothing_incoming_says_so(self, behind, tmp_path, monkeypatch):
         from typer.testing import CliRunner
 

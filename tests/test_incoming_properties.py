@@ -522,7 +522,8 @@ def test_a_branch_with_no_commits_is_its_own_state_on_every_surface(unborn_lab):
     rows = {r["repo"]: r for r in json.loads(out.output)}
     for name in ("fresh", "empty"):
         assert "error" not in rows[name] and rows[name]["branch"] == "main"
-        assert rows[name]["remote"] == {"state": "no-commits", "ahead": 0, "behind": 0}
+        assert rows[name]["remote"] == {"state": "no-commits", "ahead": 0, "behind": 0,
+                                        "has_remote": name == "empty", "upstream_gone": False}
         diff = CliRunner().invoke(app, ["diff", name, "--incoming", "--json"])
         assert diff.exit_code == 0 and json.loads(diff.output)["state"] == "unborn", diff.output
     pytest.importorskip("mcp")

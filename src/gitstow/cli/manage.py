@@ -12,6 +12,7 @@ import typer
 from rich.console import Console
 
 from gitstow.cli.helpers import resolve_repo
+from gitstow.cli.status import remote_label
 from gitstow.core.config import load_config
 from gitstow.core.git import (
     format_size,
@@ -302,7 +303,7 @@ def info(
     console.print(f"\n  [bold]{repo.key}[/bold]\n")
 
     rows = [
-        ("Remote", repo.remote_url),
+        ("Remote URL", repo.remote_url),
         ("Path", str(path)),
     ]
 
@@ -310,6 +311,7 @@ def info(
         rows.extend([
             ("Branch", info_data.get("branch", "unknown")),
             ("Status", info_data.get("status", "unknown")),
+            ("Remote", remote_label(info_data["remote"]) if "remote" in info_data else "[dim]?[/dim]"),
             ("Frozen", "[cyan]yes[/cyan]" if repo.frozen else "no"),
             ("Tags", ", ".join(repo.tags) if repo.tags else "[dim]none[/dim]"),
             ("Added", repo.added or "[dim]unknown[/dim]"),
