@@ -14,6 +14,7 @@ from rich.console import Console
 
 from gitstow.cli.helpers import iter_repos_with_workspace
 from gitstow.core.config import load_config
+from gitstow.core.git import _cwd_only_env
 from gitstow.core.parallel import run_parallel_sync
 from gitstow.core.repo import RepoStore
 
@@ -33,6 +34,7 @@ def _exec_in_repo(repo_path, command: list[str]) -> dict:
             timeout=120,
             encoding="utf-8",
             errors="replace",
+            env=_cwd_only_env(repo_path),  # a hook's GIT_DIR must not pick the repo
         )
         return {
             "returncode": result.returncode,

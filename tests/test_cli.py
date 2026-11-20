@@ -894,6 +894,33 @@ class TestAddIntoReadOnlyWorkspace:
         self._nothing_created(tmp_path, ws_dir)
 
 
+class TestExecIgnoresRepoLocatingVariables:
+    """Run from a git hook (GIT_DIR set for the hook's repo), exec still acts on each tracked repo."""
+
+    @pytest.mark.parametrize("sequential", [False, True])
+    def test_git_dir_of_another_repo_does_not_win(self, tmp_path, monkeypatch, sequential):
+        import subprocess
+
+        from gitstow.core.repo import Repo, RepoStore
+
+        ws_dir = TestAddParallelAndConflicts()._setup(tmp_path, monkeypatch)
+        hook_repo, tracked = tmp_path / "hook-repo", ws_dir / "owner" / "repo"
+        for path in (hook_repo, tracked):
+            subprocess.run(["git", "init", "-q", str(path)], check=True)
+        RepoStore(path=tmp_path / "repos.yaml").add(
+            Repo(owner="owner", name="repo", remote_url="", workspace="ws"))
+        monkeypatch.setenv("GIT_DIR", str(hook_repo / ".git"))
+        monkeypatch.setenv("GIT_WORK_TREE", str(hook_repo))
+
+        result = runner.invoke(app, ["exec", "--json", *(["--sequential"] if sequential else []),
+                                     "--", "git", "rev-parse", "--show-toplevel"])
+
+        assert result.exit_code == 0, result.output
+        [entry] = json.loads(result.stdout)
+        assert entry["returncode"] == 0, entry
+        assert Path(entry["stdout"]).resolve() == tracked.resolve()
+
+
 class TestAddNeverDeletesLocalRepo:
     """`add` must never clone over, or delete, a local repo that has no remote."""
 
