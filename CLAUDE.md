@@ -63,7 +63,7 @@ src/gitstow/
 - `core/repo.py` — Repo with workspace field, RepoStore with nested YAML format, legacy auto-migration.
 - `core/discovery.py` — `discover_repos(root, layout)` supports structured and flat layouts.
 - `core/url_parser.py` — URL parsing (the hardest part). Test changes here thoroughly.
-- `core/git.py` — All git subprocess calls. Uses `git status --porcelain=v2 --branch` for single-call efficiency.
+- `core/git.py` — All git subprocess calls. `get_status()` reads one capture (`capture_branch`: a byte-exact `for-each-ref` of the local branches with the HEAD marker and each upstream, then `rev-parse` of the upstream by its full name), counts ahead/behind between those two exact ids (`rev-list --left-right --count`), and runs a branch-less `git status --porcelain=v2` only for the local-edit counts.
 - `core/parallel.py` — Async execution with semaphore (max 6 concurrent).
 - `core/status_model.py` — `RepoState` — the single source of truth for local (modified/staged/untracked) vs remote (in-sync/ahead/behind/diverged) classification, consumed by CLI, web, and JSON.
 - `core/operations.py` — Shared `filter_repo_pairs()` + bulk-runner used by `pull`, `fetch`, and the MCP server so surfaces can't drift.
@@ -134,7 +134,7 @@ ruff check src/
 - Typer with `rich_markup_mode="rich"`, `typer.Context` for global options
 - YAML for persistence (not JSON, not SQLite)
 - asyncio with semaphore for parallel git ops
-- `git status --porcelain=v2 --branch` for single-call status (vs gita's 4-5 calls)
+- Status is one capture plus a branch-less `git status --porcelain=v2` (see `core/git.py`): every label, id and count on a surface, and the pull token built from it, comes from that one capture, never from a second read
 - Repo.global_key (`workspace:key`) for unique identification across workspaces
 - Legacy format auto-migration (flat repos.yaml → nested, root_path → workspaces) — migration happens in `load_config()` and is written to disk, never synthesized on read
 - `app.state.tailscale_serving` — `run()` records what it actually bound; the settings page compares saved config against that instead of guessing, so restart notices state facts (and direction), never implied live changes
