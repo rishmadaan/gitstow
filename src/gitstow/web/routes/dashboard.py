@@ -111,6 +111,9 @@ def _delta(state: RepoState, last_fetched: str = "") -> tuple[str, str, str]:
         # Never the in-sync "—": nothing about this repo's upstream is known.
         return ("unknown", "?", ("Unknown — the repo is missing or could not be read, so how it compares "
                                  "with its upstream is unknown. Open the repo page for git's message."))
+    if state.unborn:
+        return ("local", "no commits",
+                "No commits yet — this branch has nothing to compare with a remote yet. Bulk pulls skip it.")
     if not state.has_upstream:
         if state.has_remote:
             return ("local", "no upstream",
@@ -176,20 +179,12 @@ def _pull_tooltip(variant: str, status_class: str, behind: int, label: str = "")
     return "Pull — fetches, then fast-forwards if the remote has anything new (none known as of the last fetch)."
 
 
-def probe_row(repo_path):
-    """One row's reads: its status, and when that shows it purely behind, the exact pull its
-    "Pull N" offers (snapshot and N from one capture, core.incoming.row_pull)."""
-    status = get_status(repo_path)
-    pull = row_pull(repo_path) if not status.error and status.behind and not status.ahead else None
-    return status, pull
-
-
-def row_context(repo, ws, repo_path, status, num: int | None, sorted_labels: list[str],
-                pull=None) -> dict:
+def row_context(repo, ws, repo_path, status, num: int | None, sorted_labels: list[str]) -> dict:
     """The template context of one library row: the full dashboard and every row swap use this.
 
-    `pull` is probe_row's (snapshot, count): the "Pull N" button carries that snapshot and
-    shows that N, so the count on the button is always the count the pull takes."""
+    Everything on the row comes from the one status read: its branch label, Remote count,
+    status, and the "Pull N" button's snapshot and N (core.incoming.row_pull), so the row
+    names the branch the button pulls and the count on the button is the count it takes."""
     exists = status is not None
     state = classify(exists=exists, frozen=repo.frozen, status=status)
     status_class, status_label, pull_variant = _present(state)
@@ -198,16 +193,12 @@ def row_context(repo, ws, repo_path, status, num: int | None, sorted_labels: lis
 
     pull_tooltip = _pull_tooltip(pull_variant, status_class, behind_n, status_label)
     if state.presence == "ok" and not state.has_upstream:
-        pull_tooltip = "Pull not applicable — no upstream to pull from. Bulk pulls skip it."
-    # "Pull N" takes exactly the commit its count came from: the row carries it.
-    snapshot = pull[0].form() if pull_variant == "primary" and pull else None
-    pull_count = pull[1] if snapshot else behind_n
-    pull_note = ""
-    if pull_variant == "primary" and snapshot is None:  # no id to honour: nothing exact to offer
-        pull_variant = "disabled"
-        pull_note = ("Pull is off: the commit this count came from could not be pinned (the branch may "
-                     "have just changed).")
-        pull_tooltip = pull_note + " Open the repo page to see what is waiting."
+        pull_tooltip = ("Pull not applicable — this branch has no commits yet. Bulk pulls skip it." if state.unborn
+                        else "Pull not applicable — no upstream to pull from. Bulk pulls skip it.")
+    # "Pull N" takes exactly the commit its count came from: the row carries it. A row is
+    # "primary" only when its status is purely behind, so the same status always has one.
+    pull = row_pull(repo_path, status) if pull_variant == "primary" else None
+    snapshot = pull[0].form() if pull else None
     page = f"/repo/{repo.workspace}/{repo.key}"
     status_tooltip = f"{_STATUS_TOOLTIPS.get(status_class, status_label)} ({state.local_summary})"
     if status_label == "local edits":
@@ -245,9 +236,7 @@ def row_context(repo, ws, repo_path, status, num: int | None, sorted_labels: lis
         "pull_variant": pull_variant,
         "pull_tooltip": pull_tooltip,
         "pull_snapshot": snapshot,
-        "pull_note": pull_note,
         "behind": behind_n,
-        "pull_count": pull_count,
         "repo_link_tooltip": f"Open details for {repo.key}",
         "changes_link": (
             f"{page}?tab=local" if state.presence == "ok" and state.has_local_changes
@@ -292,10 +281,10 @@ async def _build_repos_data(settings, store) -> tuple[list, dict]:
         ws = ws_by_label[repo.workspace]
         repo_path = repo.get_path(ws.get_path())
         if repo_path.exists() and is_git_repo(repo_path):
-            probe.append((repo.global_key, functools.partial(probe_row, repo_path)))
+            probe.append((repo.global_key, functools.partial(get_status, repo_path)))
     results = await run_parallel(probe, max_concurrent=settings.parallel_limit)
     # A probe that raised is a failed read, never a missing folder or a clean one.
-    status_by_key = {r.key: (r.data if r.success else (RepoStatus(error=r.error or "git status failed"), None))
+    status_by_key = {r.key: (r.data if r.success else RepoStatus(error=r.error or "git status failed"))
                      for r in results}
 
     # Phase 2 — assemble rows in stable order.
@@ -308,8 +297,8 @@ async def _build_repos_data(settings, store) -> tuple[list, dict]:
     for i, repo in enumerate(repos, start=1):
         ws = ws_by_label[repo.workspace]
         repo_path = repo.get_path(ws.get_path())
-        status, pull = status_by_key.get(repo.global_key, (None, None))
-        row = row_context(repo, ws, repo_path, status, i, ws_sorted, pull)
+        status = status_by_key.get(repo.global_key)
+        row = row_context(repo, ws, repo_path, status, i, ws_sorted)
         # Counts ladder — one bucket per row; presence and the labels that share
         # a css class (local edits, diverged) are checked before the class itself.
         if repo.frozen:

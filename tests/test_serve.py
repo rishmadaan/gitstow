@@ -58,55 +58,22 @@ def client(isolated):
     return TestClient(app, base_url="http://127.0.0.1")
 
 
-@pytest.fixture(autouse=True)
-def _fake_capture_for_fake_repos(monkeypatch):
-    """The fake repos below have an empty .git: their branch capture is built from their fake
-    status (looked up at call time, so a test's own get_status patch drives both)."""
-    from gitstow.core import git as core_git
-    from gitstow.core import incoming
-
-    real_capture, real_count = incoming.capture_branch, incoming.count_between
-
-    def fake(path) -> bool:
-        return not (path / ".git" / "HEAD").exists()
-
-    def status_of(path):  # whichever module's get_status the test replaced
-        from gitstow.web.routes import dashboard, repos
-        patched = [f for f in (incoming.get_status, dashboard.get_status, repos.get_status)
-                   if f is not core_git.get_status]
-        return (patched[0] if patched else core_git.get_status)(path)
-
-    def capture(path):
-        if not fake(path):
-            return real_capture(path)
-        st = status_of(path)
-        if st.error:
-            return st.error
-        if st.branch == "(detached)":
-            return core_git.BranchCapture()
-        ref = b"refs/heads/" + st.branch.encode()
-        up = (b"refs/remotes/" + st.upstream.encode()) if st.has_upstream and st.upstream else b""
-        return core_git.BranchCapture(branch=ref, head=st.head_oid or "a" * 40, upstream=up,
-                                      tip="" if st.upstream_gone or not up else st.upstream_oid,
-                                      heads={ref: st.head_oid})
-
-    def count(path, head, tip):
-        if not fake(path):
-            return real_count(path, head, tip)
-        st = status_of(path)
-        return st.ahead, st.behind
-
-    monkeypatch.setattr(incoming, "capture_branch", capture)
-    monkeypatch.setattr(incoming, "count_between", count)
-
-
 def _fake_status(**kw) -> RepoStatus:
     # Like get_status: with an upstream, it names it and the two commit ids its counts came from.
     if kw.get("has_upstream", True):
         kw.setdefault("upstream", "origin/main")
         kw.setdefault("head_oid", "a" * 40)
         kw.setdefault("upstream_oid", "b" * 40 if kw.get("ahead") or kw.get("behind") else kw["head_oid"])
-    return RepoStatus(branch=kw.get("branch", "main"), **{k: v for k, v in kw.items() if k != "branch"})
+    st = RepoStatus(branch=kw.get("branch", "main"), **{k: v for k, v in kw.items() if k != "branch"})
+    if not st.error:  # and, like get_status, the one capture those fields came from
+        from gitstow.core.git import BranchCapture
+        ref = b"" if st.branch == "(detached)" else b"refs/heads/" + st.branch.encode()
+        up = b"refs/remotes/" + st.upstream.encode() if st.has_upstream and st.upstream else b""
+        head = st.head_oid or "a" * 40
+        st.cap = BranchCapture(branch=ref, head=head, upstream=up,
+                               tip="" if st.upstream_gone or not up else st.upstream_oid,
+                               heads={ref: head} if ref else {}, ups={ref: up} if ref else {})
+    return st
 
 
 def _make_repo_on_disk(workspace_dir, owner: str, name: str):
@@ -1009,16 +976,19 @@ class TestStatusModelInWeb:
         assert "↓ Pull 3" in r.text
         assert "Pull disabled" not in r.text
 
-    def test_behind_without_a_readable_target_offers_no_pull_n(self, client, configured, workspace_dir, monkeypatch):
-        """"Pull 3" must carry the commit its count came from; with none, there is no exact pull to offer."""
-        self._seed(workspace_dir, _fake_status(behind=3, upstream_oid=""), monkeypatch)
-        r = client.get("/dashboard/rows")
+    def test_pull_n_carries_the_status_the_row_was_drawn_from(self, client, configured, workspace_dir, monkeypatch):
+        """"Pull 3" carries the branch, ids and count of the one status read the row shows (the real-git
+        boundary property is tests/test_incoming_properties.py::test_the_library_row_...)."""
+        import html
+        import json
         import re
-        assert "↓ Pull 3" not in r.text
-        # The reason and the way forward are visible text in the row, not only a tooltip.
-        note = re.search(r'<div class="row-note">(.*?)</div>', r.text, re.S)
-        assert note and "could not be pinned" in note.group(1)
-        assert '<a href="/repo/test-ws/a/one?tab=incoming">Open the repo page to see what is waiting</a>' in note.group(1)
+        self._seed(workspace_dir, _fake_status(branch="dev", behind=3), monkeypatch)
+        r = client.get("/dashboard/rows")
+        form = json.loads(html.unescape(re.search(r"hx-vals='([^']+)'", r.text).group(1)))
+        assert "↓ Pull 3" in r.text and ">dev<" in r.text
+        assert (form["snap_branch"], form["snap_upstream"], form["snap_head"], form["snap_target"]) == (
+            b"refs/heads/dev".hex(), b"refs/remotes/origin/main".hex(), "a" * 40, "b" * 40)
+        assert "row-note" not in r.text
 
     def test_diverged_disables_pull(self, client, configured, workspace_dir, monkeypatch):
         # Diverged + clean local: ff-only pull can't succeed, so Pull is disabled.

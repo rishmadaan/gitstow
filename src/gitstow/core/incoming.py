@@ -4,18 +4,17 @@
 """What a pull would bring, and the pull that takes exactly that.
 
 `read_incoming` reads one repo's comparison with its upstream. Which branch is
-checked out, its commit, its upstream and the upstream's commit come from one
-capture (`git.capture_branch`); every label, count and list on the page and the
-Pull button's snapshot come from that capture, and every later query runs
-against its two commit ids. `git status` is read only for the local edits.
-`pull_exact` moves the branch to the reviewed commit and nothing newer, after
-capturing again under the repo's pull lock and refusing on any difference.
+checked out, its commit, its upstream, the upstream's commit and the counts come
+from one status read (`git.get_status`, built on one `git.capture_branch`); every
+label, count and list on the page and the Pull button's snapshot come from it, and
+every later query runs against its two commit ids. `pull_exact` moves the branch
+to the reviewed commit and nothing newer, after reading again under the repo's
+pull lock and refusing on any difference.
 """
 
 from __future__ import annotations
 
 import os
-import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -29,18 +28,16 @@ from gitstow.core.git import (
     RepoStatus,
     _not_own_toplevel,
     _run_git,
-    capture_branch,
-    count_between,
+    failure_text,
+    ff_checked,
     get_changed_files,
     get_status,
-    merge_exact,
     merge_name,
     read_changed_paths,
     read_log,
     read_range_files,
     read_range_summary,
     read_tags_between,
-    ref_id,
     ref_label,
 )
 from gitstow.core.locking import LockTimeout, repo_lock
@@ -116,14 +113,6 @@ def read_range(repo_path: Path, exclude: str, include: str) -> RangeRead | str:
     )
 
 
-def failure_text(exc: BaseException) -> str:
-    """Words for a read that raised instead of answering (a timeout, git missing, a crash)."""
-    if isinstance(exc, subprocess.TimeoutExpired):
-        cmd = exc.cmd if isinstance(exc.cmd, str) else " ".join(map(str, exc.cmd or []))
-        return f"git did not answer within {exc.timeout:g} seconds ({cmd})"
-    return f"{type(exc).__name__}: {exc}"
-
-
 @dataclass
 class Snapshot:
     """What a page or a library row was drawn from: one BranchCapture. It travels with the
@@ -171,10 +160,10 @@ class Unreadable:
 
 @dataclass
 class IncomingView:
-    """One repo's incoming tab, as read now. Identity and counts come from `cap`; `status` is
-    read only for the local edits."""
+    """One repo's incoming tab, as read now: identity, counts and local edits all from one status
+    read (`status`, whose `cap` is the capture)."""
 
-    kind: str   # detached | noupstream | noremote | none | ahead | behind | diverged
+    kind: str   # unborn | detached | noupstream | noremote | none | ahead | behind | diverged
     cap: BranchCapture
     status: RepoStatus
     ahead: int = 0
@@ -188,7 +177,7 @@ class IncomingView:
 
     @property
     def branch(self) -> str:
-        return self.cap.branch_name if self.cap.branch else self.status.branch
+        return self.status.branch
 
     @property
     def upstream(self) -> str:
@@ -217,33 +206,25 @@ def read_incoming(repo_path: Path) -> IncomingView | Unreadable:
 
 
 def _read_incoming(repo_path: Path) -> IncomingView | Unreadable:
-    cap = capture_branch(repo_path)
-    if isinstance(cap, str):
-        return Unreadable(cap)
-    status = get_status(repo_path)  # local edits only
+    status = get_status(repo_path)
     if status.error:
         return Unreadable(status.error)
-    view = IncomingView(kind="detached", cap=cap, status=status)
+    cap = status.cap
+    view = IncomingView(kind="detached", cap=cap, status=status, ahead=status.ahead, behind=status.behind)
     if not status.clean:
         view.local = get_changed_files(repo_path)
+    if cap.unborn:
+        view.kind = "unborn"
+        return view
     if not cap.branch:
-        if status.branch == "(detached)":
-            return view
-        return Unreadable(f"the branch {status.branch} has no commits yet, so there is nothing to compare")
+        return view
     if not cap.upstream:
-        remotes = _run_git(["remote"], cwd=repo_path)
-        if remotes.returncode != 0:
-            return Unreadable(remotes.stderr.strip() or f"git remote failed (exit {remotes.returncode})")
-        view.kind = "noupstream" if remotes.stdout.strip() else "noremote"
+        view.kind = "noupstream" if status.has_remote else "noremote"
         if view.kind == "noupstream":
-            view.upstream_hint = _same_named_remote_branch(repo_path, view.branch)
+            view.upstream_hint = _same_named_remote_branch(repo_path, cap.branch)
         return view
     if cap.upstream_gone:
         return Unreadable(f"{view.branch} follows {view.upstream}, which does not exist in this folder")
-    counts = count_between(repo_path, cap.head, cap.tip)
-    if isinstance(counts, str):
-        return Unreadable(counts)
-    view.ahead, view.behind = counts
     if not (view.ahead or view.behind):
         view.kind = "none"
         return view
@@ -272,26 +253,22 @@ def _read_incoming(repo_path: Path) -> IncomingView | Unreadable:
     return view
 
 
-def _same_named_remote_branch(repo_path: Path, branch: str) -> str:
-    """A remote-tracking branch with the checked-out branch's name (e.g. origin/main), or ""."""
-    result = _run_git(["for-each-ref", "--format=%(refname:short)", "refs/remotes/"], cwd=repo_path)
-    names = [n for n in result.stdout.splitlines() if n.endswith("/" + branch)]
-    return "origin/" + branch if "origin/" + branch in names else (names[0] if names else "")
+def _same_named_remote_branch(repo_path: Path, branch: bytes) -> str:
+    """A remote-tracking branch with the checked-out branch's exact name (e.g. origin/main), or ""."""
+    result = _run_git(["for-each-ref", "--format=%(refname)", "refs/remotes/"], cwd=repo_path, binary=True)
+    name = branch.removeprefix(b"refs/heads/")
+    refs = [r for r in result.stdout.split(b"\n") if r.endswith(b"/" + name)]
+    pick = b"refs/remotes/origin/" + name if b"refs/remotes/origin/" + name in refs else (refs[0] if refs else b"")
+    return ref_label(pick)
 
 
-def row_pull(repo_path: Path) -> tuple[Snapshot, int] | None:
-    """A library row's "Pull N": the snapshot and the count N, both from one capture, or None
-    when the branch is not purely behind (or the read failed: the row then offers no exact pull)."""
-    try:
-        cap = capture_branch(repo_path)
-        if isinstance(cap, str) or not cap.branch or not cap.tip:
-            return None
-        counts = count_between(repo_path, cap.head, cap.tip)
-    except Exception:  # a row whose read fails offers no exact pull
+def row_pull(repo_path: Path, status: RepoStatus) -> tuple[Snapshot, int] | None:
+    """A library row's "Pull N": the snapshot and the count N, both from the status the row was
+    drawn from, or None when that status is not purely behind (or its read failed)."""
+    cap = status.cap
+    if status.error or cap is None or not cap.branch or status.ahead or not status.behind:
         return None
-    if isinstance(counts, str) or counts[0] or not counts[1]:
-        return None
-    return Snapshot.of(repo_path, cap), counts[1]
+    return Snapshot.of(repo_path, cap), status.behind
 
 
 def what_changed(expected: Snapshot, now: BranchCapture) -> list[dict]:
@@ -302,7 +279,7 @@ def what_changed(expected: Snapshot, now: BranchCapture) -> list[dict]:
     """
     was_branch, was_up = expected.ref("branch"), expected.ref("upstream")
     if now.branch != was_branch:
-        was, is_ = ref_label(was_branch), now.branch_name if now.branch else ""
+        was, is_ = ref_label(was_branch), now.branch_name
         return [{"what": "branch", "was": was, "now": is_, "alike": bool(is_) and was == is_}]
     out = []
     if now.head != expected.head:
@@ -341,7 +318,8 @@ class ExactPullResult:
 
     `before` and `after` are the branch's ids measured by the pull itself (under the
     lock, then read back after the merge); `merged` says the merge ran, so the branch
-    may have moved; `changes` names what differs from the snapshot when it refused.
+    may have moved; `changes` names what differs from the snapshot when it refused;
+    `moves` is every ref the read-back found moved, HEAD included (None: not read back).
     """
 
     outcome: str
@@ -350,6 +328,7 @@ class ExactPullResult:
     after: str = ""
     merged: bool = False
     changes: list[dict] = field(default_factory=list)
+    moves: list[tuple[bytes, str, str]] | None = None
 
     @property
     def success(self) -> bool:
@@ -376,16 +355,14 @@ def _pull_exact_locked(repo_path: Path, expected: Snapshot, is_frozen: Callable[
             return ExactPullResult("changed", "this list was drawn for another folder")
         if refused := _not_own_toplevel(repo_path):
             return ExactPullResult("failed", refused)
-        status = get_status(repo_path)
-        if status.error:
+        status = get_status(repo_path)  # one read: the identity compared below and the local edits
+        if status.error:  # nothing to compare with: refuse, never assume the snapshot still holds
             return ExactPullResult("unreadable", status.error)
+        now = status.cap
         if is_frozen():
-            return ExactPullResult("frozen", "this repo is frozen", before=status.head_oid)
+            return ExactPullResult("frozen", "this repo is frozen", before=now.head)
         if status.dirty or status.staged:
-            return ExactPullResult("edited", "files in this folder are edited or staged", before=status.head_oid)
-        now = capture_branch(repo_path)
-        if isinstance(now, str):  # nothing to compare with: refuse, never assume the snapshot still holds
-            return ExactPullResult("unreadable", now)
+            return ExactPullResult("edited", "files in this folder are edited or staged", before=now.head)
         changes = what_changed(expected, now)
         if changes:
             return ExactPullResult("changed", "; ".join(describe_change(c) for c in changes),
@@ -395,40 +372,6 @@ def _pull_exact_locked(repo_path: Path, expected: Snapshot, is_frozen: Callable[
             return ExactPullResult("failed", named, before=now.head)
     except Exception as exc:
         return ExactPullResult("unreadable", failure_text(exc))
-    branch, shown = named
-    ok, message = merge_exact(repo_path, branch, expected.target)
-    return _read_back(repo_path, expected, now, shown, ok, message)
-
-
-def _read_back(repo_path: Path, expected: Snapshot, now: BranchCapture, shown: str,
-               ok: bool, message: str) -> ExactPullResult:
-    """Capture again after the merge: "pulled" only when the captured branch is at the target,
-    it is the only local branch that moved, and its upstream setting is unchanged."""
-    try:
-        after = capture_branch(repo_path)
-    except Exception as exc:
-        after = failure_text(exc)
-    if isinstance(after, str):  # not verified, so never "pulled"; the branch's own id still says if it moved
-        return ExactPullResult("failed", (message + "\n" if message else "")
-                               + f"after the merge, gitstow could not read this repo back to check it: {after}",
-                               before=now.head, after=ref_id(repo_path, now.branch), merged=True)
-    landed = after.heads.get(now.branch, "")
-    moved = {r for r in now.heads.keys() | after.heads.keys() if now.heads.get(r) != after.heads.get(r)}
-    # No separate "is it still checked out" check: a switch before the merge moves the other
-    # branch (caught twice below), and a switch after it changes nothing the pull did.
-    wrong = []
-    if landed != expected.target and (ok or landed != now.head):  # a failed merge that left it alone says so itself
-        wrong.append(f"{shown} is at {landed[:7] or 'an unreadable commit'}, not {expected.target[:7]}")
-    if moved - {now.branch}:
-        wrong.append("other branches moved during the pull: "
-                     + ", ".join(sorted(ref_label(r) for r in moved - {now.branch})))
-    if after.branch == now.branch and after.upstream != now.upstream:
-        wrong.append(f"{shown}'s upstream setting changed during the pull, from {now.upstream_name} "
-                     f"to {after.upstream_name or 'none'}")
-    if ok and not wrong:
-        return ExactPullResult("pulled", message, before=now.head, after=landed, merged=True)
-    if ok:
-        message = "git reported success, but " + "; ".join(wrong)
-    elif wrong:
-        message += "\n" + "; ".join(wrong)
-    return ExactPullResult("failed", message, before=now.head, after=landed, merged=True)
+    landed = ff_checked(repo_path, now, named, expected.target)
+    return ExactPullResult("pulled" if landed.pulled else "failed", landed.message, before=landed.before,
+                           after=landed.after, merged=True, moves=landed.moves)

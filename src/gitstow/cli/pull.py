@@ -62,6 +62,12 @@ def _pull_one_repo(repo: Repo, ws: Workspace, force: bool = False) -> dict:
             "status": "skipped",
             "detail": "Diverged from remote — resolve manually (rebase or merge)",
         }
+    if state.remote_state == "no-commits":
+        return {
+            "repo": repo.key,
+            "status": "skipped",
+            "detail": "No commits yet — nothing to pull onto",
+        }
     if state.remote_state == "no-upstream":
         return {
             "repo": repo.key,

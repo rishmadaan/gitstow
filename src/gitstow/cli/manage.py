@@ -275,7 +275,7 @@ def info(
             **classify(exists=True, frozen=repo.frozen, status=status).to_dict(),
         })
     elif status is not None:
-        commit = get_last_commit(path)
+        commit = get_last_commit(path, status.head_oid)
         size = get_disk_size(path)
         state = classify(exists=True, frozen=repo.frozen, status=status)
 

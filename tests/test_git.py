@@ -134,16 +134,6 @@ class TestCloneTimeout:
         assert mock_run.call_args.kwargs["timeout"] == 900
 
 
-def _pull_steps(merge_stdout="", merge_rc=0):
-    """`_run_git` results for one pull, in call order: symbolic-ref, fetch, rev-parse, merge."""
-    return [
-        MagicMock(returncode=0, stdout=b"refs/heads/main\n", stderr=b""),  # read as bytes
-        MagicMock(returncode=0, stdout="", stderr=""),
-        MagicMock(returncode=0, stdout="abc\n", stderr=""),
-        MagicMock(returncode=merge_rc, stdout=merge_stdout, stderr=""),
-    ]
-
-
 class TestNotOwnToplevel:
     """When rev-parse fails, git's own stderr is the reason; the generic text only as a fallback."""
 
@@ -169,40 +159,39 @@ class TestPull:
         with patch("gitstow.core.git._not_own_toplevel", return_value=None):
             yield
 
-    @patch("gitstow.core.git._run_git")
-    def test_pull_success(self, mock_run):
-        mock_run.side_effect = _pull_steps("Updating abc123..def456\n1 file changed")
-        result = pull(Path("/tmp/repo"))
+    def test_pull_success(self, tmp_path, monkeypatch):
+        """Real git: fetch, one status read, then the merge to exactly the commit that read named."""
+        from tests.incoming_fixture import clone_into, git, make_upstream, push_three
+        import gitstow.core.git as G
+        up, pusher = make_upstream(tmp_path)
+        clone = clone_into(up, tmp_path / "clone")
+        tip = push_three(pusher)[-1]
+        calls, real = [], G._run_git
+        monkeypatch.setattr(G, "_run_git", lambda args, *a, **kw: calls.append(args) or real(args, *a, **kw))
+        result = pull(clone)
         assert result.success is True
         assert result.already_up_to_date is False
-        assert result.output == "Updating abc123..def456\n1 file changed"
-        assert [c.args[0] for c in mock_run.call_args_list] == [
-            ["symbolic-ref", "-q", "HEAD"],
-            ["fetch", "--prune"],
-            ["rev-parse", "--verify", "-q", "@{upstream}"],
-            ["-c", "merge.autoStash=false", "-c", "pull.twohead=recursive",
-             "-c", "branch.main.mergeOptions=",
-             "merge", "--no-stat", "--ff-only", "--no-overwrite-ignore", "@{upstream}"],
-        ]
+        assert result.output.startswith("Updating ")
+        assert git("rev-parse", "HEAD", cwd=clone) == tip
+        assert calls[0] == ["fetch", "--prune"]
+        assert ["-c", "merge.autoStash=false", "-c", "pull.twohead=recursive",
+                "-c", "branch.main.mergeOptions=",
+                "merge", "--no-stat", "--ff-only", "--no-overwrite-ignore", tip] in calls
 
-    @patch("gitstow.core.git._run_git")
-    def test_pull_already_up_to_date(self, mock_run):
-        mock_run.side_effect = _pull_steps("Already up to date.")
-        result = pull(Path("/tmp/repo"))
+    def test_pull_already_up_to_date(self, tmp_path):
+        from tests.incoming_fixture import clone_into, make_upstream
+        up, _ = make_upstream(tmp_path)
+        result = pull(clone_into(up, tmp_path / "clone"))
         assert result.success is True
         assert result.already_up_to_date is True
 
     @patch("gitstow.core.git._run_git")
     def test_pull_failure(self, mock_run):
-        mock_run.return_value = MagicMock(
-            returncode=128,
-            stdout=b"",
-            stderr=b"fatal: not a git repo",
-        )
+        mock_run.return_value = MagicMock(returncode=128, stdout="", stderr="fatal: not a git repo")
         result = pull(Path("/tmp/repo"))
         assert result.success is False
         assert "not a git repo" in result.error
-        assert mock_run.call_count == 1  # nothing after the failed branch lookup
+        assert mock_run.call_count == 1  # nothing after the failed fetch
 
     @patch("gitstow.core.git._run_git")
     def test_pull_timeout(self, mock_run):
@@ -259,31 +248,46 @@ class TestFetch:
 
 
 class TestGetStatus:
-    @patch("gitstow.core.git._run_git")
-    def test_clean_repo(self, mock_run):
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="# branch.oid abc123\n# branch.head main\n# branch.upstream origin/main\n# branch.ab +0 -0\n",
-        )
-        status = get_status(Path("/tmp/repo"))
-        assert status.branch == "main"
+    def test_clean_repo(self, tmp_path):
+        from tests.incoming_fixture import clone_into, make_upstream
+        up, _ = make_upstream(tmp_path)
+        status = get_status(clone_into(up, tmp_path / "clone"))
+        assert status.branch == "main" and status.upstream == "origin/main"
         assert status.clean is True
         assert status.ahead == 0
         assert status.behind == 0
+        assert status.error == "" and status.cap is not None and status.cap.branch == b"refs/heads/main"
 
-    @patch("gitstow.core.git._run_git")
-    def test_dirty_repo(self, mock_run):
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="# branch.head main\n# branch.upstream origin/main\n# branch.ab +2 -1\n1 .M src/file.py\n? untracked.txt\n",
-        )
-        status = get_status(Path("/tmp/repo"))
+    def test_dirty_repo(self, tmp_path):
+        from tests.incoming_fixture import clone_into, commit, git, make_upstream, push_three
+        up, pusher = make_upstream(tmp_path)
+        clone = clone_into(up, tmp_path / "clone")
+        push_three(pusher)
+        git("fetch", "-q", cwd=clone)
+        git("reset", "-q", "--hard", "HEAD~0", cwd=clone)
+        commit(clone, "mine 1", {"a.txt": "1\n"})
+        commit(clone, "mine 2", {"b.txt": "2\n"})
+        git("reset", "-q", "--hard", git("rev-parse", "HEAD", cwd=clone), cwd=clone)
+        (clone / "README.md").write_text("edited\n")
+        (clone / "untracked.txt").write_text("new\n")
+        status = get_status(clone)
         assert status.branch == "main"
         assert status.dirty == 1
         assert status.untracked == 1
         assert status.ahead == 2
-        assert status.behind == 1
+        assert status.behind == 3
         assert status.clean is False
+
+    def test_counts_branch_and_ids_come_from_one_capture(self, tmp_path, monkeypatch):
+        """`git status` is asked only for local edits (no --branch: it would walk ahead/behind again)."""
+        from tests.incoming_fixture import clone_into, make_upstream
+        import gitstow.core.git as G
+        up, _ = make_upstream(tmp_path)
+        clone = clone_into(up, tmp_path / "clone")
+        calls, real = [], G._run_git
+        monkeypatch.setattr(G, "_run_git", lambda args, *a, **kw: calls.append(args) or real(args, *a, **kw))
+        get_status(clone)
+        assert [c for c in calls if "status" in c] == [["status", "--porcelain=v2", "--untracked-files=normal"]]
 
     def test_untracked_survives_showuntrackedfiles_no_real_git(self, tmp_path):
         """A user's `status.showUntrackedFiles=no` config must not hide

@@ -23,7 +23,7 @@ from gitstow.core.git import PullResult, get_status, is_git_repo
 from gitstow.core.git import clone as git_clone
 from gitstow.core.git import fetch as git_fetch
 from gitstow.core.git import pull as git_pull
-from gitstow.core.incoming import Snapshot, pull_exact, row_pull
+from gitstow.core.incoming import Snapshot, pull_exact
 from gitstow.core.operations import move_repo
 from gitstow.core.parallel import run_parallel
 from gitstow.core.repo import MISSING_FOLDER_HINT, Repo, RepoStore, inside_workspace, target_for
@@ -43,8 +43,7 @@ def _row_context(repo, settings, sorted_labels, num: int | None) -> dict | None:
     repo_path = repo.get_path(ws.get_path())
     exists = repo_path.exists() and is_git_repo(repo_path)
     status = get_status(repo_path) if exists else None
-    pull = row_pull(repo_path) if status and not status.error and status.behind and not status.ahead else None
-    return row_context(repo, ws, repo_path, status, num, sorted_labels, pull)
+    return row_context(repo, ws, repo_path, status, num, sorted_labels)
 
 
 #: What a library row says when its exact pull refused; the row is re-read and redrawn.
@@ -162,6 +161,8 @@ def _pull_if_safe(path):
         return {"skipped_local": True, "detail": state.local_summary}
     if state.pull_action == "skip-diverged":
         return {"skipped_local": True, "detail": "diverged — resolve manually"}
+    if state.pull_action == "skip-no-commits":
+        return {"skipped_local": True, "detail": "no commits yet"}
     if state.pull_action == "skip-no-upstream":
         return {"skipped_local": True, "detail": "local-only — no upstream"}
     return git_pull(path)

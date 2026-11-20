@@ -125,6 +125,7 @@ def _incoming(r, path, output_json: bool, quiet: bool) -> None:
         raise typer.Exit(code=1)
     notes = {
         "detached": "no branch is checked out (detached HEAD), so there is nothing to compare",
+        "unborn": f"{view.branch} has no commits yet, so there is nothing to compare",
         "noupstream": f"{view.branch} has no upstream selected, so there is nothing to compare",
         "noremote": f"no remote is configured for {r.key}, so there is nothing to compare",
     }

@@ -113,7 +113,7 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
     {{ fetch_button("⟳ Fetch first") }}{{ pull_button("↓ Pull these " ~ inc.count ~ " without fetching", primary=False) if inc.snapshot }}
   {% elif k == "blocked" %}
     <button type="button" class="btn btn-outline" data-tab="local">See your local changes →</button>
-  {% elif k in ("diverged", "noremote") or (k in ("noupstream", "detached") and not inc.command) %}
+  {% elif k in ("diverged", "noremote", "unborn") or (k in ("noupstream", "detached") and not inc.command) %}
     <button type="button" class="btn btn-outline" hx-post="/repos/{{ repo.workspace }}/{{ repo.key }}/open-folder"
             hx-swap="none" data-toast="Opened {{ repo.key }} in file manager">Open folder</button>
   {% elif k in ("noupstream", "detached") %}

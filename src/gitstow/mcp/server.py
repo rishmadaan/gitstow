@@ -403,7 +403,7 @@ def repo_status(
             statuses.append({"repo": repo.key, "workspace": repo.workspace,
                              "error": f"could not read status: {status.error}"})
             continue
-        commit = get_last_commit(path)
+        commit = get_last_commit(path, status.head_oid)
 
         entry = {
             "repo": repo.key,
@@ -465,7 +465,7 @@ def repo_info(repo_key: str) -> str:
     if status is not None and status.error:
         info["error"] = f"could not read status: {status.error}"
     elif status is not None:
-        commit = get_last_commit(path)
+        commit = get_last_commit(path, status.head_oid)
         size = get_disk_size(path)
 
         info.update({

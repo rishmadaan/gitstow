@@ -30,6 +30,7 @@ class RepoState:
     has_upstream: bool = True
     has_remote: bool = True       # meaningful only without an upstream
     upstream_gone: bool = False   # an upstream is configured but its branch is not here
+    unborn: bool = False          # the branch has no commits yet: nothing to compare or pull onto
     error: str = ""               # git's message when presence is "unreadable"
 
     @property
@@ -60,6 +61,8 @@ class RepoState:
     def remote_state(self) -> str:
         if self.presence != "ok":
             return "unknown"
+        if self.unborn:
+            return "no-commits"
         if not self.has_upstream:
             return "no-upstream"
         if self.ahead and self.behind:
@@ -75,7 +78,7 @@ class RepoState:
         """What a bulk pull should do with this repo.
 
         One of: pull | noop | skip-local | skip-frozen | skip-missing |
-        skip-diverged | skip-no-upstream.
+        skip-diverged | skip-no-upstream | skip-no-commits.
         """
         if self.presence != "ok":
             return "skip-missing"
@@ -87,6 +90,8 @@ class RepoState:
             # ff-only pull always fails on divergence — skip with a clear
             # reason instead of commanding a doomed pull.
             return "skip-diverged"
+        if self.unborn:
+            return "skip-no-commits"
         if not self.has_upstream:
             # A repo you `git init`ed locally — there is nothing to pull from.
             return "skip-no-upstream"
@@ -134,4 +139,5 @@ def classify(*, exists: bool, frozen: bool, status: RepoStatus | None) -> RepoSt
         has_upstream=status.has_upstream,
         has_remote=status.has_remote,
         upstream_gone=status.upstream_gone,
+        unborn=status.unborn,
     )

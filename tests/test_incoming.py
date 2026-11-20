@@ -16,6 +16,7 @@ import threading
 
 import pytest
 
+import gitstow.core.git as G
 from gitstow.core.git import PULL_LOCKED, get_status, pull, read_range_files
 from gitstow.core.incoming import (
     COMMIT_LIMIT,
@@ -328,10 +329,9 @@ class TestUnderTheLock:
 
     def test_a_capture_that_fails_under_the_lock_refuses(self, behind, monkeypatch):
         """Nothing to compare with is a refusal, never "the snapshot still holds"."""
-        import gitstow.core.incoming as inc
         clone, _, _ = behind
         snap = drawn(clone)
-        monkeypatch.setattr(inc, "capture_branch", lambda path: "fatal: capture exploded")
+        monkeypatch.setattr(G, "capture_branch", lambda path: "fatal: capture exploded")
         result = refused(clone, snap, "unreadable")
         assert "capture exploded" in result.message
         assert git("rev-parse", "HEAD", cwd=clone) == snap.head
@@ -371,14 +371,13 @@ class TestUnderTheLock:
         assert gitb(b"rev-parse", b"refs/heads/topic\xfe", b"refs/heads/topic\xff").split() == [head, head]
 
     def _merge_then(self, monkeypatch, act):
-        import gitstow.core.incoming as inc
-        real = inc.merge_exact
+        real = G.merge_exact
 
         def merge(path, branch, target):
             out = real(path, branch, target)
             act(path)
             return out
-        monkeypatch.setattr(inc, "merge_exact", merge)
+        monkeypatch.setattr(G, "merge_exact", merge)
 
     def test_another_branch_moving_during_the_merge_is_never_pulled(self, behind, monkeypatch):
         clone, _, ids = behind
@@ -410,15 +409,14 @@ class TestUnderTheLock:
         assert git("rev-parse", "HEAD", cwd=clone) == result.after == ids[-1]
 
     def test_a_read_back_that_fails_is_never_pulled_but_keeps_the_measured_move(self, behind, monkeypatch):
-        import gitstow.core.incoming as inc
         clone, _, ids = behind
         snap = drawn(clone)
-        real, calls = inc.capture_branch, []
+        real, calls = G.capture_branch, []
 
         def capture(path):
             calls.append(path)
             return real(path) if len(calls) == 1 else "fatal: read-back exploded"
-        monkeypatch.setattr(inc, "capture_branch", capture)
+        monkeypatch.setattr(G, "capture_branch", capture)
         result = pull_exact(clone, snap, never_frozen)
         assert result.outcome == "failed" and "read-back exploded" in result.message
         assert (result.before, result.after) == (snap.head, ids[-1]) == (snap.head, git("rev-parse", "HEAD", cwd=clone))
@@ -765,7 +763,7 @@ class TestWeb:
         assert "Pulled 0 commits" not in r.text and "0 files" not in r.text
         assert "What this pull brought in" not in r.text
 
-    def _post_failed_pull(self, client, clone, monkeypatch, move_to=""):
+    def _post_failed_pull(self, client, clone, monkeypatch, move_to="", unread=False):
         """The page's Pull, with a merge that reports failure (after moving the branch when move_to is set)."""
         import json
         import re
@@ -779,8 +777,10 @@ class TestWeb:
         def failing(path, snap, is_frozen):
             if move_to:
                 git("merge", "-q", "--ff-only", move_to, cwd=clone)
+            after = git("rev-parse", "HEAD", cwd=clone)
+            moves = [] if after == before else [(b"refs/heads/main", before, after), (b"HEAD", before, after)]
             return ExactPullResult("failed", "error: the merge timed out (2 minutes)", merged=True,
-                                   before=before, after=git("rev-parse", "HEAD", cwd=clone))
+                                   before=before, after=after, moves=None if unread else moves)
         monkeypatch.setattr("gitstow.web.routes.incoming.pull_exact", failing)
         return before, client.post("/repos/t/clone/incoming/pull", data=vals).text
 
@@ -789,8 +789,9 @@ class TestWeb:
         before, page = self._post_failed_pull(client, clone, monkeypatch, move_to=ids[-1])
         assert git("rev-parse", "HEAD", cwd=clone) == ids[-1]
         assert "Pull failed" in page and "the merge timed out (2 minutes)" in page
-        assert f"moved from <code>{before[:7]}</code> to <code>{ids[-1][:7]}</code>" in page
-        assert "part of the pull may have happened" in page
+        assert f"<code>main</code> moved from <code>{before[:7]}</code> to <code>{ids[-1][:7]}</code>" in page
+        assert "HEAD moved" not in page  # HEAD following its branch is one move, not two
+        assert "Part of the pull, or something else, changed this folder" in page
         assert "Nothing was pulled" not in page and "changed since review" not in page
         assert "Up to date" in page and "/incoming/pull" not in page  # the fresh read below, on its own
 
@@ -801,6 +802,12 @@ class TestWeb:
         assert "Pull failed" in page and "the merge timed out (2 minutes)" in page
         assert f"is still at <code>{before[:7]}</code>" in page and "Nothing was pulled." in page
         assert 'hx-post="/repos/t/clone/incoming/pull"' in page  # the fresh read below offers the same pull
+
+    def test_a_failure_that_could_not_be_read_back_never_says_nothing_was_pulled(self, web, monkeypatch):
+        client, clone, _, _ = web
+        before, page = self._post_failed_pull(client, clone, monkeypatch, unread=True)
+        assert f"<code>main</code> is still at <code>{before[:7]}</code>; whether anything else" in page
+        assert "Nothing was pulled" not in page
 
     # Names git accepts that a shell would run, split or expand when pasted unquoted.
     HOSTILE = ["fix;echo${IFS}injected", "it's", "cost$HOME"]

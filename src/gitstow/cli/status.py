@@ -37,7 +37,7 @@ def _get_repo_status(repo: Repo, ws: Workspace) -> dict:
     if status.error:  # same shape as the other unreadable cases: never a clean row
         return {"repo": repo.key, "workspace": repo.workspace,
                 "error": f"Could not read status: {status.error}"}
-    commit = get_last_commit(path)
+    commit = get_last_commit(path, status.head_oid)
     state = classify(exists=True, frozen=repo.frozen, status=status)
 
     return {
@@ -194,6 +194,7 @@ def status(
             "behind": f"[magenta]↓{remote.get('behind', 0)}[/magenta]",
             "diverged": f"[red]↑{remote.get('ahead', 0)} ↓{remote.get('behind', 0)}[/red]",
             "no-upstream": "[dim]no upstream[/dim]",
+            "no-commits": "[dim]no commits yet[/dim]",
             "unknown": "[dim]?[/dim]",
         }
         remote_str = remote_styles.get(remote_state, remote_state)

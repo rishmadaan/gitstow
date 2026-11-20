@@ -321,3 +321,123 @@ def test_failing_each_read_in_turn_never_shows_a_zero_and_never_hides_the_failur
         if moved and "moved from" not in words(r.text):
             wrong.append(f"read {k}: the branch moved but the page does not say from where to where")
     assert not wrong, "\n".join(wrong)
+
+
+# --- round 4: one read behind every surface (diagnosis-r3 tests 1 and 2) ----------------------------
+
+ROW_PULL, ROW_FETCH = "/repos/t/clone/pull", "/repos/t/clone/fetch"
+
+
+def reset(clone, ids, start=b"main"):
+    """Put the lab back exactly: branch, every id, upstream settings."""
+    subprocess.run([b"git", b"checkout", b"-q", start], cwd=clone, check=True)
+    for ref in (b"refs/heads/main", b"refs/heads/other", b"refs/heads/side", b"refs/heads/topic\xfe", b"refs/heads/topic\xff"):
+        subprocess.run([b"git", b"update-ref", ref, ids["H"].encode()], cwd=clone, check=True)
+    subprocess.run(["git", "reset", "-q", "--hard", ids["H"]], cwd=clone, check=True)
+    subprocess.run(["git", "update-ref", "refs/remotes/origin/main", ids["T"]], cwd=clone, check=True)
+    subprocess.run(["git", "update-ref", "refs/remotes/origin/twin", ids["T"]], cwd=clone, check=True)  # a fetch prunes it
+    subprocess.run(["git", "branch", "-q", "--set-upstream-to=origin/main", "main"], cwd=clone, check=True)
+
+
+def row_of(html: str):
+    """The clone's library row as drawn: (branch label, Remote count or None, "Pull N" or None, its form or None)."""
+    row = re.search(r'<tr[^>]*data-key="clone".*?</tr>', html, re.S).group(0)
+    branch = htmllib.unescape(re.search(r'class="branch-name"[^>]*>(.*?)</span>', row).group(1))
+    remote = re.search(r"↓ (\d+) incoming", row)
+    n = re.search(r"↓ Pull (\d+)", row)
+    form = re.search(re.escape(f'hx-post="{ROW_PULL}"') + r"\s+hx-vals='([^']+)'", row)
+    return (branch, remote and int(remote.group(1)), n and int(n.group(1)),
+            json.loads(htmllib.unescape(form.group(1))) if form else None, row)
+
+
+def row_disagrees(drawn) -> str:
+    """Why a drawn row's Pull would act on something other than what the row shows, or ""."""
+    branch, remote, n, form, _ = drawn
+    if form is None:
+        return ""
+    token = label(bytes.fromhex(form["snap_branch"]))
+    if token != branch or n != remote:
+        return f"row shows {branch} with {remote} incoming; its Pull {n} is for {token}"
+    return ""
+
+
+@pytest.mark.parametrize("change", CHANGES)
+def test_the_library_row_shows_the_branch_its_pull_takes_at_every_read_boundary(lab, monkeypatch, change):
+    """R3-C1 as a property, on every library entry point: the full dashboard, the row redrawn after a
+    Fetch and the row redrawn after its own Pull. One outside change before every git process of the
+    draw and of the pull: the row's branch label and Remote count are the token's branch and its N,
+    and a pull reported as done moved exactly the branch the row named."""
+    client, clone, ids = lab
+    start, argv = CHANGES[change]
+    argv = [a.format(**ids) if isinstance(a, str) else a for a in argv]
+    # check=False: after a Fetch has pruned origin/twin, repointing to it is no change at all
+    act = lambda repo: subprocess.run(["git", *argv], cwd=repo, check=False, capture_output=True)  # noqa: E731
+    tap = Tap(clone, monkeypatch)
+    wrong = []
+    for entry in ("dashboard", "fetch swap", "pull swap"):
+        reset(clone, ids, start)
+        base = client.get("/").text
+        tap.reset()
+        if entry == "dashboard":
+            client.get("/")
+        elif entry == "fetch swap":
+            client.post(ROW_FETCH)
+        else:
+            client.post(ROW_PULL, data=row_of(base)[3] or {})
+        total = tap.n
+        for k in range(1, total + 2):
+            reset(clone, ids, start)
+            if entry == "pull swap":
+                form = row_of(client.get("/").text)[3]
+            tap.reset()
+            tap.hooks, tap.at_merge = {k: act}, None
+            if entry == "dashboard":
+                html = client.get("/").text
+            elif entry == "fetch swap":
+                html = client.post(ROW_FETCH).text
+            else:
+                html = client.post(ROW_PULL, data=form or {}).text
+            drawn = row_of(html)
+            if why := row_disagrees(drawn):
+                wrong.append(f"{entry}, before git process {k}: {why}")
+            if entry == "pull swap" and tap.at_merge is not None and "row-error" not in drawn[4]:
+                moved = {r for r, oid in branches(clone).items() if tap.heads_at_merge.get(r) != oid}
+                if moved != {bytes.fromhex(form["snap_branch"])}:
+                    wrong.append(f"pull swap, before git process {k}: reported pulled, moved {sorted(map(label, moved))}, "
+                                 f"the row was for {label(bytes.fromhex(form['snap_branch']))}")
+    assert not wrong, "\n".join(wrong)
+
+
+def oob(repo):
+    """(branch, upstream, ahead, behind) read out of band, all from HEAD."""
+    ref = raw(repo, "symbolic-ref", "-q", "HEAD")
+    up = raw(repo, "rev-parse", "--symbolic-full-name", "@{upstream}")
+    counts = raw(repo, "rev-list", "--left-right", "--count", "HEAD...@{upstream}").split() if up else [b"0", b"0"]
+    return label(ref), label(up), int(counts[0]), int(counts[1])
+
+
+@pytest.mark.parametrize("change", CHANGES)
+def test_get_status_is_one_moment_at_every_read_boundary(lab, monkeypatch, change):
+    """E3b as a property: with one outside change before any git process of get_status, its branch,
+    upstream and counts are those of the moment before the change or the moment after it, never a mix."""
+    client, clone, ids = lab
+    start, argv = CHANGES[change]
+    act = do(*[a.format(**ids) if isinstance(a, str) else a for a in argv])
+    reset(clone, ids, start)
+    before = oob(clone)
+    act(clone)
+    after = oob(clone)
+    tap = Tap(clone, monkeypatch)
+    reset(clone, ids, start)
+    tap.reset()
+    G.get_status(clone)
+    wrong = []
+    for k in range(1, tap.n + 2):
+        reset(clone, ids, start)
+        tap.reset()
+        tap.hooks = {k: act}
+        st = G.get_status(clone)
+        got = (st.branch, st.upstream, st.ahead, st.behind)
+        if st.error or got not in (before, after):
+            wrong.append(f"before git process {k}: {got} {st.error!r}; truth was {before} then {after}")
+    assert not wrong, "\n".join(wrong)

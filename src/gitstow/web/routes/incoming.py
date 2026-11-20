@@ -14,7 +14,6 @@ from __future__ import annotations
 import asyncio
 import json
 import shlex
-from dataclasses import replace
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request
@@ -230,6 +229,21 @@ def _change_html(c: dict) -> Markup:
         _code(c["name"]), _code(c["was"][:7]), _code(c["now"][:7]) if c["now"] else Markup("no commit"))
 
 
+def _moves_html(moves: list) -> Markup:
+    """Each (ref label, before, after) the read-back measured, in words; HEAD only where no branch
+    made the same move (HEAD following its branch is one move, not two)."""
+    branch_moves = {(b, a) for r, b, a in moves if r != "HEAD"}
+    parts = []
+    for ref, b, a in moves:
+        if ref == "HEAD" and (b, a) in branch_moves:
+            continue
+        name = Markup("HEAD") if ref == "HEAD" else _code(ref)
+        parts.append(Markup("{} moved from {} to {}").format(name, _code(b[:7]), _code(a[:7])) if b and a
+                     else Markup("{} was created at {}").format(name, _code(a[:7])) if a
+                     else Markup("{} was deleted (it was at {})").format(name, _code(b[:7])))
+    return Markup("; ").join(parts)
+
+
 def build_result(repo, repo_path, result: dict, now: datetime) -> dict:
     """What an operation on this page just did, from what the operation itself measured.
 
@@ -281,18 +295,25 @@ def build_result(repo, repo_path, result: dict, now: datetime) -> dict:
     elif op == "failed":
         res["title"] = "Pull failed"
         facts.append(_fact("blocked", "git said", _gitsaid(message, wrap=False)))
+        moves = result.get("moves")
         if not result.get("merged"):
             facts.append(_fact("clear", "checked", Markup(
                 "Nothing was pulled: gitstow stopped before asking git to move {}{}.").format(
                 br, Markup(", which is at {}").format(_code(before[:7])) if before else "")))
-        elif after and after == before:
+        elif moves == []:  # read back, and no branch and not HEAD moved
             facts.append(_fact("clear", "checked", Markup(
-                "Read back afterwards: {} is still at {}. Nothing was pulled.").format(br, _code(before[:7]))))
-        elif after:
+                "Read back afterwards: {} is still at {}, and no other branch or HEAD moved. Nothing was pulled.").format(
+                br, _code(before[:7]))))
+        elif moves:
             facts.append(_fact("note", "checked", Markup(
-                "Read back afterwards: {} moved from {} to {}, so part of the pull may have happened. "
+                "Read back afterwards: {}. Part of the pull, or something else, changed this folder. Check it in "
+                "a terminal (git status, git log) before going on.").format(_moves_html(moves))))
+        elif after:  # only the branch's own id could be read back
+            facts.append(_fact("note", "checked", Markup(
+                "Read back afterwards: {} {}; whether anything else moved could not be read. "
                 "Check this folder in a terminal (git status, git log) before going on.").format(
-                br, _code(before[:7]), _code(after[:7]))))
+                br, Markup("is still at {}").format(_code(before[:7])) if after == before
+                else Markup("moved from {} to {}").format(_code(before[:7]), _code(after[:7])))))
         else:
             facts.append(_fact("note", "checked", Markup(
                 "Where {} is now could not be read back afterwards (it was at {}). Check this folder in a "
@@ -303,7 +324,7 @@ def build_result(repo, repo_path, result: dict, now: datetime) -> dict:
                 "git stopped rather than overwrite a file in this folder that it does not track "
                 "(untracked or ignored): {}. This update brings a file with that name. Move or rename "
                 "yours in a terminal, then try again.").format(Markup(", ").join(_code(p) for p in blocked_files[:5]))))
-        elif not after or after == before or not result.get("merged"):
+        elif not moves:
             facts.append(_fact("info", "next", Markup("Resolve what git reports in a terminal, then try again.")))
     elif op == "fetchfailed":
         res["title"], res["retry"] = "Fetch failed", True
@@ -481,7 +502,12 @@ def _inspection(repo, repo_path, view: IncomingView, now: datetime, prev_tip: st
             "No edited or staged files in this folder when this page was drawn.")) if not edited
             else _fact("note", "note", Markup("Files in this folder are edited or staged ({}).").format(edited)))
 
-    if kind == "detached":
+    if kind == "unborn":
+        lede.append(Markup("{} has no commits yet, so there is nothing to compare and nothing to pull onto. "
+                           "Pull all skips this repo.").format(br))
+        lede.append(Markup("Once it has a commit (make one, or take the remote's first commits with "
+                           "<code>git pull</code> in a terminal), reload this page."))
+    elif kind == "detached":
         lede.append(Markup("No branch is checked out in this folder (detached HEAD at {}), so there is no "
                            "upstream to compare with and gitstow cannot list incoming commits. Pull all skips "
                            "this repo.").format(_code(st.head_oid[:7])))
@@ -518,7 +544,7 @@ def _inspection(repo, repo_path, view: IncomingView, now: datetime, prev_tip: st
 
     titles = {
         "detached": "No upstream selected", "noupstream": "No upstream selected",
-        "noremote": "No remote", "none": "Up to date",
+        "noremote": "No remote", "none": "Up to date", "unborn": "No commits yet",
         "ahead": f"Nothing incoming, {_n(view.ahead)} ahead",
         "diverged": f"Diverged: {_n(view.behind)} incoming, {_n(view.ahead)} local",
     }
@@ -534,10 +560,11 @@ def _inspection(repo, repo_path, view: IncomingView, now: datetime, prev_tip: st
 
     panel_class = {"none": "is-done", "blocked": "is-blocked", "diverged": "is-blocked", "frozen": "is-quiet",
                    "noupstream": "is-quiet", "detached": "is-quiet", "noremote": "is-quiet",
-                   "ahead": "is-quiet"}.get(kind, "")
+                   "ahead": "is-quiet", "unborn": "is-quiet"}.get(kind, "")
     return {
         "kind": kind, "base": kind, "panel_class": panel_class,
-        "eyebrow_label": {"noupstream": "no upstream", "detached": "no branch", "noremote": "no remote"}.get(kind),
+        "eyebrow_label": {"noupstream": "no upstream", "detached": "no branch", "noremote": "no remote",
+                          "unborn": "no commits"}.get(kind),
         "branch": view.branch, "upstream": view.upstream, "head7": head7, "tip7": tip7,
         "title": title, "stats": lists["stats"] if lists else "", "span": lists["span"] if lists else "",
         "lede": lede, "command": command, "facts": facts,
@@ -547,16 +574,13 @@ def _inspection(repo, repo_path, view: IncomingView, now: datetime, prev_tip: st
         "local_commits": _commit_rows(view.local_commits, now), "local_commit_total": _n(view.ahead),
         "local_commits_cut": view.ahead > len(view.local_commits),
         "local_log_cmd": _sh("git", "log", f"{view.upstream}..{view.branch}"),
-        "incoming_count": ("?" if kind in ("detached", "noupstream") else "none" if kind == "noremote"
+        "incoming_count": ("?" if kind in ("detached", "noupstream") else "none" if kind in ("noremote", "unborn")
                            else _n(view.behind)),
         "local_count": ("?" if local_error else
                         _n(len(edited_paths) + len(view.local.untracked)) if view.local else "0"),
         "local": view.local, "local_overlap": set(view.overlap) if kind not in ("ahead", "none") else set(),
         "status_error": "", "fetch_prev": {"prev_tip": view.tip},
-        # The header reads the same capture: the branch, its upstream and both counts as drawn here.
-        "status": replace(st, branch=view.branch, upstream=view.upstream, has_upstream=bool(view.cap.upstream),
-                          ahead=view.ahead, behind=view.behind, head_oid=view.head or st.head_oid,
-                          upstream_oid=view.tip),
+        "status": st,  # the header reads the same status: the branch, its upstream and both counts as drawn here
     }
 
 
@@ -596,7 +620,8 @@ async def incoming_pull(workspace: str, key: str, request: Request):
         store.update(repo.key, workspace=repo.workspace,
                      last_pulled=datetime.now().isoformat(timespec="seconds"))
     result = {"op": exact.outcome, "message": exact.message, "before": exact.before, "after": exact.after,
-              "merged": exact.merged, "changes": exact.changes, "branch_name": ref_label(snapshot.ref("branch"))}
+              "merged": exact.merged, "changes": exact.changes, "branch_name": ref_label(snapshot.ref("branch")),
+              "moves": None if exact.moves is None else [(ref_label(r), b, a) for r, b, a in exact.moves]}
     return await asyncio.to_thread(render_repo_detail, request, workspace, key, result=result)
 
 

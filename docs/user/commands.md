@@ -596,7 +596,7 @@ Every interactive element has a hover tooltip. There's also a `?` button in the 
 
 **The Pull button color encodes priority**:
 
-- **Orange** `↓ Pull 5` — repo is behind; takes exactly those 5 commits: it moves the branch to the commit the count came from and does **not** fetch first. If the branch or its upstream changed since the row was drawn, nothing is pulled and the row says what changed (it then shows the new count). If the commit its count came from cannot be pinned, the row's Pull is off and the row says so, with a link to the repo page
+- **Orange** `↓ Pull 5` — repo is behind; takes exactly those 5 commits: it moves the branch to the commit the count came from and does **not** fetch first. If the branch or its upstream changed since the row was drawn, nothing is pulled and the row says what changed (it then shows the new count). The row's branch name, its count and its Pull all come from one read, so the button always pulls the branch the row names
 - **Ghost** (gray) — nothing known to be waiting (up to date, ahead, or untracked-only changes). It fetches, then fast-forwards if the remote has anything new. (Untracked-only local changes still pull fine — a bulk pull only skips modified/staged files.)
 - **Disabled** — frozen, local edits while behind, diverged from remote, missing on disk or unreadable
 
