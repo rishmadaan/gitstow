@@ -89,8 +89,8 @@ def _present(state: RepoState) -> tuple[str, str, str]:
         return "dirty", state.local_summary, "ghost"
     if state.pull_action == "skip-diverged":
         return "conflict", "diverged", "disabled"
-    if state.behind and not state.unborn:  # an unborn branch's commits come in by the plain Pull: no count to pin
-        return "behind", "behind", "primary"
+    if state.behind:  # an unborn branch's commits come in by the plain Pull: no count to pin
+        return "behind", "behind", "ghost" if state.unborn else "primary"
     if state.ahead:
         return "ahead", "ahead", "ghost"
     if state.untracked:

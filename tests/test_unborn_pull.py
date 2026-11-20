@@ -337,6 +337,34 @@ def test_the_last_commit_of_a_read_that_found_none_is_none(tmp_path):
     assert G.get_last_commit(repo).message == "commit on other"  # None still reads HEAD as it is now
 
 
+def test_a_branch_with_no_commits_and_commits_upstream_is_behind_everywhere(empty, tmp_path, monkeypatch):
+    """R5-F1: the row's status, its colour, the count strip, the subtitle and the repo page call it
+    behind (never clean), with the plain Pull and no exact "Pull N"."""
+    from fastapi.testclient import TestClient
+
+    from gitstow.web.server import create_app
+
+    clone, pusher, _ = empty
+    _config(tmp_path, monkeypatch)
+    push_first(pusher)
+    commit(pusher, "second", {"g": "g\n"})
+    git("push", "-q", "origin", "HEAD:refs/heads/main", cwd=pusher)
+    git("fetch", "-q", cwd=clone)
+    app = create_app()
+    app.state.server = type("Stub", (), {"should_exit": False})()
+    client = TestClient(app, base_url="http://127.0.0.1")
+    home = client.get("/").text
+    row = re.search(r'<tr[^>]*data-key="clone".*?</tr>', home, re.DOTALL).group(0)
+    assert 'data-status="behind"' in row and re.search(r'status-behind"[^>]*><span class="dot"></span>behind<', row), row
+    assert "no commits · ↓ 2" in row and "clean" not in re.sub(r"<[^>]+>", "", row)
+    button = re.search(r"<button[^>]*>\s*Pull\s*</button>", row, re.DOTALL).group(0)
+    assert not re.search(r"\sdisabled[\s>]", button) and "hx-vals" not in button, button  # the plain Pull
+    strip = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", home[home.index('class="lede"'):home.index("Remote Δ")]))
+    assert "01 behind" in strip and "clean" not in strip, strip
+    page = client.get("/repo/t/clone").text
+    assert re.search(r'status-behind"[^>]*><span class="dot"></span>behind', page) and "status-clean" not in page
+
+
 def test_the_repo_page_header_shows_no_commit_for_a_branch_that_had_none_when_read(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
 
