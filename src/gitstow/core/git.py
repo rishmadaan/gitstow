@@ -533,8 +533,11 @@ def _pull_locked(repo_path: Path) -> PullResult:
         if landed.pulled:
             return PullResult(success=True, output=landed.message, merged=True)
         return PullResult(success=False, error=landed.message, merged=landed.merged)
-    except subprocess.TimeoutExpired:
-        return PullResult(success=False, error="Pull timed out (2 minutes)", merged=True)
+    except subprocess.TimeoutExpired as exc:
+        # merge_exact and the read-back after it catch their own timeouts, so one reaching here
+        # came from the fetch or a read before the merge: nothing was merged.
+        return PullResult(success=False, error=f"timed out before anything was merged: {failure_text(exc)}",
+                          merged=False)
 
 
 @dataclass

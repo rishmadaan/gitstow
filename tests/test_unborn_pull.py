@@ -197,6 +197,38 @@ def test_a_row_pull_that_changed_nothing_says_not_pulled(empty, tmp_path, monkey
     assert (clone / "g").read_text() == "local untracked g\n"
 
 
+@pytest.mark.parametrize("stalls", ["fetch", "ls-tree"])
+def test_a_timeout_before_the_merge_says_not_pulled(empty, tmp_path, monkeypatch, stalls):
+    """CR3: a fetch or a pre-merge read that times out changed nothing: the row says "Not pulled",
+    never "Pull failed", and the branch is still without commits."""
+    import html
+
+    from fastapi.testclient import TestClient
+
+    from gitstow.web.server import create_app
+
+    clone, pusher, _ = empty
+    _config(tmp_path, monkeypatch)
+    push_first(pusher, {"f": "upstream f\n"})
+    git("fetch", "-q", cwd=clone)
+    real = G._run_git
+
+    def run(args, *a, **kw):
+        if args[0] == stalls:
+            raise subprocess.TimeoutExpired(["git", *args], kw.get("timeout", 60))
+        return real(args, *a, **kw)
+    monkeypatch.setattr(G, "_run_git", run)
+    result = G.pull(clone)
+    assert not result.success and result.merged is False, result
+    assert "did not answer" in result.error and stalls in result.error
+    app = create_app()
+    app.state.server = type("Stub", (), {"should_exit": False})()
+    text = TestClient(app, base_url="http://127.0.0.1").post("/repos/t/clone/pull").text
+    said = html.unescape(re.search(r'<div class="row-error" role="alert"[^>]*><span>(.*?)</span>', text, re.S).group(1))
+    assert said.startswith("Not pulled: ") and "Pull failed" not in said, said
+    assert raw(clone, "for-each-ref", "refs/heads/") == b"" and not (clone / "f").exists()
+
+
 def test_a_staged_file_at_an_incoming_name_is_refused_even_with_force(empty, tmp_path, monkeypatch):
     """--force lets a named pull past the edited-files skip; the first-commit check still stops it."""
     from typer.testing import CliRunner
