@@ -15,6 +15,7 @@ from pathlib import Path
 
 from gitstow.core.git import get_remote_url, is_git_repo
 from gitstow.core.repo import Repo
+from gitstow.core.url_parser import valid_segment
 
 
 @dataclass
@@ -29,7 +30,8 @@ class DiscoveredRepo:
 
 
 def discover_repos(
-    root: Path, layout: str = "structured", include_remotes: bool = True
+    root: Path, layout: str = "structured", include_remotes: bool = True,
+    skipped: list[Path] | None = None,
 ) -> list[DiscoveredRepo]:
     """Walk a workspace directory looking for git repos.
 
@@ -38,16 +40,19 @@ def discover_repos(
         layout: "structured" (root/owner/repo/.git) or "flat" (root/repo/.git).
         include_remotes: If False, skips the per-repo `get_remote_url` git
             subprocess call — a cheap walk suitable for reconciliation hints.
+        skipped: If given, receives every repo folder left out because its name
+            is not a safe repo key on every platform (e.g. `a:b` or `a\\b`, legal on Linux).
     """
     if not root.is_dir():
         return []
 
+    skipped = [] if skipped is None else skipped
     if layout == "flat":
-        return _discover_flat(root, include_remotes)
-    return _discover_structured(root, include_remotes)
+        return _discover_flat(root, include_remotes, skipped)
+    return _discover_structured(root, include_remotes, skipped)
 
 
-def _discover_structured(root: Path, include_remotes: bool = True) -> list[DiscoveredRepo]:
+def _discover_structured(root: Path, include_remotes: bool, skipped: list[Path]) -> list[DiscoveredRepo]:
     """Two-level walk: root/owner/repo/.git. Skips hidden directories."""
     found = []
     for owner_dir in sorted(root.iterdir()):
@@ -57,6 +62,9 @@ def _discover_structured(root: Path, include_remotes: bool = True) -> list[Disco
             if not repo_dir.is_dir() or repo_dir.name.startswith("."):
                 continue
             if is_git_repo(repo_dir):
+                if not (valid_segment(owner_dir.name) and valid_segment(repo_dir.name)):
+                    skipped.append(repo_dir)
+                    continue
                 remote = get_remote_url(repo_dir) if include_remotes else None
                 found.append(DiscoveredRepo(
                     key=f"{owner_dir.name}/{repo_dir.name}",
@@ -68,13 +76,16 @@ def _discover_structured(root: Path, include_remotes: bool = True) -> list[Disco
     return found
 
 
-def _discover_flat(root: Path, include_remotes: bool = True) -> list[DiscoveredRepo]:
+def _discover_flat(root: Path, include_remotes: bool, skipped: list[Path]) -> list[DiscoveredRepo]:
     """One-level walk: root/repo/.git. Skips hidden directories."""
     found = []
     for repo_dir in sorted(root.iterdir()):
         if not repo_dir.is_dir() or repo_dir.name.startswith("."):
             continue
         if is_git_repo(repo_dir):
+            if not valid_segment(repo_dir.name):
+                skipped.append(repo_dir)
+                continue
             remote = get_remote_url(repo_dir) if include_remotes else None
             found.append(DiscoveredRepo(
                 key=repo_dir.name,

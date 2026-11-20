@@ -110,23 +110,28 @@ def test_pull_repos_follows_unified_rule(isolated):
 
 
 def test_pull_repos_no_frozen_collapse(isolated):
-    """Two same-named repos in different workspaces, one frozen — the frozen
-    one must not swallow the other (the Wave 1 bare-key set bug)."""
+    """Three same-named repos in different workspaces, two frozen — neither
+    frozen one may swallow the other or the unfrozen one (the Wave 1 bare-key
+    set bug)."""
     from gitstow.core.config import Settings, Workspace, save_config
     from gitstow.core.repo import Repo, RepoStore
     from gitstow.mcp.server import pull_repos
 
     a_dir = isolated / "a"
     b_dir = isolated / "b"
+    c_dir = isolated / "c"
     a_dir.mkdir()
     b_dir.mkdir()
+    c_dir.mkdir()
     save_config(Settings(workspaces=[
         Workspace(path=str(a_dir), label="a", layout="flat"),
         Workspace(path=str(b_dir), label="b", layout="flat"),
+        Workspace(path=str(c_dir), label="c", layout="flat"),
     ]))
     store = RepoStore()
     store.add(Repo(owner="", name="dup", remote_url="u", workspace="a", frozen=True))
     store.add(Repo(owner="", name="dup", remote_url="u", workspace="b", frozen=False))
+    store.add(Repo(owner="", name="dup", remote_url="u", workspace="c", frozen=True))
 
     with patch("gitstow.cli.pull.is_git_repo", return_value=True), \
          patch("gitstow.cli.pull.get_status", return_value=None), \
@@ -136,9 +141,13 @@ def test_pull_repos_no_frozen_collapse(isolated):
         payload = json.loads(pull_repos())
 
     statuses = [r["status"] for r in payload["results"]]
-    # Frozen a/dup skipped_frozen, unfrozen b/dup evaluated (missing on disk).
+    # Frozen a/dup and c/dup skipped_frozen, unfrozen b/dup evaluated (missing on disk).
     assert "skipped_frozen" in statuses
     assert "missing" in statuses
+    frozen_rows = {(r["repo"], r["workspace"]) for r in payload["results"]
+                   if r["status"] == "skipped_frozen"}
+    assert frozen_rows == {("dup", "a"), ("dup", "c")}
+    assert statuses.count("skipped_frozen") == 2
 
 
 @pytest.mark.parametrize("tool_name", [
@@ -176,3 +185,112 @@ def test_list_workspaces_and_get_config_still_answer_with_empties(isolated):
 
     assert json.loads(list_workspaces()) == []
     assert json.loads(get_config())["workspaces"] == []
+
+
+LEGACY_AZURE_KEY = "v3/org/proj/repo"
+LEGACY_AZURE_REMOTE = "git@ssh.dev.azure.com:v3/org/proj/repo.git"
+
+
+@pytest.mark.parametrize("url", [
+    "git@ssh.dev.azure.com:v3/org/proj/repo",
+    "https://dev.azure.com/org/proj/_git/repo",
+])
+def test_add_repo_finds_record_tracked_under_another_url_form(isolated, url):
+    """A legacy Azure SSH record (keyed `v3/...` before 0.9.0) is found, not cloned again."""
+    from gitstow.core.config import Settings, Workspace, save_config
+    from gitstow.core.repo import Repo, RepoStore
+    from gitstow.mcp.server import add_repo
+
+    ws_dir = isolated / "ws"
+    ws_dir.mkdir()
+    save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+    RepoStore().add(Repo(owner="v3/org/proj", name="repo", remote_url=LEGACY_AZURE_REMOTE,
+                         workspace="ws", tags=["work"], frozen=True))
+    (ws_dir / "v3" / "org" / "proj" / "repo" / ".git").mkdir(parents=True)  # tracked and on disk
+
+    with patch("gitstow.mcp.server.git_clone") as clone:
+        payload = json.loads(add_repo(url, workspace="ws"))
+
+    assert payload == {
+        "success": True, "status": "already_tracked", "key": LEGACY_AZURE_KEY, "workspace": "ws",
+        "path": str(ws_dir / "v3" / "org" / "proj" / "repo"),
+        "detail": f"same repo as org/proj/repo, already tracked as {LEGACY_AZURE_KEY}",
+    }
+    assert clone.call_count == 0
+    assert [(r.key, r.remote_url, r.tags, r.frozen) for r in RepoStore().list_all()] == [
+        (LEGACY_AZURE_KEY, LEGACY_AZURE_REMOTE, ["work"], True)]
+    assert not (ws_dir / "org").exists()
+
+
+@pytest.mark.parametrize("key", [
+    "../Documents",   # a record written before 0.9.0 parsed https://github.com/../Documents
+    "x/..",           # resolves to the workspace folder itself
+    "./widget",       # owner "." once made owner cleanup remove the workspace folder (R4-C4)
+])
+def test_remove_repo_never_deletes_outside_its_workspace(isolated, key):
+    """The workspace is isolated/ws, so every target here sits inside tmp_path, never the real home.
+    Such a record is set aside on load: remove_repo cannot even find it."""
+    from gitstow.core.config import Settings, Workspace, save_config
+    from gitstow.core.paths import get_repos_file
+    from gitstow.core.repo import RepoStore
+    from gitstow.mcp.server import remove_repo
+
+    ws_dir = isolated / "ws"
+    (ws_dir / "x").mkdir(parents=True)
+    (ws_dir / "x" / "keep.txt").write_bytes(b"workspace content\n")
+    (ws_dir / "widget" / ".git").mkdir(parents=True)
+    outside = isolated / "Documents"
+    outside.mkdir()
+    (outside / "keep.txt").write_bytes(b"precious\n")
+    save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+    text = f"ws:\n  {key}:\n    remote_url: u\n"
+    get_repos_file().write_text(text)
+
+    payload = json.loads(remove_repo(key, delete_from_disk=True))
+
+    assert payload == {"success": False, "error": f"'{key}' not tracked"}
+    assert (outside / "keep.txt").read_bytes() == b"precious\n"
+    assert (ws_dir / "x" / "keep.txt").read_bytes() == b"workspace content\n"
+    assert (ws_dir / "widget" / ".git").is_dir()
+    assert ws_dir.is_dir()
+    assert get_repos_file().read_text() == text  # kept verbatim
+    assert RepoStore().rejected() == [("ws", key)]
+
+
+def test_remove_repo_refuses_a_target_behind_a_symlinked_owner(isolated):
+    from gitstow.core.config import Settings, Workspace, save_config
+    from gitstow.core.repo import Repo, RepoStore
+    from gitstow.mcp.server import remove_repo
+
+    ws_dir = isolated / "ws"
+    ws_dir.mkdir()
+    outside = isolated / "Documents"
+    (outside / "widget").mkdir(parents=True)
+    (outside / "widget" / "keep.txt").write_bytes(b"precious\n")
+    (ws_dir / "acme").symlink_to(outside)
+    save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+    RepoStore().add(Repo(owner="acme", name="widget", remote_url="u", workspace="ws"))
+
+    payload = json.loads(remove_repo("acme/widget", delete_from_disk=True))
+
+    assert payload == {"success": False,
+                       "error": f"refusing to delete path outside workspace: {(outside / 'widget').resolve()}"}
+    assert (outside / "widget" / "keep.txt").read_bytes() == b"precious\n"
+    assert [r.key for r in RepoStore().list_all()] == ["acme/widget"]  # still tracked
+
+
+def test_remove_repo_still_deletes_inside_its_workspace(isolated):
+    from gitstow.core.config import Settings, Workspace, save_config
+    from gitstow.core.repo import Repo, RepoStore
+    from gitstow.mcp.server import remove_repo
+
+    ws_dir = isolated / "ws"
+    (ws_dir / "acme" / "widget" / ".git").mkdir(parents=True)
+    save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+    RepoStore().add(Repo(owner="acme", name="widget", remote_url="u", workspace="ws"))
+
+    payload = json.loads(remove_repo("acme/widget", delete_from_disk=True))
+
+    assert payload == {"success": True, "repo": "acme/widget", "deleted_from_disk": True}
+    assert not (ws_dir / "acme").exists()
+    assert RepoStore().list_all() == []

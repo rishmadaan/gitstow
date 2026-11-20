@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import sys
 from datetime import datetime
@@ -29,8 +30,12 @@ console = Console()
 err_console = Console(stderr=True)
 
 
-def _pull_one_repo(repo: Repo, ws: Workspace) -> dict:
-    """Pull a single repo. Returns a result dict."""
+def _pull_one_repo(repo: Repo, ws: Workspace, force: bool = False) -> dict:
+    """Pull a single repo. Returns a result dict.
+
+    force=True skips only the local-changes check; git's ff-only pull still
+    refuses to overwrite a modified file.
+    """
     path = repo.get_path(ws.get_path())
 
     if not path.exists():
@@ -41,19 +46,21 @@ def _pull_one_repo(repo: Repo, ws: Workspace) -> dict:
 
     status = get_status(path)
     state = classify(exists=True, frozen=repo.frozen, status=status)
-    if state.blocks_pull:
+    if state.blocks_pull and not force:
         return {
             "repo": repo.key,
             "status": "skipped",
             "detail": f"Local changes ({state.local_summary})",
         }
-    if state.pull_action == "skip-diverged":
+    # remote_state, not pull_action: the frozen filter already ran upstream (a frozen
+    # repo gets here only under --include-frozen), so frozen must not mask these skips.
+    if state.remote_state == "diverged":
         return {
             "repo": repo.key,
             "status": "skipped",
             "detail": "Diverged from remote — resolve manually (rebase or merge)",
         }
-    if state.pull_action == "skip-no-upstream":
+    if state.remote_state == "no-upstream":
         return {
             "repo": repo.key,
             "status": "skipped",
@@ -88,6 +95,11 @@ def pull(
     include_frozen: bool = typer.Option(
         False, "--include-frozen", help="Include frozen repos.",
     ),
+    force: bool = typer.Option(
+        False, "--force",
+        help="Also pull the named repos when they have modified or staged files. Needs repo names; "
+        "git still refuses any pull that would overwrite them.",
+    ),
     output_json: bool = typer.Option(
         False, "--json", "-j", help="JSON output.",
     ),
@@ -102,8 +114,9 @@ def pull(
 
     Frozen repos are skipped unless --include-frozen is set.
     Repos with modified or staged changes are skipped (never risk losing
-    local work); untracked-only repos are pulled. Diverged repos are
-    skipped — resolve manually with rebase or merge.
+    local work); untracked-only repos are pulled. --force pulls such repos
+    anyway, but only the ones you name: a bulk pull never forces.
+    Diverged repos are skipped — resolve manually with rebase or merge.
 
     \b
     Examples:
@@ -111,7 +124,19 @@ def pull(
       gitstow pull --tag ai           # Only repos tagged 'ai'
       gitstow pull --exclude-tag stale
       gitstow pull -w oss             # Only repos in oss workspace
+      gitstow pull owner/repo --force # Pull despite modified files
     """
+    # The owner's rule: --force is for repos you name, never a bulk pull. Filters
+    # (--tag, --owner, -w) narrow a bulk pull; they do not name repos.
+    if force and not repos:
+        message = "--force needs the repos to pull, e.g. gitstow pull owner/repo --force"
+        if output_json:
+            json.dump({"success": False, "error": message}, sys.stdout, indent=2)
+            print()
+        else:
+            err_console.print(f"[red]Error:[/red] {message}")
+        raise typer.Exit(code=1)
+
     settings = load_config()
     store = RepoStore()
     ws_label = ctx.obj.get("workspace") if ctx.obj else None
@@ -180,7 +205,7 @@ def pull(
 
     result_dicts = run_bulk(
         targets,
-        _pull_one_repo,
+        functools.partial(_pull_one_repo, force=force),
         parallel_limit=settings.parallel_limit,
         retry=retry,
         on_attempt=None if (quiet or output_json) else _on_attempt,

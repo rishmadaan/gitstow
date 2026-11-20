@@ -15,7 +15,7 @@ from rich.console import Console
 
 from gitstow.core.config import load_config
 from gitstow.core.git import get_remote_url, is_git_repo
-from gitstow.core.repo import Repo, RepoStore
+from gitstow.core.repo import Repo, RepoStore, inside_workspace, target_for
 from gitstow.core.url_parser import parse_git_url
 
 console = Console()
@@ -85,15 +85,16 @@ def migrate(
                 err_console.print(f"  [red]✗[/red] {path_str}: can't parse remote URL: {e}")
             continue
 
-        # Determine target based on workspace layout
-        if ws.layout == "flat":
-            target = root / parsed.repo
-            repo_owner = ""
-        else:
-            target = root / parsed.owner / parsed.repo
-            repo_owner = parsed.owner
+        repo_owner, repo_key, target = target_for(parsed, ws.layout, root)
 
-        repo_key = f"{repo_owner}/{parsed.repo}" if repo_owner else parsed.repo
+        # The source was named explicitly and may be anywhere; the derived destination
+        # must stay inside the workspace (a symlinked owner folder can point out of it).
+        if not inside_workspace(target, root):
+            detail = f"Destination resolves outside workspace '{ws.label}': {target}"
+            results.append({"path": path_str, "status": "error", "key": repo_key, "detail": detail})
+            if not quiet:
+                err_console.print(f"  [red]✗[/red] {repo_key}: {detail}; left where it is")
+            continue
 
         # Already in the right place?
         if path == target:

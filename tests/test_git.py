@@ -3,9 +3,11 @@
 
 """Tests for git wrapper module (mocked subprocess)."""
 
-from unittest.mock import patch, MagicMock
+import os
 from pathlib import Path
+from unittest.mock import patch, MagicMock
 
+import pytest
 
 from gitstow.core.git import (
     clone,
@@ -52,51 +54,63 @@ class TestIsGitRepo:
         assert is_git_repo(tmp_path) is True
 
 
+def _fake_git_clone(returncode=0, stderr=""):
+    """Stand-in for `git clone`: on success it creates the folder it was told to clone into."""
+    def run(args, *a, **kw):
+        if returncode == 0:
+            Path(args[-1]).mkdir()
+        return MagicMock(returncode=returncode, stderr=stderr)
+    return run
+
+
 class TestClone:
     @patch("gitstow.core.git._run_git")
-    def test_clone_success(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=0)
-        ok, err = clone("https://example.com/repo.git", Path("/tmp/repo"))
+    def test_clone_success(self, mock_run, tmp_path):
+        mock_run.side_effect = _fake_git_clone()
+        ok, err = clone("https://example.com/repo.git", tmp_path / "repo")
         assert ok is True
         assert err == ""
+        assert sorted(p.name for p in tmp_path.iterdir()) == ["repo"]  # published, staging gone
 
     @patch("gitstow.core.git._run_git")
-    def test_clone_failure(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=128, stderr="fatal: repo not found")
-        ok, err = clone("https://example.com/repo.git", Path("/tmp/repo"))
+    def test_clone_failure(self, mock_run, tmp_path):
+        mock_run.side_effect = _fake_git_clone(128, "fatal: repo not found")
+        ok, err = clone("https://example.com/repo.git", tmp_path / "repo")
         assert ok is False
         assert "not found" in err
+        assert list(tmp_path.iterdir()) == []
 
     @patch("gitstow.core.git._run_git")
-    def test_clone_shallow(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=0)
-        clone("https://example.com/repo.git", Path("/tmp/repo"), shallow=True)
+    def test_clone_shallow(self, mock_run, tmp_path):
+        mock_run.side_effect = _fake_git_clone()
+        clone("https://example.com/repo.git", tmp_path / "repo", shallow=True)
         args = mock_run.call_args[0][0]
         assert "--depth" in args
         assert "1" in args
 
     @patch("gitstow.core.git._run_git")
-    def test_clone_branch(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=0)
-        clone("https://example.com/repo.git", Path("/tmp/repo"), branch="dev")
+    def test_clone_branch(self, mock_run, tmp_path):
+        mock_run.side_effect = _fake_git_clone()
+        clone("https://example.com/repo.git", tmp_path / "repo", branch="dev")
         args = mock_run.call_args[0][0]
         assert "--branch" in args
         assert "dev" in args
 
     @patch("gitstow.core.git._run_git")
-    def test_clone_recursive(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=0)
-        clone("https://example.com/repo.git", Path("/tmp/repo"), recursive=True)
+    def test_clone_recursive(self, mock_run, tmp_path):
+        mock_run.side_effect = _fake_git_clone()
+        clone("https://example.com/repo.git", tmp_path / "repo", recursive=True)
         args = mock_run.call_args[0][0]
         assert "--recurse-submodules" in args
 
     @patch("gitstow.core.git._run_git")
-    def test_clone_timeout(self, mock_run):
+    def test_clone_timeout(self, mock_run, tmp_path):
         import subprocess
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=300)
-        ok, err = clone("https://example.com/repo.git", Path("/tmp/repo"))
+        ok, err = clone("https://example.com/repo.git", tmp_path / "repo")
         assert ok is False
         assert "timed out" in err.lower()
+        assert list(tmp_path.iterdir()) == []  # the staging folder is removed on timeout too
 
 
 class TestDiskSize:
@@ -114,31 +128,66 @@ class TestDiskSize:
 
 class TestCloneTimeout:
     @patch("gitstow.core.git._run_git")
-    def test_clone_passes_timeout(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=0)
-        clone("https://example.com/r.git", Path("/tmp/r"), timeout=900)
+    def test_clone_passes_timeout(self, mock_run, tmp_path):
+        mock_run.side_effect = _fake_git_clone()
+        clone("https://example.com/r.git", tmp_path / "r", timeout=900)
         assert mock_run.call_args.kwargs["timeout"] == 900
 
 
+def _pull_steps(merge_stdout="", merge_rc=0):
+    """`_run_git` results for one pull, in call order: symbolic-ref, fetch, rev-parse, merge."""
+    return [
+        MagicMock(returncode=0, stdout=b"refs/heads/main\n", stderr=b""),  # read as bytes
+        MagicMock(returncode=0, stdout="", stderr=""),
+        MagicMock(returncode=0, stdout="abc\n", stderr=""),
+        MagicMock(returncode=merge_rc, stdout=merge_stdout, stderr=""),
+    ]
+
+
+class TestNotOwnToplevel:
+    """When rev-parse fails, git's own stderr is the reason; the generic text only as a fallback."""
+
+    @patch("gitstow.core.git._run_git")
+    def test_failing_rev_parse_returns_gits_words(self, mock_run):
+        from gitstow.core.git import _not_own_toplevel
+        mock_run.return_value = MagicMock(returncode=128, stdout=b"",
+                                          stderr=b"fatal: detected dubious ownership\n\thint\n")
+        assert _not_own_toplevel(Path("/r")) == "fatal: detected dubious ownership\n\thint"
+
+    @patch("gitstow.core.git._run_git")
+    def test_failing_rev_parse_without_stderr_falls_back(self, mock_run):
+        from gitstow.core.git import _not_own_toplevel
+        mock_run.return_value = MagicMock(returncode=128, stdout=b"", stderr=b"")
+        assert _not_own_toplevel(Path("/r")) == (
+            "/r is not the top of its own git repository; left untouched")
+
+
 class TestPull:
+    @pytest.fixture(autouse=True)
+    def _own_toplevel(self):
+        # These mock _run_git call by call; the boundary check has its own real-git tests.
+        with patch("gitstow.core.git._not_own_toplevel", return_value=None):
+            yield
+
     @patch("gitstow.core.git._run_git")
     def test_pull_success(self, mock_run):
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="Updating abc123..def456\n1 file changed",
-            stderr="",
-        )
+        mock_run.side_effect = _pull_steps("Updating abc123..def456\n1 file changed")
         result = pull(Path("/tmp/repo"))
         assert result.success is True
         assert result.already_up_to_date is False
+        assert result.output == "Updating abc123..def456\n1 file changed"
+        assert [c.args[0] for c in mock_run.call_args_list] == [
+            ["symbolic-ref", "-q", "HEAD"],
+            ["fetch", "--prune"],
+            ["rev-parse", "--verify", "-q", "@{upstream}"],
+            ["-c", "merge.autoStash=false", "-c", "pull.twohead=recursive",
+             "-c", "branch.main.mergeOptions=",
+             "merge", "--no-stat", "--ff-only", "--no-overwrite-ignore", "@{upstream}"],
+        ]
 
     @patch("gitstow.core.git._run_git")
     def test_pull_already_up_to_date(self, mock_run):
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="Already up to date.",
-            stderr="",
-        )
+        mock_run.side_effect = _pull_steps("Already up to date.")
         result = pull(Path("/tmp/repo"))
         assert result.success is True
         assert result.already_up_to_date is True
@@ -146,13 +195,14 @@ class TestPull:
     @patch("gitstow.core.git._run_git")
     def test_pull_failure(self, mock_run):
         mock_run.return_value = MagicMock(
-            returncode=1,
-            stdout="",
-            stderr="fatal: not a git repo",
+            returncode=128,
+            stdout=b"",
+            stderr=b"fatal: not a git repo",
         )
         result = pull(Path("/tmp/repo"))
         assert result.success is False
         assert "not a git repo" in result.error
+        assert mock_run.call_count == 1  # nothing after the failed branch lookup
 
     @patch("gitstow.core.git._run_git")
     def test_pull_timeout(self, mock_run):
@@ -164,6 +214,12 @@ class TestPull:
 
 
 class TestFetch:
+    @pytest.fixture(autouse=True)
+    def _own_toplevel(self):
+        # These mock _run_git call by call; the boundary check has its own real-git tests.
+        with patch("gitstow.core.git._not_own_toplevel", return_value=None):
+            yield
+
     @patch("gitstow.core.git._run_git")
     def test_fetch_success(self, mock_run):
         mock_run.return_value = MagicMock(
@@ -682,3 +738,152 @@ class TestRunInteractiveDiff:
         assert args[0] == ["git", "diff", "--cached"]
         assert kwargs.get("cwd") == Path("/repo")
         assert "capture_output" not in kwargs  # output goes straight to the TTY
+
+
+class TestSearchRepo:
+    """One hardened search runner for CLI and MCP (rg, or git grep fallback)."""
+
+    def _repo(self, tmp_path):
+        import subprocess
+        repo = tmp_path / "r"
+        repo.mkdir(parents=True)
+        (repo / "a.py").write_text("x = 1  # -foo flag\n")
+        (repo / "b.md").write_text("docs mention -foo too\n")
+        (repo / "c.txt").write_text("nothing here\n")
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t",
+                        "commit", "-q", "-m", "init"], check=True)
+        return repo
+
+    def test_git_grep_finds_dash_pattern(self, tmp_path):
+        from gitstow.core.git import search_repo
+        matches = search_repo(self._repo(tmp_path), "-foo", use_rg=False)
+        assert sorted(m["file"] for m in matches) == ["a.py", "b.md"]
+        assert {m["line_number"] for m in matches} == {"1"}
+
+    def test_git_grep_honours_glob(self, tmp_path):
+        from gitstow.core.git import search_repo
+        matches = search_repo(self._repo(tmp_path), "-foo", use_rg=False, glob_filter="*.py")
+        assert matches == [{"file": "a.py", "line_number": "1", "text": "x = 1  # -foo flag"}]
+
+    def test_git_grep_honours_negated_glob(self, tmp_path):
+        from gitstow.core.git import search_repo
+        matches = search_repo(self._repo(tmp_path), "-foo", use_rg=False, glob_filter="!*.md")
+        assert matches == [{"file": "a.py", "line_number": "1", "text": "x = 1  # -foo flag"}]
+
+    def test_rg_finds_dash_pattern(self, tmp_path):
+        import shutil
+        if shutil.which("rg") is None:
+            pytest.skip("ripgrep not installed")
+        from gitstow.core.git import search_repo
+        matches = search_repo(self._repo(tmp_path), "-foo", use_rg=True, glob_filter="*.py")
+        assert [m["file"] for m in matches] == ["a.py"]
+
+    @pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                        reason="needs a file the test user cannot read")
+    def test_rg_keeps_matches_when_one_file_is_unreadable(self, tmp_path):
+        import shutil
+        if shutil.which("rg") is None:
+            pytest.skip("ripgrep not installed")
+        from gitstow.core.git import search_repo
+        repo = self._repo(tmp_path)
+        (repo / "locked.py").write_text("-foo locked\n")
+        (repo / "locked.py").chmod(0)
+        try:
+            matches = search_repo(repo, "-foo", use_rg=True, glob_filter="*.py")
+        finally:
+            (repo / "locked.py").chmod(0o644)
+        assert matches == [{"file": "a.py", "line_number": "1", "text": "x = 1  # -foo flag"}]
+
+    @patch("gitstow.core.git.subprocess.run")
+    def test_git_grep_exit_2_is_still_an_error(self, mock_run, tmp_path):
+        from gitstow.core.git import search_repo
+        mock_run.return_value = MagicMock(returncode=2, stdout="a.py:1:-foo\n")
+        assert search_repo(tmp_path, "-foo", use_rg=False) == []
+
+    @pytest.mark.parametrize("files_only", [False, True])
+    def test_rg_searches_the_repo_not_a_piped_stdin(self, tmp_path, files_only):
+        """The MCP server's stdin is a pipe (its JSON-RPC stream); rg must search the repo."""
+        import json
+        import os
+        import shutil
+        import subprocess
+        import sys
+
+        import gitstow
+        if shutil.which("rg") is None:
+            pytest.skip("ripgrep not installed")
+        repo = self._repo(tmp_path)
+        code = ("import json, sys; from pathlib import Path; from gitstow.core.git import search_repo; "
+                f"print(json.dumps(search_repo(Path(sys.argv[1]), '-foo', use_rg=True, "
+                f"glob_filter='*.py', files_only={files_only})))")
+        src = str(Path(gitstow.__file__).resolve().parent.parent)
+        env = {**os.environ, "PYTHONPATH": os.pathsep.join([src, os.environ.get("PYTHONPATH", "")])}
+        out = subprocess.run([sys.executable, "-c", code, str(repo)], input="stdin line -foo\n",
+                             capture_output=True, text=True, env=env, check=True)
+        expected = ([{"file": "a.py"}] if files_only
+                    else [{"file": "a.py", "line_number": "1", "text": "x = 1  # -foo flag"}])
+        assert json.loads(out.stdout) == expected
+
+    @pytest.mark.parametrize("use_rg", [True, False])
+    @patch("gitstow.core.git.subprocess.run")
+    def test_command_uses_dash_e_and_git_env(self, mock_run, use_rg, tmp_path, monkeypatch):
+        from gitstow.core.git import search_repo
+        monkeypatch.setenv("LC_ALL", "C.UTF-8")
+        monkeypatch.setenv("GIT_DIR", str(tmp_path / "elsewhere"))
+        mock_run.return_value = MagicMock(returncode=1, stdout="")
+        assert search_repo(tmp_path, "-foo", use_rg=use_rg, glob_filter="*.md") == []
+        import subprocess
+        cmd = mock_run.call_args.args[0]
+        assert cmd[0] == ("rg" if use_rg else "git")
+        assert cmd[cmd.index("-e") + 1] == "-foo"
+        assert mock_run.call_args.kwargs["stdin"] == subprocess.DEVNULL
+        if use_rg:
+            assert cmd[-1] == "."  # a path, so rg never falls back to searching stdin
+        if not use_rg:
+            assert cmd[-2:] == ["--", "*.md"]
+            assert cmd[cmd.index("--max-depth") + 1] == "10"
+        env = mock_run.call_args.kwargs["env"]
+        assert env["GIT_TERMINAL_PROMPT"] == "0"
+        assert "GIT_DIR" not in env
+        assert env["LC_ALL"] == "C.UTF-8"  # the caller's locale, so -i folds non-ASCII
+
+    def test_git_grep_case_insensitive_folds_non_ascii(self, tmp_path, monkeypatch):
+        import subprocess
+
+        from gitstow.core.git import search_repo
+        repo = self._repo(tmp_path)
+        (repo / "menu.txt").write_text("CAF\u00c9 open\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+        for loc in ("C.UTF-8", "C.utf8", "en_US.UTF-8", "en_US.utf8"):
+            monkeypatch.setenv("LC_ALL", loc)
+            plain = subprocess.run(["git", "grep", "-l", "-i", "-e", "caf\u00e9"], cwd=repo,
+                                   capture_output=True, text=True, encoding="utf-8")
+            if plain.stdout.strip() == "menu.txt":
+                break
+        else:
+            pytest.skip("no UTF-8 locale in which this git's grep -i folds \u00c9/\u00e9")
+        matches = search_repo(repo, "caf\u00e9", use_rg=False, case_insensitive=True)
+        assert matches == [{"file": "menu.txt", "line_number": "1", "text": "CAF\u00c9 open"}]
+
+    def test_mcp_search_keeps_line_key_and_finds_dash_pattern(self, tmp_path, monkeypatch):
+        import json
+
+        from gitstow.core.config import Settings, Workspace
+        from gitstow.core.repo import Repo, RepoStore
+        from gitstow.mcp import server
+
+        ws = tmp_path / "ws"
+        repo_dir = self._repo(ws / "owner")
+        store = RepoStore(path=tmp_path / "repos.yaml")
+        store.add(Repo(owner="owner", name=repo_dir.name, remote_url="", workspace="ws"))
+        settings = Settings(workspaces=[Workspace(path=str(ws), label="ws", layout="structured")])
+        monkeypatch.setattr(server, "_get_settings_and_store", lambda: (settings, store))
+        monkeypatch.setattr("shutil.which", lambda name: None)  # force the git grep path
+
+        payload = json.loads(server.search_repos("-foo", glob_filter="*.md"))
+        assert payload["total_matches"] == 1
+        assert payload["results"][0]["matches"] == [
+            {"file": "b.md", "line": "1", "text": "docs mention -foo too"}
+        ]

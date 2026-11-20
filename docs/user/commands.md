@@ -81,18 +81,22 @@ gitstow add anthropic/claude-code --update
 
 **Behavior:**
 - Repos are added to the first configured workspace, or the workspace specified with `-w`. With none configured, `add` exits 1 with `No workspaces configured…` and clones nothing
-- If the repo is already tracked: skips (or pulls with `--update`)
-- If the path exists on disk but isn't tracked: registers it automatically
+- If the repo is already tracked: skips (or pulls with `--update`). If its folder is missing on disk, it errors instead and names the way out: `gitstow -w <label> remove <key>`, then add it again to re-clone (the MCP `add_repo` tool names `remove_repo` with `<label>:<key>`, the dashboard's Add page the row's ⋯ menu Remove)
+- If the same repo is already tracked in that workspace under another URL form (HTTPS vs SSH, or an Azure repo first added by its SSH `v3/` URL): reports it as already tracked under its stored name and folder, never clones a second copy; `--update` pulls that existing folder
+- If the path exists on disk as a git repo whose `origin` remote matches, but isn't tracked: registers it automatically
+- If the path exists on disk as a git repo with **no** `origin` remote (one you `git init`ed yourself): errors and never clones over it, printing the command to run inside it (`git -C <folder> remote add origin <url>`); run the same `gitstow add` again afterwards to register it
 - If the path exists on disk with a **different** remote than the one requested: errors with a remote-mismatch message instead of silently registering — move the directory or pick another workspace
 - If the path exists but isn't a git repo: errors
 - Equivalent URLs passed twice in the same invocation (e.g. HTTPS and SSH forms of the same repo) are deduplicated — only the first is cloned, the rest are reported as duplicates
-- Multiple URLs are cloned concurrently (bounded by `parallel_limit`, default 6), with per-clone retry via `--retry`
+- Multiple URLs are cloned concurrently (bounded by `parallel_limit`, default 6), with per-clone retry via `--retry`. Each clone runs in a hidden staging folder beside the target (`.gitstow-clone-…`) and is moved into place only when complete; if something appeared at the target in the meantime (another process got there first), that repo fails with `already exists … left untouched` and whatever is there is kept (on Linux and macOS an empty folder at the target is simply replaced; on Windows that clone stops with `already exists`). A clone that fails for good leaves no repo folder behind (an empty owner folder it created may stay). If gitstow is killed mid-clone, a hidden `.gitstow-clone-…` folder may be left beside the target; it is safe to delete
+- A URL whose owner or repo would not be a safe folder name (a `.`, `..` or empty path segment, a segment of only dots and spaces, or a `\`, `:` or control character; a control character inside the URL, such as a pasted tab, is refused rather than dropped; whitespace around the whole URL, including a trailing newline, is trimmed first) is refused as invalid, so a repo always lands inside its workspace
+- **Limits:** clones and pulls follow symlinks you place inside a workspace (a delete or move refuses a folder that resolves outside it). gitstow does not check for two repos that map to one folder on a case-insensitive file system (`Acme/Widget` and `acme/widget`) or because Windows drops a trailing dot (`widget.` and `widget`), and a Windows reserved name (`con`, `nul`) makes the clone fail
 
 ---
 
 ### `gitstow pull`
 
-Bulk update repos via `git pull --ff-only`.
+Bulk update repos: `git fetch --prune`, then a fast-forward-only merge of the upstream branch.
 
 ```bash
 gitstow pull [repos...] [flags]
@@ -109,6 +113,7 @@ gitstow pull [repos...] [flags]
 | `--exclude-tag` | | Skip repos with this tag. Repeatable. |
 | `--owner` | | Only pull repos from this owner. |
 | `--include-frozen` | | Include frozen repos (normally skipped). |
+| `--force` | | Also pull the named repos when they have modified or staged files. Needs repo names: without them the command stops with an error and pulls nothing (filters do not count). Git still refuses any pull that would overwrite them. |
 | `--retry` | | Retry failed repos N times (e.g., `--retry 3`). |
 | `--json` | `-j` | JSON output. |
 | `--quiet` | `-q` | Suppress per-repo progress. |
@@ -128,16 +133,24 @@ gitstow pull --exclude-tag archived
 # Specific repos
 gitstow pull anthropic/claude-code facebook/react
 
-# Force-pull frozen repos too
+# Pull frozen repos too
 gitstow pull --include-frozen
+
+# Pull a repo even though it has modified files
+gitstow pull anthropic/claude-code --force
 ```
 
 **Behavior:**
 - Frozen repos are skipped (shown as "Frozen" in summary)
-- Repos with modified or staged files are skipped — the composition is shown in the summary (e.g. "2 modified · 1 staged")
-- Diverged repos (local and remote both have commits the other lacks) are skipped — resolve manually (rebase or merge)
+- Repos with modified or staged files are skipped — the composition is shown in the summary (e.g. "2 modified · 1 staged"). With `--force` the repos you name are pulled (a bulk `--force` is refused); git's ff-only pull still refuses (reported as an error, files untouched) if the pull would overwrite a modified file
+- Diverged repos (local and remote both have commits the other lacks) are skipped — resolve manually (rebase or merge). This holds with `--force`, and for frozen repos under `--include-frozen`
+- Local-only repos (no upstream configured) are skipped, likewise
 - Repos with only untracked files ARE pulled — an ff-only pull can't lose them
 - Uses `--ff-only` — won't create merge commits
+- Never overwrites your local edits or ignored files, whatever your git settings for stashing, rebasing or merge options: a pull that would replace a modified file, or an ignored local file (like a `.env`) that upstream has started tracking, is refused and reported as an error with the files left as they were. Autostash settings (`merge.autoStash`, `rebase.autoStash`), rebase settings (`pull.rebase`, `branch.<name>.rebase`), per-branch merge options (`branch.<name>.mergeOptions`) and a merge strategy set in `pull.twohead` are not used. A branch whose name contains `=` and that has merge options set is refused (pull it with git)
+- gitstow only ever changes the repo's own folder: a tracked folder whose `.git` is broken or empty is reported as an error, never treated as part of a repo around it. gitstow tells git not to look above the folder, and before it fetches or merges it checks that git sees the folder as the top of its own repository, and otherwise leaves it untouched ("… is not the top of its own git repository; left untouched"). `gitstow fetch` makes the same check
+- **Limits:** a pull only fast-forwards, and refuses when that would overwrite a modified, staged, untracked or ignored file. It does not stop programs you have told git to run during a pull, such as hooks (`post-merge`), clean/smudge filters (Git LFS) or helpers chosen through your environment (`GIT_EXEC_PATH`); those run as you configured them and can change files. Editing files while a pull runs can also race with it. `--prune` removes remote-tracking refs that are gone upstream, and with custom refspecs it can remove tags too
+- A branch whose upstream was deleted on the remote is reported as "the upstream branch no longer exists on the remote". A detached HEAD is skipped as a local-only repo here; where a single repo is pulled directly (the dashboard's row Pull, `gitstow add --update`) it is reported as "not on a branch"
 - Runs in parallel (configurable, default 6 concurrent)
 - Updates `last_pulled` timestamp on success
 
@@ -290,6 +303,8 @@ gitstow migrate <path> [paths...]
 
 Reads the remote URL from the repo, determines the owner/repo, moves the directory into your gitstow root, and registers it.
 
+The repo you name can live anywhere, but its destination must stay inside the workspace: if the destination resolves outside it (for example through a symlinked owner folder), the repo is left where it is and reported as an error.
+
 ```bash
 gitstow migrate ~/old-projects/some-repo
 gitstow migrate ~/random-clones/*
@@ -389,7 +404,7 @@ gitstow search <pattern> [flags]
 |------|-------|-------------|
 | `--tag` | `-t` | Only search in repos with this tag. |
 | `--owner` | | Only search in repos from this owner. |
-| `--glob` | `-g` | File glob pattern (e.g., `*.py`, `*.md`). |
+| `--glob` | `-g` | File glob pattern (e.g., `*.py`, `*.md`), or `!` in front to exclude (e.g., `'!*.md'`). Works with ripgrep and with the `git grep` fallback. |
 | `--ignore-case` | `-i` | Case-insensitive search. |
 | `--files` | `-l` | Only show file paths, not matching lines. |
 | `--max` | `-m` | Max results per repo (default: 50). |
@@ -402,6 +417,7 @@ gitstow search "TODO"
 gitstow search "def main" --glob "*.py"
 gitstow search "import React" --tag frontend
 gitstow search "error" -i --files
+gitstow search -- -foo                      # A pattern that starts with "-"
 ```
 
 ---
@@ -484,6 +500,14 @@ gitstow collection import <file> [flags]
 | `--tag` | `-t` | Apply tag(s) to all imported repos. |
 | `--shallow` | `-s` | Shallow clone imported repos. |
 | `--dry-run` | `-n` | Show what would be imported without doing it. |
+
+**Behavior:**
+- A repo already tracked in its target workspace (under any URL form) is skipped instead of cloning a second copy; its tags and frozen state are left as they are
+- A file that lists the same repo twice imports it once, with the first entry's tags and frozen state
+- An entry whose folder is already used by a different repo (another host, or another owner in a flat workspace), either earlier in the file or already tracked, is not imported: `gitstow collection import` reports it as a conflict with the reason, and the dashboard's import banner lists it with the reason
+- Every entry is judged by its URL, whatever the file format: an exported YAML or JSON file is treated like a URL list (the `key` stored in an exported file is not used)
+- `--dry-run` lists every entry once with what it would do: add, skip (with the reason), conflict, or cannot add
+- A URL whose owner or repo would not be a safe folder name (a `.`, `..` or empty path segment, a segment of only dots and spaces, or a `\`, `:` or control character; a control character inside the URL, such as a pasted tab, is refused rather than dropped; whitespace around the whole URL, including a trailing newline, is trimmed first) is refused as invalid
 
 ---
 
@@ -573,6 +597,8 @@ Every interactive element has a hover tooltip. There's also a `?` button in the 
 - **Ghost** (gray) — already up to date, has local changes, or ahead. The button still works; it just won't change anything useful. (Untracked-only local changes still pull fine — a bulk pull only skips modified/staged files.)
 - **Disabled** — frozen, in conflict, diverged from remote, or missing on disk
 
+If a single-row **Pull** or **Fetch** fails (git refuses to overwrite a local file, the network is down), git's message appears in red under the repo name and the *Last pull* stamp keeps its old value. Dismiss it with **×**.
+
 **Remote Δ** (`↑ N`, `↓ N`, or `—`) reflects your *last fetch*, not live remote state. If the counts look stale, pull (or run `git fetch --all` manually) to refresh them. A `local` badge means the repo has no upstream remote — bulk pulls skip it.
 
 **Auto-refresh every 30s** re-reads local state only:
@@ -580,7 +606,7 @@ Every interactive element has a hover tooltip. There's also a `?` button in the 
 - Your `~/.gitstow/repos.yaml` registry (catches `gitstow add` from another terminal)
 - `git status` on each tracked repo (catches new local commits, branch switches, dirty files)
 
-It does **NOT** run `git fetch`. Ahead/behind counts won't update without a pull or manual fetch.
+It does **NOT** run `git fetch`. Ahead/behind counts won't update without a pull or manual fetch. It pauses while a row on screen shows a Pull or Fetch error, so the message stays while that row is shown. Dismiss it with ×; if you filter that row out instead, refresh resumes and the next refresh clears it.
 
 ### `gitstow update`
 
@@ -661,6 +687,8 @@ Health check — verifies git installation, config files, and repo integrity (tr
 gitstow doctor
 gitstow doctor --json
 ```
+
+It also lists any repos.yaml entry that was set aside (`set_aside_records` in `--json`): a key that is not a safe folder path inside its workspace, such as `../outside` or an absolute path, which versions before 0.9.0 accepted. Every command ignores such an entry and gitstow keeps it unchanged in repos.yaml; delete it there, then add the repo again (`gitstow add <url>`, or `gitstow workspace scan <label>` for a folder already on disk). While any entry is set aside, `gitstow list` and `gitstow status` print a one-line reminder on stderr (not with `--json` or `--quiet`).
 
 ### `gitstow install-skill`
 
@@ -772,7 +800,7 @@ Scan a workspace directory to discover and register any repos that aren't yet tr
 gitstow workspace scan <label>
 ```
 
-This respects the workspace's layout mode — in `structured` workspaces it looks for `owner/repo/.git`, in `flat` workspaces it looks for `repo/.git`.
+This respects the workspace's layout mode — in `structured` workspaces it looks for `owner/repo/.git`, in `flat` workspaces it looks for `repo/.git`. A repo folder whose name gitstow cannot track (only dots and spaces, or a `\`, `:` or control character, all legal on Linux) is skipped and listed; rename it to track it.
 
 ---
 

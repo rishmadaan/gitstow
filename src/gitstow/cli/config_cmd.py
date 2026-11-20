@@ -14,7 +14,7 @@ from rich.console import Console
 from gitstow.cli.helpers import print_no_workspaces_hint, resolve_workspaces
 from gitstow.core.config import load_config, save_config
 from gitstow.core.paths import CONFIG_FILE, REPOS_FILE
-from gitstow.core.repo import RepoStore
+from gitstow.core.repo import RepoStore, inside_workspace
 
 config_app = typer.Typer(
     help="View and modify gitstow settings.",
@@ -211,6 +211,11 @@ def config_migrate_root(
     for repo in movable:
         src = repo.get_path(old_root)
         dst = repo.get_path(new_root_path)
+        # Resolved: a symlinked owner folder can still point out of either root.
+        if not inside_workspace(src, old_root) or not inside_workspace(dst, new_root_path):
+            failed += 1
+            err_console.print(f"  [red]✗[/red] {repo.key}: resolves outside the workspace; left where it is")
+            continue
         dst.parent.mkdir(parents=True, exist_ok=True)
         try:
             if dst.exists():

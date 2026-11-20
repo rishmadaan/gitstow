@@ -19,7 +19,7 @@ from pathlib import Path
 from gitstow.core.config import Settings, Workspace
 from gitstow.core.git import is_git_repo, repair_worktrees
 from gitstow.core.parallel import run_parallel_sync
-from gitstow.core.repo import Repo, RepoStore
+from gitstow.core.repo import Repo, RepoStore, inside_workspace
 from gitstow.core.url_parser import parse_git_url
 
 Pair = tuple[Repo, Workspace]
@@ -107,12 +107,6 @@ def run_bulk(
         remaining = next_round
 
     return [final[r.global_key] for r, _ in targets if r.global_key in final]
-
-
-def _strict_descendant(path: Path, root: Path) -> bool:
-    """True if resolved `path` lives strictly inside resolved `root`."""
-    p, r = path.resolve(), root.resolve()
-    return p != r and r in p.parents
 
 
 def _move_dir(src: Path, dst: Path) -> None:
@@ -232,7 +226,7 @@ def move_repo(
             # A key containing '..' (repos.yaml is user-editable, and the web
             # route takes the key from the URL) must never escape the
             # workspace — this feature moves repos, not arbitrary paths.
-            if not _strict_descendant(dest_path, target.get_path()):
+            if not inside_workspace(dest_path, target.get_path()):
                 raise ValueError(
                     f"Destination resolves outside workspace '{to_ws}': {dest_path}"
                 )
@@ -249,7 +243,7 @@ def move_repo(
                     f"and re-add the repo in its new workspace."
                 )
             src_path = src.get_path(source.get_path())
-            if not _strict_descendant(src_path, source.get_path()):
+            if not inside_workspace(src_path, source.get_path()):
                 raise ValueError(
                     f"Source resolves outside workspace '{from_ws}': {src_path}"
                 )
@@ -302,7 +296,7 @@ def move_repo(
                             f"'{key}' owns linked git worktrees and 'git worktree "
                             f"repair' failed after the move — rolled back."
                         )
-                if src.owner and _strict_descendant(src_path.parent, source.get_path()):
+                if src.owner and inside_workspace(src_path.parent, source.get_path()):
                     # Remove the now-empty owner directory (ignore if not
                     # empty). The descendant guard keeps a '.'-like owner from
                     # aiming this at the workspace root itself.

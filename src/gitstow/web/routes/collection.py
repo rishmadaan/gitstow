@@ -10,16 +10,20 @@ import functools
 import json
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlencode
 
 import yaml
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 
-from gitstow.core.collection_io import parse_collection_file, resolve_entry_workspace
+from gitstow.core.collection_io import (
+    classify_entry,
+    parse_collection_file,
+    register_unless_tracked,
+)
 from gitstow.core.config import NO_WORKSPACES_HINT, load_config
 from gitstow.core.git import clone as git_clone
 from gitstow.core.repo import Repo, RepoStore
-from gitstow.core.url_parser import parse_git_url
 
 router = APIRouter()
 
@@ -123,79 +127,76 @@ async def import_collection(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
-    # Filter out already-tracked
-    new_entries = []
-    for e in entries:
-        entry_ws, _note = resolve_entry_workspace(e, settings, fallback=ws)
-        e["_resolved_ws"] = entry_ws
-        key = e.get("key", "")
-        if key and store.get(key, workspace=entry_ws.label):
-            continue
-        new_entries.append(e)
-
-    # Clone each new entry — sequential for simplicity; bulk clone races are risky
+    # One decision per entry (classify_entry), the same one `gitstow collection import`
+    # makes, taken just before each clone or register. A failed entry carries its reason
+    # to the dashboard banner; the same repo again is skipped quietly.
     succeeded = 0
-    failed = 0
-    for e in new_entries:
-        entry_ws = e["_resolved_ws"]
-        url = e.get("url", "")
-        if not url:
-            failed += 1
+    why: list[str] = []
+    seen: dict = {}  # (workspace, key) → first URL in this file that resolved there
+    failed_clones: set = set()  # (workspace, key) whose clone failed: the same repo listed again is tried
+    for e in entries:
+        store.load()  # another writer (or an earlier entry of this file) may have added it
+        plan = classify_entry(store, seen, e, settings, ws, failed_clones)
+        if plan.error:
+            why.append(f"{plan.label}: {plan.error}")
             continue
-        try:
-            parsed = parse_git_url(
-                url,
-                default_host=settings.default_host,
-                prefer_ssh=settings.prefer_ssh,
-            )
-        except Exception:
-            failed += 1
+        if plan.refusal:
+            if plan.refusal[0] == "conflict":
+                why.append(f"{plan.key}: conflict: {plan.refusal[1]}")
             continue
-
-        root = entry_ws.get_path()
-        if entry_ws.layout == "flat":
-            target = root / parsed.repo
-            repo_owner = ""
-        else:
-            target = root / parsed.owner / parsed.repo
-            repo_owner = parsed.owner
-
+        parsed, entry_ws, target = plan.parsed, plan.workspace, plan.target
         all_tags = list(dict.fromkeys(list(e.get("tags", [])) + list(entry_ws.auto_tags)))
 
         if target.exists():
+            if refusal := plan.adopt_refusal():
+                why.append(f"{plan.key}: {refusal[0]}: {refusal[1]}")
+                continue
             # Already on disk — just register
-            store.add(Repo(
-                owner=repo_owner,
+            refusal = register_unless_tracked(store, Repo(
+                owner=plan.owner,
                 name=parsed.repo,
                 remote_url=parsed.clone_url,
                 workspace=entry_ws.label,
                 tags=all_tags,
                 frozen=e.get("frozen", False),
-            ))
-            succeeded += 1
+            ), settings.default_host)
+            if refusal:
+                if refusal[0] == "conflict":
+                    why.append(f"{plan.key}: conflict: {refusal[1]}")
+            else:
+                succeeded += 1
             continue
 
-        target.parent.mkdir(parents=True, exist_ok=True)
         clone_fn = functools.partial(
             git_clone, parsed.clone_url, target, timeout=settings.clone_timeout,
         )
-        ok, _err = await asyncio.to_thread(clone_fn)
+        ok, err = await asyncio.to_thread(clone_fn)
         if ok:
-            store.add(Repo(
-                owner=repo_owner,
+            refusal = register_unless_tracked(store, Repo(
+                owner=plan.owner,
                 name=parsed.repo,
                 remote_url=parsed.clone_url,
                 workspace=entry_ws.label,
                 tags=all_tags,
                 frozen=e.get("frozen", False),
                 last_pulled=datetime.now().isoformat(timespec="seconds"),
-            ))
-            succeeded += 1
+            ), settings.default_host)
+            if refusal:
+                if refusal[0] == "conflict":
+                    why.append(f"{plan.key}: conflict: {refusal[1]}")
+            else:
+                succeeded += 1
         else:
-            failed += 1
+            why.append(f"{plan.key}: clone failed: {(err.strip().splitlines() or ['unknown error'])[-1]}")
+            failed_clones.add((entry_ws.label, plan.key))
 
     # Redirect to dashboard with a flash-style count in URL (simple)
-    return RedirectResponse(
-        url=f"/?imported={succeeded}&failed={failed}",
-        status_code=303,
-    )
+    # shortcut: the reasons ride in the redirect URL, so only the first 10 are kept
+    # (each cut to 300 characters, then "and N more"); move them to server-side state if
+    # imports grow large. A crafted link can therefore show any text under "Import
+    # complete": accepted for this localhost/tailnet tool, since the page escapes it.
+    reasons = [w[:300] for w in why[:10]]
+    if len(why) > 10:
+        reasons.append(f"and {len(why) - 10} more")
+    query = urlencode({"imported": succeeded, "failed": len(why), "why": reasons}, doseq=True)
+    return RedirectResponse(url=f"/?{query}", status_code=303)

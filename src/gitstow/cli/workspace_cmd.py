@@ -9,6 +9,7 @@ from pathlib import Path
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from gitstow.cli.helpers import print_no_workspaces_hint
@@ -211,10 +212,17 @@ def _scan_workspace(ws: Workspace) -> None:
         console.print(f"  [dim]Workspace directory does not exist: {resolved}[/dim]")
         return
 
-    found = discover_repos(resolved, layout=ws.layout)
+    skipped: list = []
+    found = discover_repos(resolved, layout=ws.layout, skipped=skipped)
     existing = {r.key for r in store.list_by_workspace(ws.label)}
 
     new_repos = [r for r in found if r.key not in existing]
+    if skipped:
+        console.print(f"  [yellow]⚠ Skipped {len(skipped)} folder{'s' if len(skipped) != 1 else ''} "
+                      "whose name gitstow cannot track (an empty name, only dots and spaces, "
+                      "or a \\, : or control character); rename to track:[/yellow]")
+        for path in skipped:
+            console.print(f"    {escape(str(path))}")
 
     if not new_repos:
         console.print(f"  [dim]No new repos found in [bold]{ws.label}[/bold].[/dim]")

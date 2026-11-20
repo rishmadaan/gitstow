@@ -569,35 +569,67 @@ def test_rollback_preserves_foreign_dir_recreated_at_source(tmp_path, monkeypatc
     assert (tmp_path / "b" / "thing" / "sentinel.txt").exists()
 
 
-def test_key_escaping_destination_workspace_refused(tmp_path):
+def _hand_written(store, text):
+    """repos.yaml as a user (or a pre-0.9.0 gitstow) wrote it; no Repo with an unsafe key can be built."""
+    store._path.write_text(text)
+    store.load()
+
+
+def test_destination_through_a_symlinked_owner_refused(tmp_path):
+    """A user-placed symlink in the target workspace points out of it: the move refuses."""
     settings, store = _setup(tmp_path, {"a": "flat", "oss": "structured"})
-    _mkgit(tmp_path / "a" / "esc")
-    # malicious/corrupt catalog entry: owner traverses out of the workspace
-    store.add(Repo(owner="..", name="esc", remote_url="u", workspace="a"))
+    src = _mkgit(tmp_path / "a" / "esc")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (tmp_path / "oss" / "acme").symlink_to(elsewhere)
+    store.add(Repo(owner="", name="esc", remote_url="https://github.com/acme/esc.git", workspace="a"))
 
     with pytest.raises(ValueError, match="outside workspace"):
-        move_repo(store, settings, "../esc", "a", "oss")
+        move_repo(store, settings, "esc", "a", "oss")
+
+    assert (src / "sentinel.txt").read_text() == "hi"
+    assert list(elsewhere.iterdir()) == []
 
 
-def test_key_escaping_source_workspace_refused(tmp_path):
+def test_source_through_a_symlinked_owner_refused(tmp_path):
     settings, store = _setup(tmp_path, {"a": "structured", "b": "flat"})
-    outside = _mkgit(tmp_path / "outside-victim")
-    store.add(Repo(owner="..", name="outside-victim", remote_url="u", workspace="a"))
+    outside = _mkgit(tmp_path / "outside" / "victim")
+    (tmp_path / "a" / "acme").symlink_to(tmp_path / "outside")
+    store.add(Repo(owner="acme", name="victim", remote_url="u", workspace="a"))
 
     with pytest.raises(ValueError, match="outside workspace"):
-        move_repo(store, settings, "../outside-victim", "a", "b")
+        move_repo(store, settings, "acme/victim", "a", "b")
 
-    assert outside.exists()  # untouched
+    assert (outside / "sentinel.txt").read_text() == "hi"  # untouched
+    assert not (tmp_path / "b" / "victim").exists()
 
 
-def test_dot_owner_cleanup_never_removes_workspace_root(tmp_path):
+@pytest.mark.parametrize("key, victim", [
+    ("../esc", "esc"),                       # owner traverses out of the workspace
+    ("../outside-victim", "outside-victim"),
+])
+def test_traversing_catalog_entry_is_set_aside_and_never_moved(tmp_path, key, victim):
+    settings, store = _setup(tmp_path, {"a": "structured", "b": "flat"})
+    outside = _mkgit(tmp_path / victim)
+    _hand_written(store, f"a:\n  {key}:\n    remote_url: u\n")
+
+    with pytest.raises(ValueError, match="not found"):
+        move_repo(store, settings, key, "a", "b")
+
+    assert (outside / "sentinel.txt").read_text() == "hi"
+    assert not (tmp_path / "b" / victim).exists()
+    assert store.rejected() == [("a", key)]
+
+
+def test_dot_owner_entry_is_set_aside_and_the_workspace_root_survives(tmp_path):
     settings, store = _setup(tmp_path, {"a": "structured", "b": "flat"})
     # corrupt catalog entry: owner "." puts the repo directly in the root
     repo_dir = _mkgit(tmp_path / "a" / "dotted")
-    store.add(Repo(owner=".", name="dotted", remote_url="u", workspace="a"))
+    _hand_written(store, "a:\n  ./dotted:\n    remote_url: u\n")
 
-    moved = move_repo(store, settings, "./dotted", "a", "b")
+    with pytest.raises(ValueError, match="not found"):
+        move_repo(store, settings, "./dotted", "a", "b")
 
-    assert moved.workspace == "b"
-    assert (tmp_path / "a").exists()  # workspace root survives the cleanup
-    assert not repo_dir.exists()
+    assert (tmp_path / "a").is_dir()  # workspace root survives
+    assert (repo_dir / "sentinel.txt").read_text() == "hi"
+    assert not (tmp_path / "b" / "dotted").exists()

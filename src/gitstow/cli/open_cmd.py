@@ -128,14 +128,16 @@ def _open_in_editor(path) -> None:
     then VS Code / Cursor, then the platform opener. Terminal editors
     need the TTY, so they run in the foreground.
     """
-    editor = os.environ.get("VISUAL") or os.environ.get("EDITOR")
+    # A blank or whitespace-only value counts as unset.
+    editor = next((v.split() for v in (os.environ.get("VISUAL"), os.environ.get("EDITOR"))
+                   if v and v.strip()), None)
 
     if editor:
-        base = os.path.basename(editor.split()[0])
+        base = os.path.basename(editor[0])
         if base in _TERMINAL_EDITORS:
-            subprocess.run([*editor.split(), str(path)], check=False)
+            subprocess.run([*editor, str(path)], check=False)
         else:
-            subprocess.Popen([*editor.split(), str(path)],
+            subprocess.Popen([*editor, str(path)],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return
 

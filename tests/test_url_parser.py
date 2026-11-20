@@ -127,6 +127,57 @@ class TestAzureDevOps:
         assert result.repo == "repo"
 
 
+class TestAzureAndMultiDotHosts:
+    """Schemeless multi-dot hosts parse as hosts; Azure clone URLs use Azure's own forms."""
+
+    AZ_HTTPS = "https://dev.azure.com/org/project/_git/repo"
+    AZ_SSH = "git@ssh.dev.azure.com:v3/org/project/repo"
+    VS_HTTPS = "https://org.visualstudio.com/project/_git/repo"
+    VS_SSH = "org@vs-ssh.visualstudio.com:v3/org/project/repo"
+
+    @pytest.mark.parametrize("url, prefer_ssh, host, owner, repo, clone_url", [
+        ("dev.azure.com/org/project/_git/repo", False, "dev.azure.com", "org/project", "repo", AZ_HTTPS),
+        (AZ_HTTPS, False, "dev.azure.com", "org/project", "repo", AZ_HTTPS),
+        (AZ_HTTPS + ".git", False, "dev.azure.com", "org/project", "repo", AZ_HTTPS),
+        ("https://org@dev.azure.com/org/project/_git/repo", False, "dev.azure.com", "org/project", "repo", AZ_HTTPS),
+        (AZ_HTTPS, True, "dev.azure.com", "org/project", "repo", AZ_SSH),
+        ("dev.azure.com/org/project/_git/repo", True, "dev.azure.com", "org/project", "repo", AZ_SSH),
+        (AZ_SSH, False, "dev.azure.com", "org/project", "repo", AZ_SSH),
+        (AZ_SSH, True, "dev.azure.com", "org/project", "repo", AZ_SSH),
+        (VS_HTTPS, False, "org.visualstudio.com", "project", "repo", VS_HTTPS),
+        ("org.visualstudio.com/project/_git/repo", False, "org.visualstudio.com", "project", "repo", VS_HTTPS),
+        (VS_HTTPS, True, "org.visualstudio.com", "project", "repo", VS_HTTPS),
+        # legacy SSH host: same repo as the dev.azure.com forms, cloned by Azure's SSH form
+        (VS_SSH, False, "dev.azure.com", "org/project", "repo", AZ_SSH),
+        (VS_SSH, True, "dev.azure.com", "org/project", "repo", AZ_SSH),
+        (VS_SSH + ".git", False, "dev.azure.com", "org/project", "repo", AZ_SSH),
+        ("ssh://org@vs-ssh.visualstudio.com/v3/org/project/repo", False,
+         "dev.azure.com", "org/project", "repo", AZ_SSH),
+        ("git.example.co.uk/group/repo", False, "git.example.co.uk", "group", "repo",
+         "https://git.example.co.uk/group/repo.git"),
+        ("git.example.co.uk/group/sub/repo", False, "git.example.co.uk", "group/sub", "repo",
+         "https://git.example.co.uk/group/sub/repo.git"),
+        ("owner/repo", False, "github.com", "owner", "repo", "https://github.com/owner/repo.git"),
+        ("owner/repo", True, "github.com", "owner", "repo", "git@github.com:owner/repo.git"),
+        ("my-org/my.repo", False, "github.com", "my-org", "my.repo", "https://github.com/my-org/my.repo.git"),
+    ])
+    def test_table(self, url, prefer_ssh, host, owner, repo, clone_url):
+        result = parse_git_url(url, prefer_ssh=prefer_ssh)
+        assert (result.host, result.owner, result.repo, result.clone_url) == (host, owner, repo, clone_url)
+
+    def test_azure_ssh_and_https_are_the_same_repo(self):
+        from gitstow.core.url_parser import same_repo
+        assert same_repo(self.AZ_SSH, self.AZ_HTTPS, "github.com")
+        assert parse_git_url(self.AZ_SSH).key == parse_git_url(self.AZ_HTTPS).key == "org/project/repo"
+
+    def test_legacy_vs_ssh_is_the_same_repo_as_the_https_forms(self):
+        from gitstow.core.url_parser import same_repo
+        assert same_repo(self.VS_SSH, self.AZ_HTTPS, "github.com")
+        assert same_repo(self.VS_SSH, "https://org@dev.azure.com/org/project/_git/repo", "github.com")
+        assert same_repo(self.VS_SSH, self.AZ_SSH, "github.com")
+        assert parse_git_url(self.VS_SSH).key == "org/project/repo"
+
+
 class TestPreferSSH:
     """SSH preference"""
 
@@ -202,3 +253,81 @@ class TestDeepLinks:
         parsed = parse_git_url(url)
         assert parsed.owner == owner
         assert parsed.repo == repo
+
+
+class TestPathSegmentsStayInsideTheWorkspace:
+    """owner/repo becomes a folder path: '.', '..' and empty segments are refused (trust boundary)."""
+
+    @pytest.mark.parametrize("url", [
+        "https://github.com/../Documents",
+        "../Documents",
+        "./repo",
+        "owner/..",
+        "owner/.",
+        "https://github.com/owner/..git",
+        "git@github.com:../x.git",
+        "ssh://git@github.com/../x",
+        "https://gitlab.com/group/../repo",
+        "https://gitlab.com/../../etc/repo",
+        "https://dev.azure.com/org/../_git/repo",
+        "https://dev.azure.com/org//_git/repo",
+        "https://dev.azure.com/org/proj/_git/..",
+        "git@ssh.dev.azure.com:v3/org/../repo",
+        # round 5: only dots and spaces (Windows trims them to the parent), empty segments
+        # dropped before the old check ran, and every Windows separator, drive and UNC form
+        "https://github.com/owner/...",
+        "https://github.com/acme/.. ",
+        "https://github.com/acme//widget",
+        "https://gitlab.com/group//sub/repo",
+        "https://github.com/acme/\\Documents",
+        "https://github.com/acme/..\\..\\Documents",
+        "https://gitlab.com/a\\..\\..\\b/repo",
+        "https://github.com/D:/widget",
+        "https://github.com/acme/D:x",
+        "https://github.com/C:/x",
+        "git@github.com:acme/\\\\srv\\share",
+        "https://dev.azure.com/org/proj/_git/a\\b",
+        "https://dev.azure.com/org/proj/_git/..\\..\\x",
+        "https://github.com/acme/widget:stream",
+        "https://github.com/acme/wid\x07get",
+        # urlparse deletes these silently, so they are refused before it runs
+        "https://github.com/acme/wid\tget",
+        "https://github.com/acme/wid\rget",
+        "https://github.com/acme/wid\nget",
+        "acme/wid\tget",
+        "git@github.com:acme/wid\nget.git",
+        # a browse tail is not checked, but the repo path before it still is
+        "https://github.com/acme//widget/blob/main/a:b.py",
+        "https://github.com/acme//widget/labels/type:bug",
+        "https://github.com/acme/wid\\get/labels/type:bug",
+        "owner/re:po",
+        "owner/re:po/labels/x",
+        "https://github.com/acme/\\Documents/tree/main",
+        "https://gitlab.com/group//sub/repo/-/blob/main/a:b.py",
+    ])
+    def test_dot_and_empty_segments_raise(self, url):
+        with pytest.raises(ValueError, match=r"may not contain '\.', '\.\.' or empty path segments"):
+            parse_git_url(url)
+
+    @pytest.mark.parametrize("url, key", [
+        ("anthropic/claude-code", "anthropic/claude-code"),
+        ("https://gitlab.com/group/subgroup/repo", "group/subgroup/repo"),
+        ("https://dev.azure.com/org/proj/_git/repo", "org/proj/repo"),
+        ("git@ssh.dev.azure.com:v3/org/proj/repo", "org/proj/repo"),
+        ("https://github.com/owner/repo.name", "owner/repo.name"),
+        ("https://github.com/owner/.dotfiles", "owner/.dotfiles"),
+        ("https://github.com/owner/widget.", "owner/widget."),
+        ("https://dev.azure.com/org/My%20Project/_git/repo", "org/My%20Project/repo"),
+        ("https://gitea.example/über/repo", "über/repo"),
+        ("https://github.com/owner/wid get", "owner/wid get"),
+        # ':' or '\\' in a browse link's file path: that tail never becomes a folder
+        ("https://github.com/owner/repo/blob/main/a:b.py", "owner/repo"),
+        ("https://github.com/owner/repo/tree/main/dir\\file", "owner/repo"),
+        ("https://gitlab.com/group/sub/repo/-/blob/main/a:b.py", "group/sub/repo"),
+        # two-segment hosts: anything after owner/repo is a page, not a folder (CR5)
+        ("https://github.com/acme/widget/labels/type:bug", "acme/widget"),
+        ("https://github.com/acme/widget/settings/a\\b", "acme/widget"),
+        ("https://codeberg.org/acme/widget/milestone/v1:rc", "acme/widget"),
+    ])
+    def test_dots_inside_a_name_still_parse(self, url, key):
+        assert parse_git_url(url).key == key

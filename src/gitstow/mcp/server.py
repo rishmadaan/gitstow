@@ -31,7 +31,7 @@ from gitstow.core.git import (
     get_status,
     is_git_repo,
 )
-from gitstow.core.repo import Repo, RepoStore
+from gitstow.core.repo import MISSING_FOLDER_HINT, Repo, RepoStore, inside_workspace, target_for
 from gitstow.core.url_parser import parse_git_url
 
 mcp = FastMCP(
@@ -163,27 +163,27 @@ def add_repo(
     except ValueError as e:
         return json.dumps({"success": False, "error": str(e)})
 
-    # Determine layout
-    if ws.layout == "flat":
-        target = root / parsed.repo
-        repo_owner = ""
-    else:
-        target = root / parsed.owner / parsed.repo
-        repo_owner = parsed.owner
-
-    repo_key = f"{repo_owner}/{parsed.repo}" if repo_owner else parsed.repo
+    repo_owner, repo_key, target = target_for(parsed, ws.layout, root)
     all_tags = list(tags or []) + list(ws.auto_tags)
 
-    # Check if already tracked
-    existing = store.get(repo_key, workspace=ws.label)
+    # Already tracked, by key or under another URL form's key
+    existing = store.find_tracked(repo_key, ws.label, parsed.clone_url, settings.default_host)
+    if existing and not existing.get_path(root).exists():
+        return json.dumps({"success": False, "status": "missing", "key": existing.key,
+                           "workspace": ws.label, "path": str(existing.get_path(root)),
+                           "error": MISSING_FOLDER_HINT.format(
+                               key=existing.key, remove=f"remove_repo with repo_key '{ws.label}:{existing.key}'")})
     if existing:
-        return json.dumps({
+        row = {
             "success": True,
             "status": "already_tracked",
-            "key": repo_key,
+            "key": existing.key,
             "workspace": ws.label,
-            "path": str(target),
-        })
+            "path": str(existing.get_path(root)),
+        }
+        if existing.key != repo_key:
+            row["detail"] = f"same repo as {repo_key}, already tracked as {existing.key}"
+        return json.dumps(row)
 
     # Already on disk but not tracked
     if target.exists() and is_git_repo(target):
@@ -204,7 +204,6 @@ def add_repo(
         })
 
     # Clone
-    target.parent.mkdir(parents=True, exist_ok=True)
     success, error = git_clone(
         url=parsed.clone_url, target=target, shallow=shallow,
         timeout=settings.clone_timeout,
@@ -291,7 +290,8 @@ def pull_repos(
                 store.update(r.key, workspace=r.workspace, last_pulled=now)
 
     for r, _ws in sorted(frozen_pairs, key=lambda p: p[0].global_key):
-        results.append({"repo": r.key, "status": "skipped_frozen", "detail": "Skipped (frozen)"})
+        results.append({"repo": r.key, "workspace": r.workspace, "status": "skipped_frozen",
+                        "detail": "Skipped (frozen)"})
 
     pulled = sum(1 for r in results if r["status"] == "pulled")
     up_to_date = sum(1 for r in results if r["status"] == "up_to_date")
@@ -563,7 +563,8 @@ def remove_repo(repo_key: str, delete_from_disk: bool = False) -> str:
     """Remove a repo from tracking.
 
     Args:
-        repo_key: The repo identifier (owner/repo).
+        repo_key: The repo identifier (owner/repo), or workspace:owner/repo when
+            the key is tracked in more than one workspace.
         delete_from_disk: If true, also delete the files from disk.
 
     Returns:
@@ -579,7 +580,10 @@ def remove_repo(repo_key: str, delete_from_disk: bool = False) -> str:
 
     ws = _get_workspace_for_repo(repo, settings)
     path = Path(_repo_path(repo, settings)) if ws else None
-    store.remove(repo_key, workspace=repo.workspace)
+    if delete_from_disk and path and path.exists() and not inside_workspace(path, ws.get_path()):
+        return json.dumps({"success": False,
+                           "error": f"refusing to delete path outside workspace: {path.resolve()}"})
+    store.remove(repo.key, workspace=repo.workspace)  # repo_key may be the global "ws:key"
 
     deleted = False
     if delete_from_disk and path and path.exists():
@@ -619,8 +623,9 @@ def search_repos(
         JSON with matches grouped by repo.
     """
     import shutil
-    import subprocess
     from pathlib import Path
+
+    from gitstow.core.git import search_repo
 
     settings, store = _get_settings_and_store()
     if not settings.get_workspaces():
@@ -641,26 +646,13 @@ def search_repos(
         if not path.exists():
             continue
 
-        if use_rg:
-            cmd = ["rg", "--no-heading", "--with-filename", "-n", "--max-count", str(max_results)]
-            if glob_filter:
-                cmd.extend(["--glob", glob_filter])
-            cmd.append(pattern)
-        else:
-            cmd = ["git", "grep", "-n", pattern]
-
-        try:
-            result = subprocess.run(cmd, cwd=path, capture_output=True, text=True, timeout=30, check=False)
-            if result.returncode == 0 and result.stdout.strip():
-                matches = []
-                for line in result.stdout.strip().splitlines()[:max_results]:
-                    parts = line.split(":", 2)
-                    if len(parts) >= 3:
-                        matches.append({"file": parts[0], "line": parts[1], "text": parts[2].strip()})
-                if matches:
-                    all_results.append({"repo": repo.key, "matches": matches, "count": len(matches)})
-        except (subprocess.TimeoutExpired, Exception):
-            continue
+        matches = [
+            {"file": m["file"], "line": m["line_number"], "text": m["text"]}
+            for m in search_repo(path, pattern, use_rg, glob_filter=glob_filter, max_results=max_results)
+            if "line_number" in m
+        ]
+        if matches:
+            all_results.append({"repo": repo.key, "matches": matches, "count": len(matches)})
 
     total = sum(r["count"] for r in all_results)
     return json.dumps({

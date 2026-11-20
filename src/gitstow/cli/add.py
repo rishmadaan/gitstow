@@ -6,31 +6,24 @@
 from __future__ import annotations
 
 import json
+import os
+import shlex
 import sys
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from gitstow.cli.helpers import resolve_workspaces
 from gitstow.core.config import load_config
 from gitstow.core.git import clone as git_clone
 from gitstow.core.git import get_remote_url, is_git_repo
 from gitstow.core.parallel import run_parallel_sync
-from gitstow.core.repo import Repo, RepoStore
-from gitstow.core.url_parser import parse_git_url
+from gitstow.core.repo import MISSING_FOLDER_HINT, Repo, RepoStore, target_for
+from gitstow.core.url_parser import parse_git_url, same_repo
 
 console = Console()
 err_console = Console(stderr=True)
-
-
-def _same_repo(url_a: str, url_b: str, default_host: str) -> bool:
-    """Whether two remote URLs point at the same host/owner/repo (protocol-agnostic)."""
-    try:
-        pa = parse_git_url(url_a, default_host=default_host)
-        pb = parse_git_url(url_b, default_host=default_host)
-    except ValueError:
-        return False
-    return (pa.host, pa.owner, pa.repo) == (pb.host, pb.owner, pb.repo)
 
 
 def add(
@@ -126,20 +119,19 @@ def add(
     seen_targets: dict = {}  # resolved target path → repo_key (dedup within this invocation)
 
     for parsed in parsed_urls:
-        # Determine target path based on workspace layout
-        if ws.layout == "flat":
-            target = root / parsed.repo
-            repo_owner = ""  # Flat layout stores no owner in path
-        else:
-            target = root / parsed.owner / parsed.repo
-            repo_owner = parsed.owner
+        repo_owner, repo_key, target = target_for(parsed, ws.layout, root)
 
-        repo_key = f"{repo_owner}/{parsed.repo}" if repo_owner else parsed.repo
+        existing = store.find_tracked(repo_key, ws.label, parsed.clone_url, settings.default_host)
+        matched_by_remote = existing is not None and existing.key != repo_key
+        if matched_by_remote:
+            # Use that record and its folder, never clone a second copy.
+            asked_key, repo_key = repo_key, existing.key
+            target = existing.get_path(root)
 
         # Dedup equivalent URLs within one invocation — the parallel phase must
-        # never see two workers targeting the same directory (clone collision,
-        # collapsed outcome_by_key entries, retry rmtree deleting the other
-        # worker's good clone). Also covers register/exists branches so a second
+        # never see two workers targeting the same directory (a wasted second
+        # clone whose publish is refused, collapsed outcome_by_key entries).
+        # Also covers register/exists branches so a second
         # equivalent URL never double-registers.
         resolved_target = target.resolve()
         if resolved_target in seen_targets:
@@ -153,9 +145,14 @@ def add(
             continue
         seen_targets[resolved_target] = repo_key
 
-        existing = store.get(repo_key, workspace=ws.label)
-
         # Already tracked in this workspace
+        if existing and not target.exists():
+            hint = MISSING_FOLDER_HINT.format(
+                key=repo_key, remove=f"gitstow -w {ws.label} remove {shlex.quote(repo_key)}")
+            results.append({"repo": repo_key, "status": "error", "error": hint})
+            if show:
+                err_console.print(f"  [red]✗[/red] {escape(hint)}")
+            continue
         if existing:
             if update:
                 if show:
@@ -173,15 +170,19 @@ def add(
                     if show:
                         err_console.print(f"  [red]✗[/red] {repo_key}: {pull_result.error}")
             else:
-                results.append({"repo": repo_key, "status": "exists"})
+                row = {"repo": repo_key, "status": "exists"}
+                if matched_by_remote:
+                    row["detail"] = f"same repo as {asked_key}, already tracked as {repo_key}"
+                results.append(row)
                 if show:
-                    console.print(f"  [yellow]○[/yellow] {repo_key} already tracked. Use --update to pull.")
+                    shown = f"{asked_key} already tracked as {repo_key}" if matched_by_remote else f"{repo_key} already tracked"
+                    console.print(f"  [yellow]○[/yellow] {shown}. Use --update to pull.")
             continue
 
         # Path exists on disk but not tracked
         if target.exists() and is_git_repo(target):
             remote = get_remote_url(target)
-            if remote and not _same_repo(remote, parsed.clone_url, settings.default_host):
+            if remote and not same_repo(remote, parsed.clone_url, settings.default_host):
                 # Different remote → error and explain the conflict (never silently register).
                 results.append({
                     "repo": repo_key,
@@ -194,19 +195,37 @@ def add(
                 if show:
                     err_console.print(f"  [red]✗[/red] {repo_key}: remote mismatch ({remote})")
                 continue
-            if remote:
-                repo = Repo(
-                    owner=repo_owner,
-                    name=parsed.repo,
-                    remote_url=remote,
-                    workspace=ws.label,
-                    tags=list(tags),
-                )
-                store.add(repo)
-                results.append({"repo": repo_key, "status": "registered"})
+            if not remote:
+                # Local-only repo: never queue it for cloning; the folder already
+                # holds the user's repo.
+                fix = f"git -C {shlex.quote(str(target))} remote add origin {shlex.quote(parsed.clone_url)}"
+                results.append({
+                    "repo": repo_key,
+                    "status": "error",
+                    "error": (
+                        f"{target} is a local git repo with no origin remote. To track it, add the remote "
+                        f"inside it ({fix}) and run the same gitstow add again."
+                    ),
+                })
                 if show:
-                    console.print(f"  [green]✓[/green] {repo_key} registered (already on disk)")
+                    err_console.print(f"  [red]✗[/red] {repo_key}: local git repo with no origin remote (not cloned over)")
+                    err_console.print(
+                        f"      [dim]Hint: {escape(fix)}, then run this add again.[/dim]",
+                        soft_wrap=True,
+                    )
                 continue
+            repo = Repo(
+                owner=repo_owner,
+                name=parsed.repo,
+                remote_url=remote,
+                workspace=ws.label,
+                tags=list(tags),
+            )
+            store.add(repo)
+            results.append({"repo": repo_key, "status": "registered"})
+            if show:
+                console.print(f"  [green]✓[/green] {repo_key} registered (already on disk)")
+            continue
 
         # Path exists but is not a git repo
         if target.exists() and not is_git_repo(target):
@@ -218,33 +237,15 @@ def add(
         to_clone.append((parsed, target, repo_owner, repo_key))
 
     # Phase 2 — clone concurrently (semaphore = parallel_limit), retry inside the worker
-    def _clone_worker(parsed, target, repo_key):
-        target.parent.mkdir(parents=True, exist_ok=True)
-        success, error = False, ""
-        for attempt in range(1 + retry):
-            if attempt > 0:
-                # Clean up partial clone before retrying
-                import shutil
-                if target.exists():
-                    shutil.rmtree(target, ignore_errors=True)
-            success, error = git_clone(
-                url=parsed.clone_url,
-                target=target,
-                shallow=shallow,
-                branch=branch,
-                recursive=recursive,
-                timeout=settings.clone_timeout,
-            )
-            if success:
-                break
-        return {"repo": repo_key, "success": success, "error": error}
-
     if to_clone:
         if show:
             plural = "s" if len(to_clone) != 1 else ""
             console.print(f"  [dim]Cloning {len(to_clone)} repo{plural} → {ws.label}...[/dim]")
         tasks = [
-            (key, lambda p=parsed, t=target, k=key: _clone_worker(p, t, k))
+            (key, lambda p=parsed, t=target, k=key: _clone_worker(
+                p, t, k, retry=retry, shallow=shallow, branch=branch,
+                recursive=recursive, timeout=settings.clone_timeout,
+            ))
             for parsed, target, _owner, key in to_clone
         ]
         clone_results = run_parallel_sync(tasks, max_concurrent=settings.parallel_limit)
@@ -314,6 +315,27 @@ def add(
 
     if any(r["status"] == "error" for r in results):
         raise typer.Exit(code=1)
+
+
+def _clone_worker(parsed, target, repo_key, *, retry, shallow, branch, recursive, timeout):
+    """Clone one target, retrying up to `retry` times.
+
+    `git_clone` stages each attempt privately and publishes by rename, so the
+    target is never touched by a failed attempt and nothing here cleans up.
+    """
+    success, error = False, ""
+    for _attempt in range(1 + retry):
+        success, error = git_clone(
+            url=parsed.clone_url,
+            target=target,
+            shallow=shallow,
+            branch=branch,
+            recursive=recursive,
+            timeout=timeout,
+        )
+        if success or os.path.lexists(target):  # a taken target refuses every retry too
+            break
+    return {"repo": repo_key, "success": success, "error": error}
 
 
 def _clone_error_hint(error: str) -> str:

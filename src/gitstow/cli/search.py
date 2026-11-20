@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 
 import typer
@@ -14,6 +13,7 @@ from rich.console import Console
 
 from gitstow.cli.helpers import iter_repos_with_workspace
 from gitstow.core.config import load_config
+from gitstow.core.git import search_repo as _search_repo
 from gitstow.core.parallel import run_parallel_sync
 from gitstow.core.repo import RepoStore
 
@@ -59,6 +59,7 @@ def search(
       gitstow search "def main" --glob "*.py"
       gitstow search "import React" --tag frontend
       gitstow search -w active "error" -i --files
+      gitstow search -- -foo                  # pattern starting with "-"
     """
     settings = load_config()
     store = RepoStore()
@@ -145,73 +146,3 @@ def _has_ripgrep() -> bool:
     """Check if ripgrep (rg) is available."""
     import shutil
     return shutil.which("rg") is not None
-
-
-def _search_repo(
-    path,
-    pattern: str,
-    use_rg: bool,
-    glob_filter: str | None = None,
-    case_insensitive: bool = False,
-    files_only: bool = False,
-    max_results: int = 50,
-) -> list[dict]:
-    """Search a single repo, return list of match dicts."""
-    if use_rg:
-        cmd = ["rg", "--no-heading", "--with-filename", "--line-number"]
-        if case_insensitive:
-            cmd.append("-i")
-        if files_only:
-            cmd.append("-l")
-        if glob_filter:
-            cmd.extend(["--glob", glob_filter])
-        cmd.extend(["--max-count", str(max_results)])
-        cmd.append(pattern)
-    else:
-        # Fall back to git grep
-        cmd = ["git", "grep", "-n"]
-        if case_insensitive:
-            cmd.append("-i")
-        if files_only:
-            cmd.append("-l")
-        cmd.extend(["--max-depth", "10"])
-        cmd.append(pattern)
-
-    try:
-        result = subprocess.run(
-            cmd,
-            cwd=path,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            encoding="utf-8",
-            errors="replace",
-        )
-
-        if result.returncode not in (0, 1):  # 1 = no matches (normal)
-            return []
-
-        matches = []
-        for line in result.stdout.strip().splitlines():
-            if not line:
-                continue
-            if files_only:
-                matches.append({"file": line.strip()})
-            else:
-                # Parse file:line:text format
-                parts = line.split(":", 2)
-                if len(parts) >= 3:
-                    matches.append({
-                        "file": parts[0],
-                        "line_number": parts[1],
-                        "text": parts[2].strip(),
-                    })
-                elif len(parts) == 2:
-                    matches.append({"file": parts[0], "text": parts[1].strip()})
-                else:
-                    matches.append({"file": line, "text": ""})
-
-        return matches[:max_results]
-    except (subprocess.TimeoutExpired, Exception):
-        return []

@@ -9,7 +9,9 @@ Supports:
   - Shorthand: owner/repo (assumes default_host)
   - Host-prefixed: github.com/owner/repo
   - Nested groups: gitlab.com/group/subgroup/repo
-  - Azure DevOps: dev.azure.com/org/project/_git/repo
+  - Azure DevOps: dev.azure.com/org/project/_git/repo,
+    git@ssh.dev.azure.com:v3/org/project/repo, org.visualstudio.com/project/_git/repo,
+    org@vs-ssh.visualstudio.com:v3/org/project/repo
 
 Resolution algorithm adopted from ghq (3.5k stars) with improvements.
 """
@@ -23,7 +25,13 @@ from urllib.parse import urlparse
 # Patterns
 _HAS_SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
 _SCP_LIKE = re.compile(r"^([^@]+@)?([^:]+):(.+)$")
-_LOOKS_LIKE_HOST = re.compile(r"[A-Za-z0-9][-A-Za-z0-9]*\.[A-Za-z]{2,}(?::\d{1,5})?$")
+_LOOKS_LIKE_HOST = re.compile(r"(?:[A-Za-z0-9][-A-Za-z0-9]*\.)+[A-Za-z]{2,}(?::\d{1,5})?$")
+_UNSAFE_IN_SEGMENT = re.compile(r"[/\\:\x00-\x1f\x7f]")
+_CONTROL_CHAR = re.compile(r"[\x00-\x1f\x7f]")
+_SEGMENT_RULE = (
+    "owner/repo may not contain '.', '..' or empty path segments, "
+    "a segment of only dots and spaces, or a \\, : or control character"
+)
 
 # Hosts whose repo path is always exactly owner/repo — never nested groups.
 _TWO_SEGMENT_HOSTS = {"github.com", "bitbucket.org", "codeberg.org", "gitea.com"}
@@ -53,6 +61,18 @@ class ParsedURL:
         return f"{self.owner}/{self.repo}"
 
 
+def valid_segment(segment: str) -> bool:
+    """Whether one owner/repo path segment is a safe folder name on every platform.
+
+    Non-empty; no `/`, `\\` or `:` (path separators and Windows drive letters) and no
+    control character; and not only dots and spaces, because Windows drops trailing
+    dots and spaces, so `...` or `.. ` would name the parent or owner folder. Every
+    repo key gitstow turns into a folder passes this, wherever it came from: a URL
+    (parse_git_url), repos.yaml (RepoStore.load) or a folder on disk (discovery).
+    """
+    return bool(segment) and not _UNSAFE_IN_SEGMENT.search(segment) and bool(segment.strip(". "))
+
+
 def parse_git_url(
     raw: str,
     default_host: str = "github.com",
@@ -76,6 +96,10 @@ def parse_git_url(
         raise ValueError("Empty URL")
 
     original = raw
+    # Before urlparse, which silently deletes tabs and newlines (acme/wid<TAB>get would
+    # become acme/widget), so a control character anywhere is refused, not dropped.
+    if _CONTROL_CHAR.search(raw):
+        raise ValueError(f"Cannot use {original!r}: {_SEGMENT_RULE}")
 
     # Step 1: Convert SCP-style (git@host:path) to ssh:// URL
     if not _HAS_SCHEME.match(raw):
@@ -114,8 +138,27 @@ def parse_git_url(
     # Strip .git suffix
     path = path.removesuffix(".git")
 
+    # owner/repo becomes a folder path under the workspace. Every raw segment of the
+    # repo path is checked before anything drops empty ones, so `acme//widget`, `..`,
+    # `\\Documents` or `D:` can never turn into a path outside it. A browse link's tail
+    # (…/blob/main/a:b.py, or on a two-segment host anything after owner/repo, such as
+    # …/labels/type:bug) is cut off later and never becomes a folder, so it is not checked.
+    repo_path = _before_browse_marker(host, path.split("/"))
+    if host in _TWO_SEGMENT_HOSTS:
+        repo_path = repo_path[:2]
+    if path and not all(valid_segment(seg) for seg in repo_path):
+        raise ValueError(f"Cannot use '{original}': {_SEGMENT_RULE}")
+
+    # Azure DevOps SSH (git@ssh.dev.azure.com:v3/org/project/repo, or the legacy
+    # org@vs-ssh.visualstudio.com:v3/org/project/repo) names the same repo as the
+    # HTTPS form: normalise the host (every visualstudio.com organisation is also
+    # served at dev.azure.com) and drop the "v3" segment.
+    if host in ("ssh.dev.azure.com", "vs-ssh.visualstudio.com"):
+        host = "dev.azure.com"
+        path = path.removeprefix("v3/")
+
     # Azure DevOps: dev.azure.com/org/project/_git/repo
-    if "dev.azure.com" in host or "visualstudio.com" in host:
+    if _is_azure(host):
         parts = path.split("/")
         if "_git" in parts:
             git_idx = parts.index("_git")
@@ -144,6 +187,16 @@ def parse_git_url(
     )
 
 
+def same_repo(url_a: str, url_b: str, default_host: str) -> bool:
+    """Whether two remote URLs point at the same host/owner/repo (protocol-agnostic)."""
+    try:
+        pa = parse_git_url(url_a, default_host=default_host)
+        pb = parse_git_url(url_b, default_host=default_host)
+    except ValueError:
+        return False
+    return (pa.host, pa.owner, pa.repo) == (pb.host, pb.owner, pb.repo)
+
+
 def _extract_owner_repo(host: str, path: str) -> tuple[str, str]:
     """Split a URL path into owner and repo.
 
@@ -151,16 +204,7 @@ def _extract_owner_repo(host: str, path: str) -> tuple[str, str]:
     truncates browse-UI suffixes (…/repo/tree/main/… → …/repo), and caps
     known single-owner hosts at exactly two segments.
     """
-    parts = [p for p in path.split("/") if p]
-
-    # Word markers only make sense on hosts with fixed owner/repo depth.
-    # Nested-group hosts (GitLab-style) separate browse UI with "/-/", and a
-    # real subgroup repo may legitimately be named "src" or "wiki".
-    markers = _DEEP_LINK_MARKERS if host in _TWO_SEGMENT_HOSTS else {"-"}
-    for i, seg in enumerate(parts):
-        if i >= 2 and seg in markers:
-            parts = parts[:i]
-            break
+    parts = _before_browse_marker(host, [p for p in path.split("/") if p])
 
     if host in _TWO_SEGMENT_HOSTS and len(parts) > 2:
         parts = parts[:2]
@@ -168,6 +212,24 @@ def _extract_owner_repo(host: str, path: str) -> tuple[str, str]:
     if len(parts) < 2:
         return "", parts[0] if parts else ""
     return "/".join(parts[:-1]), parts[-1]
+
+
+def _before_browse_marker(host: str, parts: list[str]) -> list[str]:
+    """`parts` up to the first browse-UI marker after owner/repo (…/repo/tree/main/… → …/repo).
+
+    Word markers only make sense on hosts with fixed owner/repo depth. Nested-group
+    hosts (GitLab-style) separate browse UI with "/-/", and a real subgroup repo may
+    legitimately be named "src" or "wiki".
+    """
+    markers = _DEEP_LINK_MARKERS if host in _TWO_SEGMENT_HOSTS else {"-"}
+    for i, seg in enumerate(parts):
+        if i >= 2 and seg in markers:
+            return parts[:i]
+    return parts
+
+
+def _is_azure(host: str) -> bool:
+    return host == "dev.azure.com" or host.endswith(".visualstudio.com")
 
 
 def _build_clone_url(
@@ -178,6 +240,13 @@ def _build_clone_url(
     prefer_ssh: bool,
 ) -> str:
     """Build the clone URL from components."""
+    if _is_azure(host):
+        # Azure's documented clone forms: {org}/{project}/_git/{repo} and v3/{org}/{project}/{repo}.
+        if (prefer_ssh or scheme == "ssh") and host == "dev.azure.com":
+            return f"git@ssh.dev.azure.com:v3/{owner}/{repo}"
+        # shortcut: visualstudio.com always clones over HTTPS — its SSH host differs
+        # per organisation; build the SSH form if someone asks for it.
+        return f"https://{host}/{owner}/_git/{repo}"
     if prefer_ssh or scheme == "ssh":
         return f"git@{host}:{owner}/{repo}.git"
     else:

@@ -110,6 +110,7 @@ def status(
             print()
         elif not quiet:
             console.print("[dim]No repos tracked.[/dim]")
+            print_untracked_hint(settings, store, ws_label)
         return
 
     # Gather status in parallel
@@ -141,7 +142,9 @@ def status(
         return
 
     if not statuses:
-        console.print("[dim]No repos match the filter.[/dim]")
+        if not quiet:
+            console.print("[dim]No repos match the filter.[/dim]")
+            print_untracked_hint(settings, store, ws_label)
         return
 
     # Check if multiple workspaces — show workspace column if so

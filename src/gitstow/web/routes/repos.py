@@ -25,7 +25,7 @@ from gitstow.core.git import get_status, is_git_repo
 from gitstow.core.git import pull as git_pull
 from gitstow.core.operations import move_repo
 from gitstow.core.parallel import run_parallel
-from gitstow.core.repo import Repo, RepoStore
+from gitstow.core.repo import MISSING_FOLDER_HINT, Repo, RepoStore, inside_workspace, target_for
 from gitstow.core.status_model import classify
 from gitstow.core.url_parser import parse_git_url
 from gitstow.web.routes.dashboard import (
@@ -34,6 +34,7 @@ from gitstow.web.routes.dashboard import (
     _present,
     _pull_tooltip,
     _relative_time,
+    _row_number,
     _workspace_slot,
 )
 from gitstow.web.server import render
@@ -121,16 +122,18 @@ async def pull_single(workspace: str, key: str, request: Request):
         store.update(repo.key, workspace=repo.workspace, last_pulled=now_iso)
         repo = store.get(key, workspace=workspace)
 
-    # Compute original row number for the partial
-    all_repos = store.list_all()
-    num = next(
-        (i + 1 for i, r in enumerate(all_repos) if r.global_key == repo.global_key),
-        0,
-    )
+    num = _row_number(settings, store, repo)
     sorted_labels = sorted(w.label for w in settings.get_workspaces())
     ctx = _row_context(repo, settings, sorted_labels, num)
+    if not result.success:  # shown in the row where Pull was pressed; last_pulled keeps its old stamp
+        ctx["action_error"] = f"Pull failed: {_git_message(result.error)}"
 
     return render(request, "partials/repo_row.html", repo=ctx)
+
+
+def _git_message(error: str) -> str:
+    """Git's message without its own leading "error: "/"fatal: " (the row already says "failed")."""
+    return error.removeprefix("error: ").removeprefix("fatal: ")
 
 
 @router.post("/repos/{workspace}/{key:path}/fetch", response_class=HTMLResponse)
@@ -156,13 +159,11 @@ async def fetch_single(workspace: str, key: str, request: Request):
         store.update(repo.key, workspace=repo.workspace, last_fetched=now_iso)
         repo = store.get(key, workspace=workspace)
 
-    all_repos = store.list_all()
-    num = next(
-        (i + 1 for i, r in enumerate(all_repos) if r.global_key == repo.global_key),
-        0,
-    )
+    num = _row_number(settings, store, repo)
     sorted_labels = sorted(w.label for w in settings.get_workspaces())
     ctx = _row_context(repo, settings, sorted_labels, num)
+    if not result.success:
+        ctx["action_error"] = f"Fetch failed: {_git_message(result.error)}"
     return render(request, "partials/repo_row.html", repo=ctx)
 
 
@@ -374,14 +375,20 @@ async def add_repo(
             f"Could not parse URL: {exc}",
         )
 
-    # Compute on-disk target based on workspace layout
     ws_path = ws.get_path()
-    if ws.layout == "flat":
-        target = ws_path / parsed.repo
-        repo_owner = ""
-    else:
-        target = ws_path / parsed.owner / parsed.repo
-        repo_owner = parsed.owner
+    repo_owner, repo_key, target = target_for(parsed, ws.layout, ws_path)
+
+    # Already tracked, by key or under another URL form's key: never clone a second
+    # copy, and never re-register over its tags and frozen state.
+    existing = store.find_tracked(repo_key, ws.label, parsed.clone_url, settings.default_host)
+    if existing and not existing.get_path(ws_path).exists():
+        return _render_add_form(request, settings, form_values,
+                                MISSING_FOLDER_HINT.format(key=existing.key, remove="Remove in its row's ⋯ menu"))
+    if existing:
+        return _render_add_form(
+            request, settings, form_values,
+            f"Already tracked as {existing.key} in workspace '{ws.label}'.",
+        )
 
     # Check for collision
     if target.exists():
@@ -395,7 +402,6 @@ async def add_repo(
             )
     else:
         # Clone
-        target.parent.mkdir(parents=True, exist_ok=True)
         clone_fn = functools.partial(
             git_clone, parsed.clone_url, target, timeout=settings.clone_timeout,
         )
@@ -454,14 +460,10 @@ async def delete_repo(workspace: str, key: str, request: Request):
 
     repo_path = repo.get_path(ws.get_path())
     # Defensive check — don't rmtree anything weird
-    ws_root = ws.get_path().resolve()
-    resolved = repo_path.resolve()
-    try:
-        resolved.relative_to(ws_root)
-    except ValueError:
+    if not inside_workspace(repo_path, ws.get_path()):
         raise HTTPException(
             status_code=400,
-            detail=f"refusing to delete path outside workspace: {resolved}",
+            detail=f"refusing to delete path outside workspace: {repo_path.resolve()}",
         )
 
     if repo_path.exists():
@@ -481,11 +483,7 @@ def _render_row_for(key: str, workspace: str, request: Request):
     repo = store.get(key, workspace=workspace)
     if repo is None:
         raise HTTPException(status_code=404, detail="repo not found")
-    all_repos = store.list_all()
-    num = next(
-        (i + 1 for i, r in enumerate(all_repos) if r.global_key == repo.global_key),
-        0,
-    )
+    num = _row_number(settings, store, repo)
     sorted_labels = sorted(w.label for w in settings.get_workspaces())
     ctx = _row_context(repo, settings, sorted_labels, num)
     return render(request, "partials/repo_row.html", repo=ctx)

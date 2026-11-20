@@ -8,6 +8,11 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
   <article class="notice-banner" style="margin-bottom: 1.5rem;">
     <strong>Import complete</strong>
     <p>{{ flash }}</p>
+    {% if flash_reasons %}
+    <ul style="overflow-wrap: anywhere;">
+      {% for reason in flash_reasons %}<li>{{ reason }}</li>{% endfor %}
+    </ul>
+    {% endif %}
   </article>
   {% endif %}
 
@@ -88,7 +93,7 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
         </tr>
       </thead>
       <tbody hx-get="/dashboard/rows"
-             hx-trigger="every 30s"
+             hx-trigger="every 30s [!document.querySelector('tr:not([hidden]) .row-error')]"
              hx-swap="innerHTML">
         {% for repo in repos %}{% include "partials/repo_row.html" %}{% endfor %}
       </tbody>
@@ -169,6 +174,7 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
 
       <section class="section">
         <h4>Auto-refresh (every 30s)</h4>
+        <p>It pauses while a row on screen shows a Pull or Fetch error, so the message stays while that row is shown. Dismiss it with ×; if you filter that row out instead, refresh resumes and the next refresh clears the message.</p>
         <p>Refresh re-reads <strong>local state only</strong>: your <code>~/.gitstow/repos.yaml</code> registry plus <code>git status</code> on each tracked repo. It catches:</p>
         <ul>
           <li>New repos added via the CLI (<code>gitstow add</code> in another terminal)</li>

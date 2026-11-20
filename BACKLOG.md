@@ -23,22 +23,32 @@ Post-v0.1.0 improvements tracked here. See [GitHub Issues](https://github.com/ri
 Triaged non-blocking items from the 2026-07 audit remediation (see
 [docs/building/audit-2026-07-06.md](docs/building/audit-2026-07-06.md) for the full effort).
 
-- [ ] **URL parser: schemeless multi-dot hosts** — `dev.azure.com/org/project/_git/repo` without
+- [x] **URL parser: schemeless multi-dot hosts** — Fixed in 0.9.0: multi-dot hosts parse without a scheme, and Azure clone URLs now use Azure's `/_git/` and `v3/` forms. Was: `dev.azure.com/org/project/_git/repo` without
   `https://` parses as owner/repo shorthand and builds a garbage clone URL (`_LOOKS_LIKE_HOST`
   regex can't match a multi-dot first segment). Pre-existing; 0.3.1 candidate.
-- [ ] **Route search subprocesses through a hardened runner** — `git grep`/`rg` in `cli/search.py`
+- [x] **Route search subprocesses through a hardened runner** — Done in 0.9.0: one `search_repo()` in `core/git.py` for CLI and MCP (shared env, `-e` pattern, glob in the git grep fallback). Was: `git grep`/`rg` in `cli/search.py`
   and `mcp/server.py` shell raw `subprocess.run` without the `GIT_TERMINAL_PROMPT=0`/`LC_ALL=C`
   env applied to all other git calls. Local-only operations, negligible risk — consistency cleanup.
-- [ ] **Test strengthening batch** — frozen-collapse MCP test needs two frozen same-named repos;
+- [x] **Test strengthening batch** — Done in 0.9.0: all four tests now fail against the bug they guard. Was: frozen-collapse MCP test needs two frozen same-named repos;
   `run_bulk` missing-status retry + `on_attempt` callback untested; locking mutual-exclusion test
   passes without a lock (use an event-based barrier); status JSON legacy-key test covers 3/13 keys.
-- [ ] **Small edges** — `add` on an on-disk repo with no remote falls through to a doomed clone;
+- [x] **Small edges** — Fixed in 0.9.0 (the no-remote `add` case was a data-loss bug with `--retry`: the retry cleanup deleted the folder). Was: `add` on an on-disk repo with no remote falls through to a doomed clone;
   whitespace-only `$EDITOR` raises IndexError; fully-untracked workspaces never get the untracked
   hint (early return; `doctor` covers); dashboard vs single-row-refresh number sources diverge for
   orphaned-workspace repos.
-- [ ] **Product call: `pull --force` escape hatch** — CLI explicit args follow the bulk skip rule
+- [x] **Product call: `pull --force` escape hatch** — Added in 0.9.0 (CLI `--force`, for named repos only; a bulk `--force` is refused, and MCP has no force). Was: CLI explicit args follow the bulk skip rule
   while a web single-row Pull click pulls unconditionally; a `--force` flag would reconcile the
   "explicit intent" asymmetry.
-- [ ] **Product call: frozen + diverged + `--include-frozen`** — surfaces as an ff-only error row
+- [x] **Product call: frozen + diverged + `--include-frozen`** — Fixed in 0.9.0: a clean "diverged" (or "local-only") skip. Was: surfaces as an ff-only error row
   instead of a clean "diverged" skip (check `remote_state` directly in the worker if the messaging
   matters).
+
+## Post-0.9.0 follow-ups
+
+- [ ] **Align MCP `add_repo` and the dashboard's Add with CLI `add` for an on-disk repo** — when the target folder is already a git repo, both register it with `remote_url` set to the URL that was asked for, without reading its real `origin`: a repo with no remote gets a guessed remote recorded, and one whose remote is a different project is registered with no mismatch error (MCP `add_repo` in `mcp/server.py`; dashboard `add_repo` in `web/routes/repos.py`, the `target.exists()` / `is_git_repo` branch). Not data loss (neither has a retry or deletes anything). CLI `add` refuses both cases since 0.9.0; share that classification so all three surfaces answer the same way.
+- [ ] **The repo page's "Pull now" button does nothing** — `web/templates/_repo_drawer.html` renders `↓ Pull now` with no action attached, so pressing it has no effect. The planned incoming-changes viewer replaces it.
+- [ ] **Collection imports register any existing folder without checking it** — `gitstow collection import` and the dashboard's import register an entry whose target path already exists, without checking that it is a git repo or that its `origin` matches the entry (`cli/export_cmd.py` and `web/routes/collection.py`, the `target.exists()` branch). Pre-existing; not data loss (nothing is cloned over or deleted). Share CLI `add`'s classification (not a git repo, no remote, remote mismatch) so imports refuse the same cases.
+- [ ] **Repo identity reads `git remote get-url origin`** — that returns the URL after any `url.<base>.insteadOf` rewrite, so a repo cloned through a rewrite can look like a different repo (a false remote mismatch, or a missed "already tracked"), and a repo whose only remote is not named `origin` reads as "no remote" (`core/git.py` `get_remote_url`, used by `add`'s on-disk checks, `workspace scan` discovery, `migrate` and `open`). Pre-existing; no wrong delete. Read the configured `remote.origin.url` (or the single remote, whatever its name) instead.
+- [ ] **`migrate --json` without `--quiet` prints progress ahead of the JSON** — the `✓ registered`, `Moving …` and `migrated` lines go to stdout before the JSON document (`cli/migrate.py`), so the output does not parse. Pre-existing. Send progress to stderr, or suppress it under `--json`, as the other commands do.
+- [ ] **macOS CI skips the trailing-Unicode-whitespace branch names too** — `tests/test_pull_safety.py` skips both byte-name sweeps where the filesystem refuses non-UTF-8 names (macOS), which also drops the valid-UTF-8 names ending in U+3000/U+00A0/U+0085 that guard the old `.strip()` failure. Split valid-UTF-8 names from invalid-byte names and skip only the latter (0.9.0 review residue R6-C2; coverage only).
+- [ ] **Naming a set-aside repo says "not tracked"** — `gitstow pull ../outside` prints "'../outside' not tracked. Skipping." when the entry is in repos.yaml but set aside as an unsafe path; say "'<key>' is set aside (not a safe folder path); see gitstow doctor" instead (`cli/pull.py` named-repo branch; 0.9.0 review residue R6-F1; wording only, nothing is pulled).

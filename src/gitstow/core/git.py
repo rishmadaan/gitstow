@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import tempfile
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -86,6 +87,40 @@ class CommitInfo:
     author: str = ""
 
 
+# What `git rev-parse --local-env-vars` prints (git 2.43). A git hook or alias runs
+# gitstow with these set for *its* repo; left in, they override `cwd`, so a pull of
+# repo B would move repo A's branch and write A's files into B.
+_REPO_LOCATING_VARS = frozenset({
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT", "GIT_OBJECT_DIRECTORY", "GIT_DIR", "GIT_WORK_TREE",
+    "GIT_IMPLICIT_WORK_TREE", "GIT_GRAFT_FILE", "GIT_INDEX_FILE", "GIT_NO_REPLACE_OBJECTS",
+    "GIT_REPLACE_REF_BASE", "GIT_PREFIX", "GIT_SHALLOW_FILE", "GIT_COMMON_DIR",
+})
+
+
+def _cwd_only_env(cwd: Path | None = None) -> dict[str, str]:
+    """The caller's environment without the variables that pick a repo, so `cwd` alone decides.
+
+    With a `cwd`, GIT_CEILING_DIRECTORIES is its resolved parent: git never climbs out
+    of the folder it was pointed at. Without it, a tracked folder whose `.git` is broken
+    or empty, inside another repo (a workspace under a folder that is itself a repo),
+    would make git act on that outer repo instead. The variable is a path list, so a
+    parent containing the list separator (':' on POSIX) cannot be expressed and is left
+    out; `_not_own_toplevel` refuses those cases before anything that writes.
+    """
+    env = {k: v for k, v in os.environ.items() if k not in _REPO_LOCATING_VARS}
+    if cwd is not None:
+        parent = str(Path(cwd).resolve().parent)
+        if os.pathsep not in parent:
+            env["GIT_CEILING_DIRECTORIES"] = parent
+    return env
+
+
+def _git_env(cwd: Path | None = None) -> dict[str, str]:
+    """Env for every subprocess this module runs (see `_run_git` for why)."""
+    return {**_cwd_only_env(cwd), "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"}
+
+
 def _run_git(
     args: list[str],
     cwd: Path | None = None,
@@ -104,7 +139,6 @@ def _run_git(
     callers of NUL-delimited git output must decode the bytes themselves.
     """
     cmd = ["git"] + args
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"}
     text_kwargs = {} if binary else {"text": True, "encoding": "utf-8",
                                      "errors": "replace"}
     return subprocess.run(
@@ -113,7 +147,7 @@ def _run_git(
         check=False,
         capture_output=True,
         timeout=timeout,
-        env=env,
+        env=_git_env(cwd),
         **text_kwargs,
     )
 
@@ -145,6 +179,28 @@ def is_repo_readable(repo_path: Path) -> bool:
     return _run_git(["rev-parse", "--git-dir"], cwd=repo_path).returncode == 0
 
 
+def _not_own_toplevel(repo_path: Path) -> str | None:
+    """Error text unless git's top level for `repo_path` is that folder itself, else None.
+
+    Called before every command that writes to a repo: whatever git's discovery does
+    (a broken `.git` inside another repo, a ceiling the path list cannot express),
+    gitstow then only ever acts on the folder it was pointed at. When git itself
+    refuses the folder (dubious ownership, a broken `.git`), its own words are the
+    reason given.
+    """
+    refused = f"{repo_path} is not the top of its own git repository; left untouched"
+    top = _run_git(["rev-parse", "--show-toplevel"], cwd=repo_path, binary=True)
+    if top.returncode != 0:
+        return top.stderr.decode("utf-8", "replace").strip() or refused
+    if not top.stdout.removesuffix(b"\n"):
+        return refused
+    try:
+        same = os.path.samefile(os.fsdecode(top.stdout.removesuffix(b"\n")), repo_path)
+    except (OSError, ValueError):
+        return refused
+    return None if same else refused
+
+
 def clone(
     url: str,
     target: Path,
@@ -153,11 +209,25 @@ def clone(
     recursive: bool = False,
     timeout: int = 300,
 ) -> tuple[bool, str]:
-    """Clone a repository.
+    """Clone a repository into `target`, which is either absent or complete afterwards.
+
+    git clones into a private staging folder beside the target
+    (`<parent>/.gitstow-clone-<random>/`), then one `os.rename` publishes it.
+    The kernel refuses that rename onto a non-empty folder, a file or a symlink,
+    so whatever another process put at the target is never replaced (an empty
+    folder may be: nothing in it to lose). Cleanup only ever removes the staging
+    folder, which no one else knows about. A run killed mid-clone can leave the
+    hidden staging folder behind; discovery skips hidden folders.
 
     Returns:
         (success, error_message)
     """
+    try:  # a read-only or full workspace is a failed clone, not a crash
+        target.parent.mkdir(parents=True, exist_ok=True)
+        staging = Path(tempfile.mkdtemp(prefix=".gitstow-clone-", dir=target.parent))
+    except OSError as exc:
+        return False, f"could not create {target}: {exc.strerror or exc}"
+    work = staging / target.name
     args = ["clone", "--progress"]
     if shallow:
         args.extend(["--depth", "1"])
@@ -165,27 +235,101 @@ def clone(
         args.extend(["--branch", branch, "--single-branch"])
     if recursive:
         args.append("--recurse-submodules")
-    args.extend(["--", url, str(target)])
+    args.extend(["--", url, str(work)])
 
     try:
         result = _run_git(args, timeout=timeout)
-        if result.returncode == 0:
-            return True, ""
-        return False, result.stderr.strip()
+        if result.returncode != 0:
+            return False, result.stderr.strip()
+        try:
+            os.rename(work, target)
+        except OSError as exc:
+            if os.path.lexists(target):
+                return False, f"{target} already exists (created after gitstow checked it); left untouched"
+            return False, f"could not move the clone into {target}: {exc.strerror}"
+        return True, ""
     except subprocess.TimeoutExpired:
         return False, (
             f"Clone timed out ({timeout // 60} minutes) — raise it with: "
             f"gitstow config set clone_timeout <seconds>"
         )
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
+# Fetch then merge, not `git pull`: pull cannot refuse to overwrite an ignored
+# local file (no --no-overwrite-ignore), so a `.env` upstream starts tracking
+# would be silently replaced. Going through merge also takes pull.rebase and
+# branch.<name>.rebase out of play. The two `-c` overrides close merge's own
+# channels for changing what it does: merge.autoStash would stash local edits
+# and re-apply them (conflict markers, exit 0), and branch.<name>.mergeOptions
+# can inject any merge option (--autostash, --squash, -s ours, ...). `-c` beats
+# every config file; neither override needs a particular git version.
+# merge also reads pull.twohead: a strategy there that never fast-forwards (ours,
+# subtree) switches off --ff-only with it (subtree overwrote an ignored file, ours
+# made a merge commit discarding upstream). `recursive` exists in every git and
+# fast-forwards (newer gits run it as ort). The complete set of keys merge reads
+# that can change this outcome: merge.autoStash, branch.<name>.mergeOptions and
+# pull.twohead (pinned here); merge.ff (argv --ff-only wins); pull.octopus (never
+# reached with one upstream head). tests/test_pull_safety.py pins the merge.* and
+# pull.* names so a newer git's new key gets a look.
+def _safe_merge_args(branch: str) -> list[str]:
+    return [
+        "-c", "merge.autoStash=false",
+        "-c", "pull.twohead=recursive",
+        "-c", f"branch.{branch}.mergeOptions=",
+        "merge", "--no-stat", "--ff-only", "--no-overwrite-ignore", "@{upstream}",
+    ]
 
 
 def pull(repo_path: Path) -> PullResult:
-    """Pull latest changes (fast-forward only).
+    """Pull latest changes: fetch, then fast-forward to the upstream branch.
 
-    Returns PullResult with success/error status.
+    Refuses (error result, files untouched) whenever the fast-forward would
+    overwrite a local edit or an ignored local file, and on a detached HEAD, a
+    missing upstream, or merge options it cannot switch off.
     """
     try:
-        result = _run_git(["pull", "--ff-only"], cwd=repo_path, timeout=120)
+        if refused := _not_own_toplevel(repo_path):
+            return PullResult(success=False, error=refused)
+        # The full ref, never `--short`: the short form is a display name (a tag also
+        # called `main` makes it `heads/main`), while git keys branch config on the
+        # full ref minus `refs/heads/`, byte for byte. So it is read as bytes and only
+        # the final newline is dropped: `.strip()` would eat Unicode spaces a ref may
+        # end with, and a lossy decode would name another branch's config key.
+        head = _run_git(["symbolic-ref", "-q", "HEAD"], cwd=repo_path, binary=True)
+        ref = head.stdout.removesuffix(b"\n")
+        if not ref:  # -q: silent on a detached HEAD, stderr only for a real failure
+            return PullResult(success=False, error=head.stderr.decode("utf-8", "replace").strip()
+                              or "not on a branch (detached HEAD): check out a branch, then pull")
+        if not ref.startswith(b"refs/heads/"):
+            return PullResult(success=False, error=(
+                f"not on a branch (HEAD points at {ref.decode('utf-8', 'replace')}): "
+                "check out a branch, then pull"))
+        raw = ref[len(b"refs/heads/"):]
+        shown = raw.decode("utf-8", "replace")  # messages only; never passed to git
+        try:
+            branch = os.fsdecode(raw)  # POSIX: surrogateescape, the exact bytes reach argv again
+        except UnicodeDecodeError:  # Windows: a non-UTF-8 name cannot be passed exactly
+            return PullResult(success=False, error=(
+                f"branch '{shown}' has a name gitstow cannot pass to git exactly; pull it with git"))
+        # `-c key=value` splits at the first '=', so the mergeOptions override cannot
+        # name a branch containing '='; refuse only when there is something to override.
+        if "=" in branch and _run_git(
+                ["config", "--get", f"branch.{branch}.mergeOptions"], cwd=repo_path).stdout.strip():
+            return PullResult(success=False, error=(
+                f"branch '{shown}' has merge options (branch.{shown}.mergeOptions) that gitstow "
+                "cannot switch off for a branch name containing '='; pull it with git"))
+        fetched = _run_git(["fetch", "--prune"], cwd=repo_path, timeout=120)
+        if fetched.returncode != 0:
+            return PullResult(success=False,
+                              error=fetched.stderr.strip() or fetched.stdout.strip())
+        if _run_git(["rev-parse", "--verify", "-q", "@{upstream}"], cwd=repo_path).returncode != 0:
+            if _run_git(["config", "--get", f"branch.{branch}.merge"], cwd=repo_path).stdout.strip():
+                return PullResult(success=False,
+                                  error="the upstream branch no longer exists on the remote")
+            return PullResult(success=False, error=f"no upstream configured for branch '{shown}'")
+        result = _run_git(_safe_merge_args(branch), cwd=repo_path, timeout=120)
         output = result.stdout.strip()
         stderr = result.stderr.strip()
 
@@ -211,6 +355,8 @@ def fetch(repo_path: Path) -> FetchResult:
     Returns FetchResult with success/error status.
     """
     try:
+        if refused := _not_own_toplevel(repo_path):
+            return FetchResult(success=False, error=refused)
         result = _run_git(["fetch", "--all", "--prune"], cwd=repo_path, timeout=120)
         output = result.stdout.strip()
         stderr = result.stderr.strip()
@@ -481,14 +627,13 @@ def get_file_diff(
     else:
         args = ["--literal-pathspecs", "diff", "--no-ext-diff", "--no-color", "--", *paths]
 
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"}
     try:
         proc = subprocess.Popen(
             ["git"] + args,
             cwd=repo_path,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
-            env=env,
+            env=_git_env(repo_path),
         )
     except FileNotFoundError:
         return ""
@@ -530,7 +675,7 @@ def run_interactive_diff(repo_path: Path, staged: bool = False) -> int:
     git's terminal diff would be worse than letting git do it.
     """
     args = ["git", "diff"] + (["--cached"] if staged else [])
-    return subprocess.run(args, cwd=repo_path, check=False).returncode
+    return subprocess.run(args, cwd=repo_path, check=False, env=_cwd_only_env(repo_path)).returncode
 
 
 def get_remote_url(repo_path: Path) -> str | None:
@@ -606,3 +751,84 @@ def format_size(size_bytes: int) -> str:
             return f"{size_bytes:.0f} {unit}" if unit == "B" else f"{size_bytes:.1f} {unit}"
         size_bytes /= 1024
     return f"{size_bytes:.1f} TB"
+
+
+def search_repo(
+    repo_path: Path,
+    pattern: str,
+    use_rg: bool,
+    glob_filter: str | None = None,
+    case_insensitive: bool = False,
+    files_only: bool = False,
+    max_results: int = 50,
+) -> list[dict]:
+    """Search one repo with ripgrep, or `git grep` when ripgrep is absent.
+
+    rg lives here beside git grep so both run with the repo-locating variables
+    scrubbed and GIT_TERMINAL_PROMPT=0, but in the caller's locale: under LC_ALL=C
+    `-i` would not fold non-ASCII letters (café / CAFÉ). The pattern
+    goes after `-e`, so one starting with "-" is searched for, not read as an
+    option. Returns {"file", "line_number", "text"} dicts ({"file"} only with
+    files_only); [] on any error. Exit 1 is "no matches", not an error; rg's exit 2
+    (an unreadable file) keeps the matches it printed.
+    """
+    if use_rg:
+        cmd = ["rg", "--no-heading", "--with-filename", "--line-number"]
+        if case_insensitive:
+            cmd.append("-i")
+        if files_only:
+            cmd.append("-l")
+        if glob_filter:
+            cmd.extend(["--glob", glob_filter])
+        # An explicit path: with none, rg searches stdin when it is a pipe (the MCP
+        # server's stdin is its JSON-RPC stream). Paths then print as "./file".
+        cmd.extend(["--max-count", str(max_results), "-e", pattern, "."])
+    else:
+        cmd = ["git", "grep", "-n"]
+        if case_insensitive:
+            cmd.append("-i")
+        if files_only:
+            cmd.append("-l")
+        cmd.extend(["--max-depth", "10", "-e", pattern])
+        if glob_filter:
+            # rg's "!glob" means exclude; git grep needs the :(exclude) pathspec for that.
+            if glob_filter.startswith("!"):
+                glob_filter = f":(exclude){glob_filter[1:]}"
+            cmd.extend(["--", glob_filter])
+
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=repo_path,
+            check=False,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            encoding="utf-8",
+            errors="replace",
+            env={**_cwd_only_env(repo_path), "GIT_TERMINAL_PROMPT": "0"},
+        )
+    except (OSError, ValueError, subprocess.TimeoutExpired):  # missing binary, NUL in pattern, slow repo
+        return []
+    # rg exits 2 when some file could not be read; what it did print are real matches.
+    if result.returncode not in ((0, 1, 2) if use_rg else (0, 1)):
+        return []
+
+    matches = []
+    for line in result.stdout.strip().splitlines():
+        if not line:
+            continue
+        if use_rg:
+            line = line.removeprefix("./")
+        if files_only:
+            matches.append({"file": line.strip()})
+            continue
+        parts = line.split(":", 2)
+        if len(parts) >= 3:
+            matches.append({"file": parts[0], "line_number": parts[1], "text": parts[2].strip()})
+        elif len(parts) == 2:
+            matches.append({"file": parts[0], "text": parts[1].strip()})
+        else:
+            matches.append({"file": line, "text": ""})
+    return matches[:max_results]

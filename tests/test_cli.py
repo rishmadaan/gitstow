@@ -4,11 +4,14 @@
 """CLI smoke tests using Typer's CliRunner."""
 
 import json
+import os
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
 from gitstow.cli.main import app
+from tests.pull_invariant import non_utf8_names_ok
 
 runner = CliRunner()
 
@@ -187,6 +190,1087 @@ class TestAddParallelAndConflicts:
         assert {r["status"] for r in payload["results"]} == {"cloned"}
 
 
+class TestAddFindsRecordByRemote:
+    """Re-adding a tracked repo by another URL form finds its record (legacy Azure SSH `v3/` keys)."""
+
+    LEGACY_KEY = "v3/org/proj/repo"
+
+    def _seed(self, tmp_path, monkeypatch):
+        from gitstow.core.repo import Repo, RepoStore
+
+        ws_dir = TestAddParallelAndConflicts()._setup(tmp_path, monkeypatch)
+        RepoStore(path=tmp_path / "repos.yaml").add(Repo(
+            owner="v3/org/proj", name="repo", remote_url="git@ssh.dev.azure.com:v3/org/proj/repo.git",
+            workspace="ws", tags=["work"], frozen=True,
+        ))
+        (ws_dir / "v3" / "org" / "proj" / "repo" / ".git").mkdir(parents=True)  # tracked and on disk
+        return ws_dir
+
+    def _record(self, tmp_path):
+        from gitstow.core.repo import RepoStore
+        return [(r.key, r.remote_url, r.tags, r.frozen)
+                for r in RepoStore(path=tmp_path / "repos.yaml").list_all()]
+
+    @pytest.mark.parametrize("url", [
+        "git@ssh.dev.azure.com:v3/org/proj/repo",
+        "https://dev.azure.com/org/proj/_git/repo",
+    ])
+    def test_reports_exists_and_clones_nothing(self, tmp_path, monkeypatch, url):
+        from unittest.mock import patch
+
+        ws_dir = self._seed(tmp_path, monkeypatch)
+        before = self._record(tmp_path)
+        with patch("gitstow.cli.add.git_clone") as clone:
+            result = runner.invoke(app, ["add", url, "--json"])
+
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["results"] == [{
+            "repo": self.LEGACY_KEY, "status": "exists",
+            "detail": f"same repo as org/proj/repo, already tracked as {self.LEGACY_KEY}",
+        }]
+        assert clone.call_count == 0
+        assert self._record(tmp_path) == before == [
+            (self.LEGACY_KEY, "git@ssh.dev.azure.com:v3/org/proj/repo.git", ["work"], True)]
+        assert not (ws_dir / "org").exists()
+
+    def test_human_mode_names_the_stored_key(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        self._seed(tmp_path, monkeypatch)
+        with patch("gitstow.cli.add.git_clone") as clone:
+            result = runner.invoke(app, ["add", "git@ssh.dev.azure.com:v3/org/proj/repo"])
+        assert result.exit_code == 0
+        assert f"org/proj/repo already tracked as {self.LEGACY_KEY}" in result.stdout
+        assert clone.call_count == 0
+
+    def test_update_pulls_the_stored_folder(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        from gitstow.core.git import PullResult
+
+        ws_dir = self._seed(tmp_path, monkeypatch)
+        with patch("gitstow.cli.add.git_clone") as clone, \
+                patch("gitstow.core.git.pull", return_value=PullResult(success=True)) as pull:
+            result = runner.invoke(app, ["add", "https://dev.azure.com/org/proj/_git/repo",
+                                         "--update", "--json"])
+
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["results"] == [{"repo": self.LEGACY_KEY, "status": "updated"}]
+        pull.assert_called_once_with(ws_dir / "v3" / "org" / "proj" / "repo")
+        assert clone.call_count == 0
+        (key, remote, tags, frozen), = self._record(tmp_path)
+        assert (key, remote, tags, frozen) == (
+            self.LEGACY_KEY, "git@ssh.dev.azure.com:v3/org/proj/repo.git", ["work"], True)
+
+    # Collection imports use the same lookup: an HTTPS entry for the legacy SSH-keyed repo.
+    COLLECTION = (b"version: 1\nrepos:\n  org/proj/repo:\n"
+                  b"    remote_url: https://dev.azure.com/org/proj/_git/repo\n")
+
+    def test_cli_collection_import_finds_the_record(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        ws_dir = self._seed(tmp_path, monkeypatch)
+        before = self._record(tmp_path)
+        coll = tmp_path / "coll.yaml"
+        coll.write_bytes(self.COLLECTION)
+        with patch("gitstow.cli.export_cmd.git_clone") as clone:
+            result = runner.invoke(app, ["collection", "import", str(coll)])
+
+        assert result.exit_code == 0, result.output
+        assert "1 already tracked or listed twice (will skip)" in result.stdout
+        assert "Nothing new to import" in result.stdout
+        assert clone.call_count == 0
+        assert self._record(tmp_path) == before == [
+            (self.LEGACY_KEY, "git@ssh.dev.azure.com:v3/org/proj/repo.git", ["work"], True)]
+        assert not (ws_dir / "org").exists()
+
+    def test_dashboard_collection_import_finds_the_record(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from unittest.mock import patch
+
+        from gitstow.web.server import create_app
+
+        ws_dir = self._seed(tmp_path, monkeypatch)
+        before = self._record(tmp_path)
+        client = TestClient(create_app(), base_url="http://127.0.0.1")
+        with patch("gitstow.web.routes.collection.git_clone") as clone:
+            r = client.post("/collection/import", follow_redirects=False,
+                            files={"file": ("coll.yaml", self.COLLECTION, "text/yaml")})
+
+        assert r.status_code == 303
+        assert r.headers["location"] == "/?imported=0&failed=0"
+        assert clone.call_count == 0
+        assert self._record(tmp_path) == before == [
+            (self.LEGACY_KEY, "git@ssh.dev.azure.com:v3/org/proj/repo.git", ["work"], True)]
+        assert not (ws_dir / "org").exists()
+
+
+class TestDotDotNeverLeavesTheWorkspace:
+    """A URL with a '..' segment cannot make gitstow track a folder outside its workspace.
+
+    The workspace is tmp_path/ws, so '..' points at tmp_path/Documents (never the real home)."""
+
+    URL = "https://github.com/../Documents"
+
+    def _seed(self, tmp_path, monkeypatch):
+        ws_dir = TestAddParallelAndConflicts()._setup(tmp_path, monkeypatch)
+        outside = tmp_path / "Documents"
+        (outside / ".git").mkdir(parents=True)  # looks like a repo already on disk
+        (outside / "keep.txt").write_bytes(b"precious\n")
+        return ws_dir, outside
+
+    def _tracked(self, tmp_path):
+        from gitstow.core.repo import RepoStore
+        return [r.global_key for r in RepoStore(path=tmp_path / "repos.yaml").list_all()]
+
+    def test_add_is_a_parse_error(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        _ws, outside = self._seed(tmp_path, monkeypatch)
+        with patch("gitstow.cli.add.git_clone") as clone:
+            result = runner.invoke(app, ["add", self.URL, "--json"])
+
+        assert result.exit_code != 0
+        assert "may not contain '.', '..' or empty path segments" in " ".join(result.output.split())
+        assert clone.call_count == 0
+        assert self._tracked(tmp_path) == []
+        assert (outside / "keep.txt").read_bytes() == b"precious\n"
+
+    def test_cli_collection_import_refuses_it(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        _ws, outside = self._seed(tmp_path, monkeypatch)
+        coll = tmp_path / "coll.txt"
+        coll.write_text(self.URL + "\n")
+        with patch("gitstow.cli.export_cmd.git_clone") as clone:
+            result = runner.invoke(app, ["collection", "import", str(coll)])
+
+        out = " ".join(result.output.split())  # Rich wraps long lines
+        assert "may not contain '.', '..' or empty path segments" in out
+        assert "Done: 0 imported, 1 failed" in out
+        assert clone.call_count == 0
+        assert self._tracked(tmp_path) == []
+        assert (outside / "keep.txt").read_bytes() == b"precious\n"
+
+    def test_dashboard_collection_import_refuses_it(self, tmp_path, monkeypatch):
+        from fastapi.testclient import TestClient
+        from unittest.mock import patch
+
+        from gitstow.web.server import create_app
+
+        _ws, outside = self._seed(tmp_path, monkeypatch)
+        client = TestClient(create_app(), base_url="http://127.0.0.1")
+        with patch("gitstow.web.routes.collection.git_clone") as clone:
+            r = client.post("/collection/import", follow_redirects=False,
+                            files={"file": ("coll.txt", (self.URL + "\n").encode(), "text/plain")})
+
+        assert r.status_code == 303
+        assert _flash(r.headers["location"]) == (
+            f"imported=0 failed=1 | {self.URL}: Cannot use '{self.URL}': owner/repo may not contain "
+            "'.', '..' or empty path segments, a segment of only dots and spaces, or a \\, : or control character")
+        assert clone.call_count == 0
+        assert self._tracked(tmp_path) == []
+        assert (outside / "keep.txt").read_bytes() == b"precious\n"
+
+
+def _flash(location: str) -> str:
+    """The dashboard's import redirect as one line: 'imported=N failed=M | reason | reason'."""
+    from urllib.parse import parse_qs, urlsplit
+    q = parse_qs(urlsplit(location).query)
+    assert urlsplit(location).path == "/", location
+    return " | ".join([f"imported={q['imported'][0]} failed={q['failed'][0]}", *q.get("why", [])])
+
+
+class TestCollectionListsATargetTwice:
+    """One collection naming the same folder twice: the first entry wins and keeps its metadata;
+    a different repo resolving to that folder is a conflict, never registered over it."""
+
+    SAME = (b"- url: https://github.com/acme/widget\n  tags: [keep]\n  frozen: true\n"
+            b"- url: git@github.com:acme/widget.git\n")
+    # (layout, second URL that resolves to the first entry's folder but is another repo)
+    OTHERS = [("structured", "https://gitlab.com/acme/widget"),
+              ("flat", "https://github.com/other/widget")]
+
+    def _setup(self, tmp_path, monkeypatch, layout="structured"):
+        from gitstow.core.config import Settings, Workspace, save_config
+
+        config_file = tmp_path / "config.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", tmp_path / "repos.yaml")
+        ws_dir = tmp_path / "ws"
+        ws_dir.mkdir()
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout=layout)]))
+        return ws_dir
+
+    def _records(self, tmp_path):
+        from gitstow.core.repo import RepoStore
+        return [(r.key, r.remote_url, r.tags, r.frozen)
+                for r in RepoStore(path=tmp_path / "repos.yaml").list_all()]
+
+    @staticmethod
+    def _fake_clone(calls):
+        def fake(url, target, **kw):
+            calls.append((url, target))
+            (target / ".git").mkdir(parents=True)
+            return True, ""
+        return fake
+
+    @staticmethod
+    def _then(url):
+        return (f"- url: https://github.com/acme/widget\n  tags: [keep]\n  frozen: true\n"
+                f"- url: {url}\n").encode()
+
+    def _cli(self, tmp_path, body):
+        from unittest.mock import patch
+        coll = tmp_path / "coll.yaml"
+        coll.write_bytes(body)
+        calls = []
+        with patch("gitstow.cli.export_cmd.git_clone", side_effect=self._fake_clone(calls)):
+            result = runner.invoke(app, ["collection", "import", str(coll)])
+        return result, calls
+
+    def _dashboard(self, body):
+        from fastapi.testclient import TestClient
+        from unittest.mock import patch
+
+        from gitstow.web.server import create_app
+
+        calls = []
+        client = TestClient(create_app(), base_url="http://127.0.0.1")
+        with patch("gitstow.web.routes.collection.git_clone", side_effect=self._fake_clone(calls)):
+            r = client.post("/collection/import", follow_redirects=False,
+                            files={"file": ("coll.yaml", body, "text/yaml")})
+        return r, calls
+
+    @pytest.mark.parametrize("n, tail", [(10, []), (12, ["and 2 more"])])
+    def test_dashboard_banner_says_how_many_reasons_were_left_out(self, tmp_path, monkeypatch, n, tail):
+        self._setup(tmp_path, monkeypatch)
+        body = "".join(f"- https://github.com/acme/w{i}:x\n" for i in range(n)).encode()
+
+        r, calls = self._dashboard(body)
+        flash = _flash(r.headers["location"]).split(" | ")
+
+        assert flash[0] == f"imported=0 failed={n}"
+        assert [w.split(": Cannot use")[0] for w in flash[1:11]] == [
+            f"https://github.com/acme/w{i}:x" for i in range(10)]
+        assert flash[11:] == tail
+        assert calls == []
+
+    def test_cli_same_repo_twice_clones_once_and_keeps_the_first_entry(self, tmp_path, monkeypatch):
+        ws_dir = self._setup(tmp_path, monkeypatch)
+
+        result, calls = self._cli(tmp_path, self.SAME)
+
+        assert result.exit_code == 0, result.output
+        assert calls == [("https://github.com/acme/widget.git", ws_dir / "acme" / "widget")]
+        assert self._records(tmp_path) == [
+            ("acme/widget", "https://github.com/acme/widget.git", ["keep"], True)]
+        out = " ".join(result.output.split())
+        assert "acme/widget: listed twice in this file (https://github.com/acme/widget.git), imported once" in out
+        assert "Done: 1 imported, 1 skipped" in out
+
+    def test_dashboard_same_repo_twice_clones_once_and_keeps_the_first_entry(self, tmp_path, monkeypatch):
+        ws_dir = self._setup(tmp_path, monkeypatch)
+
+        r, calls = self._dashboard(self.SAME)
+
+        assert r.status_code == 303
+        assert r.headers["location"] == "/?imported=1&failed=0"
+        assert calls == [("https://github.com/acme/widget.git", ws_dir / "acme" / "widget")]
+        assert self._records(tmp_path) == [
+            ("acme/widget", "https://github.com/acme/widget.git", ["keep"], True)]
+
+    @pytest.mark.parametrize("layout, other", OTHERS)
+    def test_cli_other_repo_on_the_same_folder_is_a_conflict(self, tmp_path, monkeypatch, layout, other):
+        self._setup(tmp_path, monkeypatch, layout)
+
+        result, calls = self._cli(tmp_path, self._then(other))
+
+        key = "acme/widget" if layout == "structured" else "widget"
+        assert len(calls) == 1
+        assert self._records(tmp_path) == [(key, "https://github.com/acme/widget.git", ["keep"], True)]
+        out = " ".join(result.output.split())
+        assert (f"{key}: conflict: this file also lists https://github.com/acme/widget.git "
+                f"for the same folder in 'ws'; import one of them into another workspace") in out
+        assert "Done: 1 imported, 1 failed" in out
+
+    @pytest.mark.parametrize("layout, other", OTHERS)
+    def test_dashboard_other_repo_on_the_same_folder_is_a_conflict(self, tmp_path, monkeypatch, layout, other):
+        self._setup(tmp_path, monkeypatch, layout)
+
+        r, calls = self._dashboard(self._then(other))
+
+        key = "acme/widget" if layout == "structured" else "widget"
+        assert _flash(r.headers["location"]) == (
+            f"imported=1 failed=1 | {key}: conflict: this file also lists https://github.com/acme/widget.git "
+            "for the same folder in 'ws'; import one of them into another workspace")
+        assert len(calls) == 1
+        assert self._records(tmp_path) == [(key, "https://github.com/acme/widget.git", ["keep"], True)]
+
+    @pytest.mark.parametrize("surface", ["cli", "dashboard"])
+    def test_other_repo_already_tracked_at_that_key_is_a_conflict(self, tmp_path, monkeypatch, surface):
+        """A record from before the import, a different repo at the entry's key, on disk: kept as is."""
+        from gitstow.core.repo import Repo, RepoStore
+
+        ws_dir = self._setup(tmp_path, monkeypatch, "flat")
+        RepoStore(path=tmp_path / "repos.yaml").add(Repo(
+            owner="", name="widget", remote_url="https://github.com/acme/widget.git",
+            workspace="ws", tags=["keep"], frozen=True))
+        (ws_dir / "widget" / ".git").mkdir(parents=True)
+        body = b"- https://github.com/other/widget\n"
+
+        if surface == "cli":
+            result, calls = self._cli(tmp_path, body)
+            out = " ".join(result.output.split())
+            assert ("widget: conflict: widget is already tracked in 'ws' with remote "
+                    "https://github.com/acme/widget.git, but this entry asks for "
+                    "https://github.com/other/widget.git") in out
+        else:
+            r, calls = self._dashboard(body)
+            assert _flash(r.headers["location"]) == (
+                "imported=0 failed=1 | widget: conflict: widget is already tracked in 'ws' with remote "
+                "https://github.com/acme/widget.git, but this entry asks for https://github.com/other/widget.git")
+        assert calls == []
+        assert self._records(tmp_path) == [("widget", "https://github.com/acme/widget.git", ["keep"], True)]
+
+
+    # --- what each re-check catches that the others do not -------------------------
+
+    def _store_add(self, tmp_path, name, remote, tags):
+        from gitstow.core.repo import Repo, RepoStore
+        RepoStore(path=tmp_path / "repos.yaml").add(Repo(
+            owner="", name=name, remote_url=remote, workspace="ws", tags=tags))
+
+    def test_first_clone_failing_does_not_let_another_repo_into_its_folder(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        self._setup(tmp_path, monkeypatch, "flat")
+        coll = tmp_path / "coll.yaml"
+        coll.write_bytes(self._then("https://github.com/other/widget"))
+        calls = []
+        with patch("gitstow.cli.export_cmd.git_clone",
+                   side_effect=lambda url, target, **kw: calls.append(url) or (False, "network down")):
+            result = runner.invoke(app, ["collection", "import", str(coll)])
+
+        assert calls == ["https://github.com/acme/widget.git"]
+        assert "conflict: this file also lists" in " ".join(result.output.split())
+        assert self._records(tmp_path) == []
+
+    @pytest.mark.parametrize("surface", ["cli", "dashboard"])
+    def test_same_repo_listed_again_after_its_clone_failed_is_tried_again(
+            self, tmp_path, monkeypatch, surface):
+        """CR9: a failed entry was not "imported once", so its duplicate is cloned, not skipped."""
+        self._setup(tmp_path, monkeypatch, "flat")
+        calls = []
+
+        def clone(url, target, **kw):
+            calls.append(url)
+            if len(calls) == 1:
+                return False, "network down"
+            (target / ".git").mkdir(parents=True)
+            return True, ""
+
+        out = self._import(surface, tmp_path,
+                           b"- https://github.com/acme/widget\n- git@github.com:acme/widget.git\n", clone)
+
+        assert calls == ["https://github.com/acme/widget.git", "git@github.com:acme/widget.git"]
+        assert "imported once" not in out
+        if surface == "cli":
+            assert "Done: 1 imported, 1 failed" in out
+        else:
+            assert out == "imported=1 failed=1 | widget: clone failed: network down"
+        assert self._records(tmp_path) == [("widget", "git@github.com:acme/widget.git", [], False)]
+
+    @pytest.mark.parametrize("surface", ["cli", "dashboard"])
+    @pytest.mark.parametrize("intruder", ["folder", "other-repo"])
+    def test_retry_after_a_failed_clone_never_adopts_a_folder_that_appeared(
+            self, tmp_path, monkeypatch, surface, intruder):
+        """PT-C1: while the first clone fails, something else creates the target; the retried
+        duplicate refuses it (like a clone finding its target occupied) and registers nothing."""
+        import subprocess
+
+        ws_dir = self._setup(tmp_path, monkeypatch, "flat")
+        dest = ws_dir / "widget"
+        calls = []
+
+        def clone(url, target, **kw):
+            calls.append(url)
+            dest.mkdir()
+            (dest / "notes.txt").write_bytes(b"user work\n")
+            if intruder == "other-repo":
+                subprocess.run(["git", "init", "-q", str(dest)], check=True)
+                subprocess.run(["git", "-C", str(dest), "remote", "add", "origin",
+                                "https://example.com/someone/else.git"], check=True)
+            return False, f"{target} already exists (created after gitstow checked it); left untouched"
+
+        out = self._import(surface, tmp_path,
+                           b"- https://github.com/acme/widget\n- git@github.com:acme/widget.git\n", clone)
+
+        assert calls == ["https://github.com/acme/widget.git"]
+        refusal = f"widget: conflict: {dest} appeared during the import; left untouched"
+        assert "".join(refusal.split()) in "".join(out.split())  # Rich may fold a long path
+        if surface == "cli":
+            assert "Done: 0 imported, 2 failed" in out
+        else:
+            assert out.startswith("imported=0 failed=2 | widget: clone failed: ")
+            assert out.endswith(" | " + refusal)
+        assert self._records(tmp_path) == []
+        assert (dest / "notes.txt").read_bytes() == b"user work\n"
+        if intruder == "other-repo":
+            assert subprocess.run(["git", "-C", str(dest), "remote", "get-url", "origin"],
+                                  capture_output=True, text=True, check=True).stdout.strip() \
+                == "https://example.com/someone/else.git"
+
+    def _import(self, surface, tmp_path, body, clone):
+        """Run one import with `clone` as git_clone; return the CLI output or the redirect target."""
+        from unittest.mock import patch
+        if surface == "cli":
+            coll = tmp_path / "coll.yaml"
+            coll.write_bytes(body)
+            with patch("gitstow.cli.export_cmd.git_clone", side_effect=clone):
+                return " ".join(runner.invoke(app, ["collection", "import", str(coll)]).output.split())
+        from fastapi.testclient import TestClient
+
+        from gitstow.web.server import create_app
+        with patch("gitstow.web.routes.collection.git_clone", side_effect=clone):
+            return _flash(TestClient(create_app(), base_url="http://127.0.0.1").post(
+                "/collection/import", follow_redirects=False,
+                files={"file": ("coll.yaml", body, "text/yaml")}).headers["location"])
+
+    @pytest.mark.parametrize("surface", ["cli", "dashboard"])
+    def test_tracked_record_with_missing_folder_blocks_the_clone(self, tmp_path, monkeypatch, surface):
+        self._setup(tmp_path, monkeypatch, "flat")
+        self._store_add(tmp_path, "widget", "https://github.com/acme/widget.git", ["keep"])
+        calls = []
+
+        out = self._import(surface, tmp_path, b"- https://github.com/other/widget\n", self._fake_clone(calls))
+
+        assert calls == []
+        assert "widget: conflict: widget is already tracked" in out
+        assert surface == "cli" or out.startswith("imported=0 failed=1 | ")
+        assert self._records(tmp_path) == [("widget", "https://github.com/acme/widget.git", ["keep"], False)]
+
+    @pytest.mark.parametrize("surface", ["cli", "dashboard"])
+    def test_record_added_by_another_process_mid_import_is_seen_before_the_next_clone(
+            self, tmp_path, monkeypatch, surface):
+        self._setup(tmp_path, monkeypatch, "flat")
+        calls = []
+
+        def clone(url, target, **kw):
+            calls.append(url)
+            # meanwhile another gitstow tracks a different repo at the second entry's key
+            self._store_add(tmp_path, "second", "https://gitlab.com/them/second.git", ["theirs"])
+            return False, "network down"
+
+        out = self._import(surface, tmp_path,
+                           b"- https://github.com/acme/first\n- https://github.com/acme/second\n", clone)
+
+        assert calls == ["https://github.com/acme/first.git"]
+        assert "second: conflict: second is already tracked" in out
+        assert surface == "cli" or out == ("imported=0 failed=2 | first: clone failed: network down | "
+                                           "second: conflict: second is already tracked in 'ws' with remote "
+                                           "https://gitlab.com/them/second.git, but this entry asks for "
+                                           "https://github.com/acme/second.git")
+        assert self._records(tmp_path) == [("second", "https://gitlab.com/them/second.git", ["theirs"], False)]
+
+    @pytest.mark.parametrize("surface", ["cli", "dashboard"])
+    def test_record_added_while_cloning_is_never_registered_over(self, tmp_path, monkeypatch, surface):
+        self._setup(tmp_path, monkeypatch, "flat")
+
+        def clone(url, target, **kw):
+            self._store_add(tmp_path, "widget", "https://gitlab.com/them/widget.git", ["theirs"])
+            (target / ".git").mkdir(parents=True)
+            return True, ""
+
+        out = self._import(surface, tmp_path, b"- url: https://github.com/acme/widget\n  tags: [mine]\n", clone)
+
+        assert "widget: conflict: widget is already tracked" in out
+        assert surface == "cli" or out.startswith("imported=0 failed=1 | ")
+        assert self._records(tmp_path) == [("widget", "https://gitlab.com/them/widget.git", ["theirs"], False)]
+
+
+class TestImportClassifiesEveryEntryAlike:
+    """R4-C2: one classify_entry() judges every import entry by the key its URL parses to,
+    whatever the file format; the entry's own `key` field never decides anything."""
+
+    GITLAB = "https://gitlab.com/acme/widget.git"
+    CONFLICT = ("acme/widget: conflict: acme/widget is already tracked in 'ws' with remote "
+                "https://github.com/acme/widget.git, but this entry asks for https://gitlab.com/acme/widget.git")
+    FORMATS = {
+        "exported YAML": ("coll.yaml", f"version: 1\nrepos:\n  acme/widget:\n    remote_url: {GITLAB}\n"),
+        "exported JSON": ("coll.json", json.dumps({"version": 1, "repos": [
+            {"key": "acme/widget", "remote_url": GITLAB}]})),
+        "plain URL list": ("coll.txt", "https://gitlab.com/acme/widget\n"),
+    }
+
+    def _setup(self, tmp_path, monkeypatch):
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        config_file = tmp_path / "config.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", tmp_path / "repos.yaml")
+        ws_dir = tmp_path / "ws"
+        (ws_dir / "acme" / "widget" / ".git").mkdir(parents=True)
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+        RepoStore().add(Repo(owner="acme", name="widget", remote_url="https://github.com/acme/widget.git",
+                             workspace="ws", tags=["keep"], frozen=True, added="2026-01-01"))
+        return RepoStore().get("acme/widget", workspace="ws")
+
+    def _run(self, surface, tmp_path, name, body):
+        from unittest.mock import patch
+        failing = {"side_effect": lambda *a, **kw: (False, "network down")}
+        if surface == "cli":
+            coll = tmp_path / name
+            coll.write_text(body)
+            with patch("gitstow.cli.export_cmd.git_clone", **failing) as clone:
+                out = " ".join(runner.invoke(app, ["collection", "import", str(coll)]).output.split())
+        else:
+            from fastapi.testclient import TestClient
+
+            from gitstow.web.server import create_app
+            with patch("gitstow.web.routes.collection.git_clone", **failing) as clone:
+                out = _flash(TestClient(create_app(), base_url="http://127.0.0.1").post(
+                    "/collection/import", follow_redirects=False,
+                    files={"file": (name, body.encode(), "text/plain")}).headers["location"])
+        return out, clone.call_count
+
+    @pytest.mark.parametrize("surface", ["cli", "dashboard"])
+    @pytest.mark.parametrize("fmt", list(FORMATS))
+    def test_a_different_remote_at_the_same_folder_is_a_conflict_in_every_format(
+            self, tmp_path, monkeypatch, surface, fmt):
+        from gitstow.core.repo import RepoStore
+
+        first = self._setup(tmp_path, monkeypatch)
+        name, body = self.FORMATS[fmt]
+
+        out, clones = self._run(surface, tmp_path, name, body)
+
+        if surface == "cli":
+            assert self.CONFLICT in out
+            assert "Done: 0 imported, 1 failed" in out
+        else:
+            assert out == f"imported=0 failed=1 | {self.CONFLICT}"
+        assert clones == 0
+        assert RepoStore().list_all() == [first]  # the first record, every field unchanged
+
+    @pytest.mark.parametrize("surface", ["cli", "dashboard"])
+    def test_the_entry_key_field_never_decides(self, tmp_path, monkeypatch, surface):
+        """An exported key that disagrees with its URL (another layout, a hand edit): the same repo
+        is skipped by its parsed key, a new repo is cloned at its parsed key."""
+        from gitstow.core.repo import RepoStore
+
+        first = self._setup(tmp_path, monkeypatch)
+        body = ("version: 1\nrepos:\n"
+                "  widget:\n    remote_url: git@github.com:acme/widget.git\n"    # flat key, same repo
+                "  acme/widget-two:\n    remote_url: https://github.com/acme/widget-three\n"
+                "  acme/widget:\n    remote_url: https://github.com/acme/other\n")  # a tracked key, another repo
+
+        out, clones = self._run(surface, tmp_path, "coll.yaml", body)
+
+        assert clones == 2
+        if surface == "cli":
+            assert "acme/widget: already tracked as acme/widget" in out
+            assert "✗ acme/widget-three: network down" in out and "widget-two" not in out
+            assert "✗ acme/other: network down" in out and "conflict" not in out
+            assert "Done: 0 imported, 1 skipped, 2 failed" in out
+        else:
+            assert out == ("imported=0 failed=2 | acme/widget-three: clone failed: network down | "
+                           "acme/other: clone failed: network down")
+        assert RepoStore().get("acme/widget", workspace="ws") == first
+
+    def test_dry_run_lists_each_entry_once_with_its_decision(self, tmp_path, monkeypatch):
+        from gitstow.core.config import Settings, Workspace, save_config
+
+        config_file = tmp_path / "config.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", tmp_path / "repos.yaml")
+        (tmp_path / "ws").mkdir()
+        save_config(Settings(workspaces=[Workspace(path=str(tmp_path / "ws"), label="ws", layout="structured")]))
+        coll = tmp_path / "coll.yaml"
+        coll.write_bytes(b"- https://github.com/acme/widget\n- git@github.com:acme/widget.git\n"
+                         b"- https://gitlab.com/acme/widget\n- https://github.com/../x\n")
+
+        result = runner.invoke(app, ["collection", "import", str(coll), "--dry-run"])
+
+        out = " ".join(result.output.split())
+        assert result.exit_code == 0, result.output
+        assert out.count("Would add:") == 1 and "Would add: acme/widget → ws" in out
+        assert ("Would skip: acme/widget: listed twice in this file (https://github.com/acme/widget.git), "
+                "imported once") in out
+        assert ("Conflict: acme/widget: this file also lists https://github.com/acme/widget.git for the "
+                "same folder in 'ws'; import one of them into another workspace") in out
+        assert "Cannot add: https://github.com/../x: Cannot use" in out
+        assert "1 new repos to import" in out
+        assert "1 already tracked or listed twice (will skip)" in out  # the in-file duplicate
+        assert not (tmp_path / "repos.yaml").exists()
+
+
+class TestTrackedButFolderMissing:
+    """A tracked repo whose folder was deleted: every add surface names the way out, clones nothing."""
+
+    # Each surface names its own way to untrack the record.
+    HINT = ("Tracked as owner/repo, but its folder is missing on disk. Remove it from gitstow "
+            "(gitstow -w ws remove owner/repo), then add it again to re-clone.")
+    MCP_HINT = HINT.replace("gitstow -w ws remove owner/repo", "remove_repo with repo_key 'ws:owner/repo'")
+    DASHBOARD_HINT = HINT.replace("gitstow -w ws remove owner/repo", "Remove in its row's ⋯ menu")
+
+    def _seed(self, tmp_path, monkeypatch):
+        from gitstow.core.repo import Repo, RepoStore
+
+        ws_dir = TestAddParallelAndConflicts()._setup(tmp_path, monkeypatch)
+        RepoStore(path=tmp_path / "repos.yaml").add(Repo(
+            owner="owner", name="repo", remote_url="https://github.com/owner/repo.git",
+            workspace="ws", tags=["keep"]))
+        return ws_dir
+
+    def _records(self, tmp_path):
+        from gitstow.core.repo import RepoStore
+        return [(r.key, r.workspace, r.remote_url, r.tags)
+                for r in RepoStore(path=tmp_path / "repos.yaml").list_all()]
+
+    @pytest.mark.parametrize("url", ["owner/repo", "git@github.com:owner/repo.git"])
+    @pytest.mark.parametrize("update", [False, True])
+    def test_cli_add(self, tmp_path, monkeypatch, url, update):
+        from unittest.mock import patch
+
+        ws_dir = self._seed(tmp_path, monkeypatch)
+        with patch("gitstow.cli.add.git_clone") as clone, patch("gitstow.core.git.pull") as pull:
+            result = runner.invoke(app, ["add", url, "--json"] + (["--update"] if update else []))
+
+        assert result.exit_code == 1
+        assert json.loads(result.stdout)["results"] == [
+            {"repo": "owner/repo", "status": "error", "error": self.HINT}]
+        assert clone.call_count == 0 and pull.call_count == 0
+        assert not (ws_dir / "owner").exists()
+        assert self._records(tmp_path) == [
+            ("owner/repo", "ws", "https://github.com/owner/repo.git", ["keep"])]
+
+    def test_cli_add_human_mode(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        self._seed(tmp_path, monkeypatch)
+        with patch("gitstow.cli.add.git_clone") as clone:
+            result = runner.invoke(app, ["add", "owner/repo"], env={"COLUMNS": "400"})
+
+        assert result.exit_code == 1
+        assert self.HINT in result.stderr
+        assert clone.call_count == 0
+
+    def test_mcp_add_repo(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        from gitstow.mcp.server import add_repo
+
+        ws_dir = self._seed(tmp_path, monkeypatch)
+        with patch("gitstow.mcp.server.git_clone") as clone:
+            out = json.loads(add_repo("owner/repo"))
+
+        assert out == {"success": False, "status": "missing", "key": "owner/repo", "workspace": "ws",
+                       "path": str(ws_dir / "owner" / "repo"), "error": self.MCP_HINT}
+        assert clone.call_count == 0
+
+    def _seed_second_workspace(self, tmp_path):
+        """The same key tracked, folder present, in a second workspace: a bare key is ambiguous."""
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        other = tmp_path / "other"
+        (other / "owner" / "repo" / ".git").mkdir(parents=True)
+        save_config(Settings(workspaces=[
+            Workspace(path=str(tmp_path / "ws"), label="ws", layout="structured"),
+            Workspace(path=str(other), label="other", layout="structured")]))
+        RepoStore(path=tmp_path / "repos.yaml").add(Repo(
+            owner="owner", name="repo", remote_url="https://github.com/owner/repo.git", workspace="other"))
+
+    def test_cli_hint_command_removes_exactly_that_record(self, tmp_path, monkeypatch):
+        import shlex
+        from unittest.mock import patch
+
+        from gitstow.core.repo import RepoStore
+
+        self._seed(tmp_path, monkeypatch)
+        self._seed_second_workspace(tmp_path)
+        with patch("gitstow.cli.add.git_clone") as clone:
+            result = runner.invoke(app, ["-w", "ws", "add", "owner/repo", "--json"])
+        error = json.loads(result.stdout)["results"][0]["error"]
+        assert error == self.HINT and clone.call_count == 0
+        argv = shlex.split(error.split("(", 1)[1].split(")", 1)[0])
+        assert argv[0] == "gitstow"
+
+        removed = runner.invoke(app, [*argv[1:], "--yes"])
+
+        assert removed.exit_code == 0, removed.output
+        assert [(r.key, r.workspace) for r in RepoStore(path=tmp_path / "repos.yaml").list_all()] == [
+            ("owner/repo", "other")]
+
+    def test_mcp_hint_removes_exactly_that_record(self, tmp_path, monkeypatch):
+        from gitstow.core.repo import RepoStore
+        from gitstow.mcp.server import add_repo, remove_repo
+
+        self._seed(tmp_path, monkeypatch)
+        self._seed_second_workspace(tmp_path)
+        out = json.loads(add_repo("owner/repo", workspace="ws"))
+        assert out["error"] == self.MCP_HINT
+
+        assert json.loads(remove_repo("ws:owner/repo"))["success"] is True
+        assert [(r.key, r.workspace) for r in RepoStore(path=tmp_path / "repos.yaml").list_all()] == [
+            ("owner/repo", "other")]
+
+    def test_dashboard_add(self, tmp_path, monkeypatch):
+        import html
+        from unittest.mock import patch
+
+        from fastapi.testclient import TestClient
+
+        from gitstow.web.server import create_app
+
+        ws_dir = self._seed(tmp_path, monkeypatch)
+        client = TestClient(create_app(), base_url="http://127.0.0.1")
+        with patch("gitstow.web.routes.repos.git_clone") as clone:
+            r = client.post("/repos/add", data={"url": "owner/repo", "workspace": "ws"},
+                            follow_redirects=False)
+
+        assert r.status_code == 200
+        assert self.DASHBOARD_HINT in html.unescape(r.text)
+        assert clone.call_count == 0
+        assert not (ws_dir / "owner").exists()
+        assert self._records(tmp_path) == [
+            ("owner/repo", "ws", "https://github.com/owner/repo.git", ["keep"])]
+
+
+@pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                    reason="needs a folder the test user cannot write to")
+class TestAddIntoReadOnlyWorkspace:
+    """A workspace gitstow cannot write to is a failed add on every surface: no traceback, no 500."""
+
+    @pytest.fixture
+    def ws_dir(self, tmp_path, monkeypatch):
+        ws_dir = TestAddParallelAndConflicts()._setup(tmp_path, monkeypatch)
+        ws_dir.chmod(0o555)
+        yield ws_dir
+        ws_dir.chmod(0o755)
+
+    def _nothing_created(self, tmp_path, ws_dir):
+        from gitstow.core.repo import RepoStore
+        assert list(ws_dir.iterdir()) == []
+        assert RepoStore(path=tmp_path / "repos.yaml").list_all() == []
+
+    @pytest.mark.parametrize("owner_exists", [False, True])  # fails at mkdir / at mkdtemp
+    def test_clone_returns_the_error(self, tmp_path, ws_dir, owner_exists):
+        from gitstow.core.git import clone
+        target = ws_dir / "owner" / "repo"
+        if owner_exists:
+            ws_dir.chmod(0o755)
+            target.parent.mkdir()
+            target.parent.chmod(0o555)
+        try:
+            assert clone("https://github.com/owner/repo.git", target) == (
+                False, f"could not create {target}: Permission denied")
+            assert list(ws_dir.iterdir()) == ([target.parent] if owner_exists else [])
+            assert not owner_exists or list(target.parent.iterdir()) == []
+        finally:
+            target.parent.exists() and target.parent.chmod(0o755)
+
+    def test_cli_add(self, tmp_path, ws_dir):
+        result = runner.invoke(app, ["add", "owner/repo", "--json"])
+        assert result.exit_code == 1, result.output
+        assert json.loads(result.stdout)["results"] == [{
+            "repo": "owner/repo", "status": "error",
+            "error": f"could not create {ws_dir / 'owner' / 'repo'}: Permission denied"}]
+        self._nothing_created(tmp_path, ws_dir)
+
+    def test_mcp_add_repo(self, tmp_path, ws_dir):
+        from gitstow.mcp.server import add_repo
+        assert json.loads(add_repo("owner/repo")) == {
+            "success": False,
+            "error": f"could not create {ws_dir / 'owner' / 'repo'}: Permission denied"}
+        self._nothing_created(tmp_path, ws_dir)
+
+    def test_dashboard_add(self, tmp_path, ws_dir):
+        import html
+
+        from fastapi.testclient import TestClient
+
+        from gitstow.web.server import create_app
+
+        client = TestClient(create_app(), base_url="http://127.0.0.1", raise_server_exceptions=False)
+        r = client.post("/repos/add", data={"url": "owner/repo", "workspace": "ws"},
+                        follow_redirects=False)
+        assert r.status_code == 200
+        assert (f"Clone failed: could not create {ws_dir / 'owner' / 'repo'}: Permission denied"
+                in html.unescape(r.text))
+        self._nothing_created(tmp_path, ws_dir)
+
+
+class TestExecIgnoresRepoLocatingVariables:
+    """Run from a git hook (GIT_DIR set for the hook's repo), exec still acts on each tracked repo."""
+
+    @pytest.mark.parametrize("sequential", [False, True])
+    def test_git_dir_of_another_repo_does_not_win(self, tmp_path, monkeypatch, sequential):
+        import subprocess
+
+        from gitstow.core.repo import Repo, RepoStore
+
+        ws_dir = TestAddParallelAndConflicts()._setup(tmp_path, monkeypatch)
+        hook_repo, tracked = tmp_path / "hook-repo", ws_dir / "owner" / "repo"
+        for path in (hook_repo, tracked):
+            subprocess.run(["git", "init", "-q", str(path)], check=True)
+        RepoStore(path=tmp_path / "repos.yaml").add(
+            Repo(owner="owner", name="repo", remote_url="", workspace="ws"))
+        monkeypatch.setenv("GIT_DIR", str(hook_repo / ".git"))
+        monkeypatch.setenv("GIT_WORK_TREE", str(hook_repo))
+
+        result = runner.invoke(app, ["exec", "--json", *(["--sequential"] if sequential else []),
+                                     "--", "git", "rev-parse", "--show-toplevel"])
+
+        assert result.exit_code == 0, result.output
+        [entry] = json.loads(result.stdout)
+        assert entry["returncode"] == 0, entry
+        assert Path(entry["stdout"]).resolve() == tracked.resolve()
+
+
+class TestAddNeverDeletesLocalRepo:
+    """`add` must never clone over, or delete, a local repo that has no remote."""
+
+    def _local_repo(self, target):
+        import subprocess
+        target.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(target)], check=True)
+        (target / "sentinel.txt").write_text("my local work\n")
+        subprocess.run(["git", "-C", str(target), "add", "sentinel.txt"], check=True)
+        subprocess.run(
+            ["git", "-C", str(target), "-c", "user.name=t", "-c", "user.email=t@t",
+             "commit", "-q", "-m", "local"],
+            check=True,
+        )
+
+    def test_local_repo_without_remote_is_not_cloned_or_deleted(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        ws_dir = TestAddParallelAndConflicts()._setup(tmp_path, monkeypatch)
+        target = ws_dir / "owner" / "repo"
+        self._local_repo(target)
+
+        with patch("gitstow.cli.add.git_clone", return_value=(False, "clone failed")) as clone:
+            result = runner.invoke(app, ["add", "owner/repo", "--retry", "1", "--json"])
+
+        payload = json.loads(result.output)
+        assert result.exit_code == 1
+        row = payload["results"][0]
+        assert row["status"] == "error"
+        assert "local git repo with no origin remote" in row["error"]
+        assert f"git -C {target} remote add origin https://github.com/owner/repo.git" in row["error"]
+        assert clone.call_count == 0
+        assert (target / "sentinel.txt").read_text() == "my local work\n"
+
+    def test_human_mode_names_the_fix(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        ws_dir = TestAddParallelAndConflicts()._setup(tmp_path, monkeypatch)
+        target = ws_dir / "owner" / "repo"
+        self._local_repo(target)
+        with patch("gitstow.cli.add.git_clone") as clone:
+            result = runner.invoke(app, ["add", "owner/repo"])
+        assert result.exit_code == 1
+        assert f"git -C {target} remote add origin https://github.com/owner/repo.git" in result.stderr
+        assert clone.call_count == 0
+
+    def test_fix_command_is_quoted_for_a_path_with_a_space(self, tmp_path, monkeypatch):
+        import shlex
+        from unittest.mock import patch
+
+        from gitstow.core.config import Settings, Workspace, save_config
+
+        TestAddParallelAndConflicts()._setup(tmp_path, monkeypatch)
+        ws_dir = tmp_path / "my repos"
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+        target = ws_dir / "owner" / "repo"
+        self._local_repo(target)
+        expected = ["git", "-C", str(target), "remote", "add", "origin", "https://github.com/owner/repo.git"]
+
+        with patch("gitstow.cli.add.git_clone") as clone:
+            as_json = runner.invoke(app, ["add", "owner/repo", "--json"])
+            human = runner.invoke(app, ["add", "owner/repo"], env={"COLUMNS": "400"})
+
+        error = json.loads(as_json.stdout)["results"][0]["error"]
+        fix = error.split("(", 1)[1].split(")", 1)[0]
+        assert shlex.split(fix) == expected
+        hint = human.stderr.split("Hint: ", 1)[1].split(", then run", 1)[0]
+        assert shlex.split(hint) == expected
+        assert clone.call_count == 0
+
+    @staticmethod
+    def _git_clone_stub(on_attempt):
+        """Patch target for core.git._run_git: `on_attempt(n, work)` returns (rc, stderr) per clone attempt.
+
+        Runs inside the real core.git.clone(), so its staging and publish step are exercised.
+        """
+        import subprocess
+        attempts = []
+
+        def run(args, *a, **kw):
+            assert args[0] == "clone", args
+            work = Path(args[-1])
+            attempts.append(sorted(p.name for p in work.parent.iterdir()))
+            rc, err = on_attempt(len(attempts), work)
+            if rc == 0:
+                work.mkdir()
+                (work / ".git").mkdir()
+            return subprocess.CompletedProcess(args, rc, "", err)
+        return run, attempts
+
+    @pytest.mark.parametrize("foreign", ["folder", "empty-folder", "dangling-symlink"])
+    def test_clone_worker_refuses_a_target_that_appeared_after_phase_1(self, tmp_path, foreign):
+        """Another process created the target between classification and the worker."""
+        from unittest.mock import patch
+
+        from gitstow.cli.add import _clone_worker
+        from gitstow.core.url_parser import parse_git_url
+
+        target = tmp_path / "owner" / "repo"
+        target.parent.mkdir(parents=True)
+        if foreign == "dangling-symlink":
+            target.symlink_to(tmp_path / "nowhere")
+        else:
+            target.mkdir()
+            if foreign == "folder":
+                (target / "sentinel.txt").write_bytes(b"keep me\r\n")
+        run, attempts = self._git_clone_stub(lambda n, work: (0, ""))
+
+        with patch("gitstow.core.git._run_git", side_effect=run):
+            out = _clone_worker(
+                parse_git_url("owner/repo"), target, "owner/repo",
+                retry=1, shallow=False, branch=None, recursive=False, timeout=30,
+            )
+
+        assert attempts == [[]]  # cloned once, into its own empty staging folder
+        assert sorted(p.name for p in target.parent.iterdir()) == ["repo"]  # staging removed
+        if foreign == "empty-folder":
+            # Nothing in it to lose: the kernel's rename replaces an empty folder.
+            assert out == {"repo": "owner/repo", "success": True, "error": ""}
+            assert sorted(p.name for p in target.iterdir()) == [".git"]
+            return
+        assert out == {"repo": "owner/repo", "success": False,
+                       "error": f"{target} already exists (created after gitstow checked it); left untouched"}
+        if foreign == "dangling-symlink":
+            assert target.is_symlink() and os.readlink(target) == str(tmp_path / "nowhere")
+        else:
+            assert sorted(p.name for p in target.iterdir()) == ["sentinel.txt"]
+            assert (target / "sentinel.txt").read_bytes() == b"keep me\r\n"
+
+    def test_clone_worker_never_deletes_a_folder_another_process_won(self, tmp_path):
+        """Sol's race: another process fills the target while our clone fails; retries must not delete it."""
+        from unittest.mock import patch
+
+        from gitstow.cli.add import _clone_worker
+        from gitstow.core.url_parser import parse_git_url
+
+        target = tmp_path / "owner" / "repo"
+
+        def attempt(n, work):
+            if n == 1:  # the other process wins the target while our first attempt fails
+                target.mkdir()
+                (target / "sentinel.txt").write_bytes(b"theirs\n")
+                return 128, "network blip"
+            return 0, ""
+        run, attempts = self._git_clone_stub(attempt)
+
+        with patch("gitstow.core.git._run_git", side_effect=run):
+            out = _clone_worker(
+                parse_git_url("owner/repo"), target, "owner/repo",
+                retry=2, shallow=False, branch=None, recursive=False, timeout=30,
+            )
+
+        assert attempts == [[]]  # no retry into a target someone else now holds
+        assert out == {"repo": "owner/repo", "success": False, "error": "network blip"}
+        assert sorted(p.name for p in target.iterdir()) == ["sentinel.txt"]
+        assert (target / "sentinel.txt").read_bytes() == b"theirs\n"
+        assert sorted(p.name for p in target.parent.iterdir()) == ["repo"]
+
+    def test_clone_worker_retry_still_cleans_its_own_partial_clone(self, tmp_path):
+        from unittest.mock import patch
+
+        from gitstow.cli.add import _clone_worker
+        from gitstow.core.url_parser import parse_git_url
+
+        target = tmp_path / "owner" / "repo"
+
+        def attempt(n, work):
+            if n == 1:
+                work.mkdir()
+                (work / "partial").mkdir()
+                (work / "partial" / "obj").write_text("half\n")
+                (work / "loose.txt").write_text("half\n")
+                return 128, "network blip"
+            return 0, ""
+        run, attempts = self._git_clone_stub(attempt)
+
+        with patch("gitstow.core.git._run_git", side_effect=run):
+            out = _clone_worker(
+                parse_git_url("owner/repo"), target, "owner/repo",
+                retry=1, shallow=False, branch=None, recursive=False, timeout=30,
+            )
+
+        assert out["success"] is True
+        assert attempts == [[], []]  # each attempt runs in its own fresh, empty staging folder
+        assert sorted(p.name for p in target.iterdir()) == [".git"]
+        assert sorted(p.name for p in target.parent.iterdir()) == ["repo"]
+
+    def test_clone_worker_real_git_publishes_and_a_real_failure_leaves_nothing(self, tmp_path, monkeypatch):
+        from gitstow.cli.add import _clone_worker
+        from gitstow.core.url_parser import parse_git_url
+
+        monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "no-gitconfig"))
+        monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+        upstream = tmp_path / "up"
+        self._local_repo(upstream)
+        parsed = parse_git_url("owner/repo")
+
+        good = tmp_path / "ws" / "owner" / "repo"
+        parsed.clone_url = str(upstream)
+        out = _clone_worker(parsed, good, "owner/repo",
+                            retry=0, shallow=False, branch=None, recursive=False, timeout=30)
+        assert out["success"] is True, out
+        assert (good / "sentinel.txt").read_text() == "my local work\n"
+
+        bad = tmp_path / "ws" / "owner" / "missing"
+        parsed.clone_url = str(tmp_path / "no-such-upstream")
+        out = _clone_worker(parsed, bad, "owner/missing",
+                            retry=1, shallow=False, branch=None, recursive=False, timeout=30)
+        assert out["success"] is False
+        assert not bad.exists()
+        assert sorted(p.name for p in good.parent.iterdir()) == ["repo"]
+
+    def test_clone_worker_final_failure_leaves_no_folder(self, tmp_path):
+        from unittest.mock import patch
+
+        from gitstow.cli.add import _clone_worker
+        from gitstow.core.url_parser import parse_git_url
+
+        target = tmp_path / "owner" / "repo"
+
+        def attempt(n, work):
+            work.mkdir()
+            (work / "partial").mkdir()
+            return 128, "network blip"
+        run, attempts = self._git_clone_stub(attempt)
+
+        with patch("gitstow.core.git._run_git", side_effect=run):
+            out = _clone_worker(
+                parse_git_url("owner/repo"), target, "owner/repo",
+                retry=1, shallow=False, branch=None, recursive=False, timeout=30,
+            )
+
+        assert out == {"repo": "owner/repo", "success": False, "error": "network blip"}
+        assert attempts == [[], []]
+        assert not os.path.lexists(target)  # the next add would otherwise fail as "not a git repo"
+        assert list((tmp_path / "owner").iterdir()) == []  # the parent we may share is kept, no staging left
+
+
 class TestManageWorkspaceResolution:
     def _seed_two_workspaces(self, tmp_path, monkeypatch):
         from gitstow.core.config import Settings, Workspace, save_config
@@ -346,18 +1430,46 @@ class TestRemoveContainment:
 
         ws_dir = tmp_path / "ws"; ws_dir.mkdir()
         outside = tmp_path / "outside-target"
-        (outside / ".git").mkdir(parents=True)
-        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="flat")]))
-        # A traversal-shaped name resolves outside the workspace root.
+        (outside / "widget" / ".git").mkdir(parents=True)
+        (outside / "widget" / "keep.txt").write_bytes(b"precious\n")
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+        # A user-placed symlink: the owner folder points out of the workspace.
+        (ws_dir / "acme").symlink_to(outside)
         store = RepoStore(path=repos_file)
-        store.add(Repo(owner="", name="../outside-target", remote_url="u", workspace="ws"))
+        store.add(Repo(owner="acme", name="widget", remote_url="u", workspace="ws"))
+
+        result = CliRunner().invoke(app, ["remove", "acme/widget", "--yes", "--delete"])
+
+        assert result.exit_code == 1
+        assert (outside / "widget" / "keep.txt").read_bytes() == b"precious\n"  # nothing was deleted
+        # A refused delete must not untrack either — guard runs before store.remove
+        assert RepoStore(path=repos_file).get("acme/widget", workspace="ws") is not None
+
+    def test_traversing_record_is_set_aside_never_deleted(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+        from gitstow.cli.main import app
+        from gitstow.core.config import Settings, Workspace, save_config
+
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+        ws_dir = tmp_path / "ws"; ws_dir.mkdir()
+        outside = tmp_path / "outside-target"
+        (outside / ".git").mkdir(parents=True)
+        (outside / "keep.txt").write_bytes(b"precious\n")
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="flat")]))
+        # As a pre-0.9.0 gitstow (or a hand edit) left it.
+        text = "ws:\n  ../outside-target:\n    remote_url: u\n"
+        repos_file.write_text(text)
 
         result = CliRunner().invoke(app, ["remove", "../outside-target", "--yes", "--delete"])
 
         assert result.exit_code == 1
-        assert outside.exists()  # nothing was deleted
-        # A refused delete must not untrack either — guard runs before store.remove
-        assert RepoStore(path=repos_file).get("../outside-target", workspace="ws") is not None
+        assert (outside / "keep.txt").read_bytes() == b"precious\n"
+        assert ws_dir.is_dir()
+        assert repos_file.read_text() == text  # set aside, kept verbatim
 
 
 class TestOrphanedWorkspaceRecords:
@@ -526,19 +1638,48 @@ class TestStatusModelInCli:
         ws_dir = tmp_path / "ws"
         (ws_dir / "a" / "one" / ".git").mkdir(parents=True)
         save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
-        RepoStore(path=repos_file).add(Repo(owner="a", name="one", remote_url="u", workspace="ws"))
+        RepoStore(path=repos_file).add(Repo(
+            owner="a", name="one", remote_url="u", workspace="ws",
+            tags=["ai"], last_pulled="2026-01-02T03:04:05",
+        ))
 
-        fake = RepoStatus(branch="main", staged=2, untracked=1, behind=3)
-        with patch("gitstow.cli.status.get_status", return_value=fake):
+        from gitstow.core.git import CommitInfo
+        fake = RepoStatus(branch="main", dirty=4, staged=2, untracked=1, behind=3)
+        commit = CommitInfo(hash="abc1234", message="Fix the thing", date="2 days ago", author="x")
+        with patch("gitstow.cli.status.get_status", return_value=fake), \
+             patch("gitstow.cli.status.get_last_commit", return_value=commit):
             result = CliRunner().invoke(app, ["status", "--json"])
 
         payload = json.loads(result.output)
         entry = payload[0]
         # New model keys (additive)
-        assert entry["local"] == {"modified": 0, "staged": 2, "untracked": 1, "summary": "2 staged · 1 untracked"}
+        assert entry["local"] == {"modified": 4, "staged": 2, "untracked": 1,
+                                  "summary": "4 modified · 2 staged · 1 untracked"}
         assert entry["remote"]["state"] == "behind"
-        # Legacy keys preserved
-        assert entry["staged"] == 2 and entry["behind"] == 3 and entry["clean"] is False
+        # Every pre-model key preserved, with its exact value
+        legacy = {k: entry[k] for k in (
+            "repo", "workspace", "branch", "dirty", "staged", "untracked", "ahead", "behind",
+            "clean", "status_symbol", "ahead_behind", "frozen", "tags", "last_commit",
+            "last_commit_date", "last_pulled",
+        )}
+        assert legacy == {
+            "repo": "a/one",
+            "workspace": "ws",
+            "branch": "main",
+            "dirty": 4,
+            "staged": 2,
+            "untracked": 1,
+            "ahead": 0,
+            "behind": 3,
+            "clean": False,
+            "status_symbol": "*+?",
+            "ahead_behind": "↓3",
+            "frozen": False,
+            "tags": ["ai"],
+            "last_commit": "Fix the thing",
+            "last_commit_date": "2 days ago",
+            "last_pulled": "2026-01-02T03:04:05",
+        }
 
 
 class TestPullSemantics:
@@ -778,6 +1919,72 @@ class TestReconciliationHints:
         assert "untracked" not in result.output.lower()
 
 
+class TestHintWhenNothingTracked:
+    """All repos on disk untracked: list/status still nudge toward workspace scan."""
+
+    def _setup(self, tmp_path, monkeypatch):
+        from gitstow.core.config import Settings, Workspace, save_config
+
+        config_file = tmp_path / "config.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", tmp_path / "repos.yaml")
+        ws_dir = tmp_path / "ws"
+        (ws_dir / "b" / "untracked" / ".git").mkdir(parents=True)
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="structured")]))
+
+    @pytest.mark.parametrize("cmd", ["list", "status"])
+    def test_hint_on_empty_result(self, cmd, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        result = runner.invoke(app, [cmd])
+        assert result.exit_code == 0
+        assert "1 untracked repo in ws" in result.stderr
+        assert "gitstow workspace scan ws" in result.stderr
+
+    @pytest.mark.parametrize("cmd", ["list", "status"])
+    def test_json_stays_pure_and_quiet_stays_silent(self, cmd, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        result = runner.invoke(app, [cmd, "--json"])
+        assert json.loads(result.stdout) == []
+        assert "untracked" not in result.output
+        quiet = runner.invoke(app, [cmd, "--quiet"])
+        assert quiet.output == ""
+
+    @pytest.mark.parametrize("cmd", ["list", "status"])
+    def test_json_wins_over_quiet_on_a_populated_collection(self, cmd, tmp_path, monkeypatch):
+        """SKILL.md tells agents to use --json --quiet; that must stay parseable JSON."""
+        from unittest.mock import patch
+        from gitstow.core.git import RepoStatus
+        from gitstow.core.repo import Repo, RepoStore
+
+        self._setup(tmp_path, monkeypatch)
+        (tmp_path / "ws" / "a" / "one" / ".git").mkdir(parents=True)
+        RepoStore(path=tmp_path / "repos.yaml").add(Repo(owner="a", name="one", remote_url="u", workspace="ws"))
+        with patch("gitstow.cli.status.get_status", return_value=RepoStatus(branch="main")):
+            both = runner.invoke(app, [cmd, "--json", "--quiet"])
+            quiet = runner.invoke(app, [cmd, "--quiet"])
+
+        assert both.exit_code == 0
+        rows = json.loads(both.stdout)
+        assert [(r.get("key") or r.get("repo"), r["workspace"]) for r in rows] == [("a/one", "ws")]
+        if cmd == "list":
+            assert quiet.stdout == "a/one\n"  # quiet alone keeps its plain behaviour
+
+    def test_status_dirty_filter_empty_still_hints(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+        from gitstow.core.git import RepoStatus
+        from gitstow.core.repo import Repo, RepoStore
+
+        self._setup(tmp_path, monkeypatch)
+        ws_dir = tmp_path / "ws"
+        (ws_dir / "a" / "clean" / ".git").mkdir(parents=True)
+        RepoStore(path=tmp_path / "repos.yaml").add(Repo(owner="a", name="clean", remote_url="u", workspace="ws"))
+        with patch("gitstow.cli.status.get_status", return_value=RepoStatus(branch="main")):
+            result = runner.invoke(app, ["status", "--dirty"])
+        assert "No repos match the filter" in result.stdout
+        assert "gitstow workspace scan ws" in result.stderr
+
+
 class TestImportRoundTrip:
     def _two_ws(self, tmp_path, monkeypatch):
         from gitstow.core.config import Settings, Workspace, save_config
@@ -924,6 +2131,34 @@ class TestOpenEditorPreference:
             _open_in_editor("/some/path")
         assert mock_run.called        # vim needs the terminal — foreground
         assert not mock_popen.called
+
+
+class TestOpenBlankEditorEnv:
+    def test_blank_visual_falls_through_to_editor(self, monkeypatch):
+        from unittest.mock import patch
+        from gitstow.cli.open_cmd import _open_in_editor
+
+        monkeypatch.setenv("VISUAL", "  ")
+        monkeypatch.setenv("EDITOR", "vim")
+        with patch("gitstow.cli.open_cmd.subprocess.run") as mock_run, \
+             patch("gitstow.cli.open_cmd.subprocess.Popen") as mock_popen:
+            _open_in_editor("/some/path")
+        assert mock_run.call_args.args[0] == ["vim", "/some/path"]
+        assert not mock_popen.called
+
+    def test_both_blank_uses_fallback_chain(self, monkeypatch):
+        from unittest.mock import patch
+        from gitstow.cli.open_cmd import _open_in_editor
+
+        monkeypatch.setenv("VISUAL", "  ")
+        monkeypatch.setenv("EDITOR", "\t")
+        with patch("gitstow.cli.open_cmd.subprocess.run") as mock_run, \
+             patch("gitstow.cli.open_cmd.subprocess.Popen") as mock_popen, \
+             patch("gitstow.cli.open_cmd.shutil.which",
+                   side_effect=lambda name: "/usr/bin/code" if name == "code" else None):
+            _open_in_editor("/some/path")
+        assert mock_popen.call_args.args[0] == ["code", "/some/path"]
+        assert not mock_run.called
 
 
 class TestUiExtra:
@@ -1504,3 +2739,456 @@ class TestOrphanedRecordInBulkOperation:
         payload = json.loads(result.stdout)
         assert [r["repo"] for r in payload["results"]] == ["good"]
         assert "orphan" in (result.stderr or "")
+
+
+def _git(*args, cwd=None):
+    import subprocess
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                   cwd=cwd, check=True, capture_output=True)
+
+
+class RealGitPullFixture:
+    """A bare upstream, a tracked clone in a flat workspace, and a second clone to push from."""
+
+    def _setup(self, tmp_path, monkeypatch, *, frozen=False):
+        from gitstow.core.config import Settings, Workspace, save_config
+        from gitstow.core.repo import Repo, RepoStore
+
+        # Hermetic git: the developer's own config (pull.rebase etc.) must not leak in.
+        monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "no-gitconfig"))
+        monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+        config_file = tmp_path / "config.yaml"
+        repos_file = tmp_path / "repos.yaml"
+        monkeypatch.setattr("gitstow.core.config.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.CONFIG_FILE", config_file)
+        monkeypatch.setattr("gitstow.core.paths.REPOS_FILE", repos_file)
+
+        upstream = tmp_path / "upstream.git"
+        _git("init", "-q", "--bare", "-b", "main", str(upstream))
+        pusher = tmp_path / "pusher"
+        _git("clone", "-q", str(upstream), str(pusher))
+        (pusher / "x.txt").write_text("x v1\n")
+        (pusher / "y.txt").write_text("y v1\n")
+        _git("add", ".", cwd=pusher)
+        _git("commit", "-q", "-m", "v1", cwd=pusher)
+        _git("push", "-q", "origin", "HEAD:main", cwd=pusher)
+
+        ws_dir = tmp_path / "ws"
+        ws_dir.mkdir()
+        clone = ws_dir / "proj"
+        _git("clone", "-q", str(upstream), str(clone))
+        save_config(Settings(workspaces=[Workspace(path=str(ws_dir), label="ws", layout="flat")]))
+        RepoStore(path=repos_file).add(
+            Repo(owner="", name="proj", remote_url=str(upstream), workspace="ws", frozen=frozen))
+        self.pusher, self.clone = pusher, clone
+
+    def push_change(self, name, content):
+        (self.pusher / name).write_text(content)
+        _git("commit", "-q", "-am", f"change {name}", cwd=self.pusher)
+        _git("push", "-q", "origin", "HEAD:main", cwd=self.pusher)
+
+    def head(self, repo=None):
+        import subprocess
+        return subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo or self.clone,
+                              capture_output=True, text=True, check=True).stdout.strip()
+
+    def checked(self, files, run):
+        """Run a pull under the shared safety invariant (tests/pull_invariant.py)."""
+        from tests.pull_invariant import check_pull
+        return check_pull(self.clone, files, self.head(self.pusher), run)
+
+    def cli_pull(self, argv, files):
+        """`gitstow <argv>` checked by the invariant; returns (result, first JSON row)."""
+        out = {}
+
+        def run():
+            out["result"] = runner.invoke(app, argv)
+            out["row"] = json.loads(out["result"].stdout)["results"][0]
+            return out["row"]["status"] in ("pulled", "up_to_date"), out["row"].get("detail", "")
+        self.checked(files, run)
+        return out["result"], out["row"]
+
+
+class TestPullForce(RealGitPullFixture):
+    def test_force_pulls_and_keeps_local_edit_byte_identical(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        (self.clone / "x.txt").write_bytes(b"my local edit\r\nkeep\n")
+        self.push_change("y.txt", "y v2\n")
+
+        result, row = self.cli_pull(["pull", "proj", "--force", "--json"], ["x.txt"])
+
+        assert row["status"] == "pulled", row
+        assert result.exit_code == 0
+        assert (self.clone / "x.txt").read_bytes() == b"my local edit\r\nkeep\n"
+        assert (self.clone / "y.txt").read_text() == "y v2\n"
+
+    def test_force_refused_by_git_when_upstream_touches_the_edited_file(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        before = self.head()
+        (self.clone / "x.txt").write_bytes(b"my local edit\n")
+        self.push_change("x.txt", "x v2 from upstream\n")
+
+        result, row = self.cli_pull(["pull", "proj", "--force", "--json"], ["x.txt"])
+
+        assert row["status"] == "error"
+        assert "overwritten" in row["detail"]
+        assert result.exit_code == 1
+        assert (self.clone / "x.txt").read_bytes() == b"my local edit\n"
+        assert self.head() == before
+
+    def test_without_force_the_repo_is_skipped_as_before(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        before = self.head()
+        (self.clone / "x.txt").write_text("my local edit\n")
+        self.push_change("y.txt", "y v2\n")
+
+        result, row = self.cli_pull(["pull", "proj", "--json"], ["x.txt"])
+
+        assert row == {"repo": "proj", "status": "skipped", "detail": "Local changes (1 modified)"}
+        assert result.exit_code == 0
+        assert self.head() == before
+        assert (self.clone / "y.txt").read_text() == "y v1\n"
+
+    def test_force_still_skips_diverged(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        (self.clone / "y.txt").write_text("local commit\n")
+        _git("commit", "-q", "-am", "local", cwd=self.clone)
+        self.push_change("x.txt", "x v2\n")
+        _git("fetch", "-q", cwd=self.clone)
+        (self.clone / "x.txt").write_text("and a local edit\n")
+
+        _, row = self.cli_pull(["pull", "proj", "--force", "--json"], ["x.txt", "y.txt"])
+
+        assert row["status"] == "skipped"
+        assert row["detail"].startswith("Diverged from remote")
+
+    def test_force_still_skips_no_upstream(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        _git("checkout", "-q", "-b", "local-only", cwd=self.clone)
+        (self.clone / "x.txt").write_text("edit\n")
+
+        _, row = self.cli_pull(["pull", "proj", "--force", "--json"], ["x.txt"])
+
+        assert row == {"repo": "proj", "status": "skipped",
+                       "detail": "Local-only repo — no upstream configured"}
+
+    FORCE_NEEDS_NAMES = "--force needs the repos to pull, e.g. gitstow pull owner/repo --force"
+
+    @pytest.mark.parametrize("argv", [
+        ["pull", "--force"],
+        ["pull", "--force", "--tag", "t"],
+        ["pull", "--force", "--owner", ""],
+        ["-w", "ws", "pull", "--force"],
+    ])
+    @pytest.mark.parametrize("as_json", [False, True])
+    def test_bulk_force_is_refused_before_any_pull(self, tmp_path, monkeypatch, argv, as_json):
+        """The owner's rule: --force applies only to repos named on the command line.
+        Filters narrow a bulk pull; they do not name repos."""
+        self._setup(tmp_path, monkeypatch)
+        from gitstow.core.repo import RepoStore
+        RepoStore().update("proj", workspace="ws", tags=["t"])
+        before = self.head()
+        (self.clone / "x.txt").write_bytes(b"my local edit\n")
+        self.push_change("y.txt", "y v2\n")
+        calls = []
+        real_pull = __import__("gitstow.cli.pull", fromlist=["git_pull"]).git_pull
+        monkeypatch.setattr("gitstow.cli.pull.git_pull", lambda p: calls.append(p) or real_pull(p))
+
+        result = runner.invoke(app, argv + (["--json"] if as_json else []))
+
+        assert result.exit_code == 1, result.output
+        assert calls == []
+        assert self.head() == before
+        assert (self.clone / "x.txt").read_bytes() == b"my local edit\n"
+        assert (self.clone / "y.txt").read_text() == "y v1\n"
+        if as_json:
+            assert json.loads(result.stdout) == {"success": False, "error": self.FORCE_NEEDS_NAMES}
+        else:
+            assert result.stdout == ""
+            assert self.FORCE_NEEDS_NAMES in " ".join(result.stderr.split())
+
+    def test_mcp_pull_never_forces(self, tmp_path, monkeypatch):
+        """MCP pull_repos is always a bulk pull, so it has no force parameter."""
+        import inspect
+
+        from gitstow.mcp.server import pull_repos
+
+        assert "force" not in inspect.signature(pull_repos).parameters
+        with pytest.raises(TypeError):
+            pull_repos(force=True)
+
+        self._setup(tmp_path, monkeypatch)
+        before = self.head()
+        (self.clone / "x.txt").write_bytes(b"my local edit\n")
+        self.push_change("y.txt", "y v2\n")
+
+        rows = []
+
+        def mcp_pull(**kw):
+            rows.append(json.loads(pull_repos(**kw))["results"][0])
+            return rows[-1]["status"] == "pulled", rows[-1].get("detail", "")
+        self.checked(["x.txt"], mcp_pull)
+        assert rows[0] == {"repo": "proj", "status": "skipped", "detail": "Local changes (1 modified)"}
+        assert self.head() == before
+        assert (self.clone / "x.txt").read_bytes() == b"my local edit\n"
+        assert (self.clone / "y.txt").read_text() == "y v1\n"
+
+
+class TestPullIgnoresAutostashConfig(RealGitPullFixture):
+    """A forced pull must refuse, not autostash, whatever the repo's own git config says."""
+
+    def _stash_list(self):
+        import subprocess
+        return subprocess.run(["git", "stash", "list"], cwd=self.clone,
+                              capture_output=True, text=True, check=True).stdout
+
+    def _index(self):
+        import subprocess
+        return subprocess.run(["git", "diff", "--cached"], cwd=self.clone,
+                              capture_output=True, check=True).stdout
+
+    def _force_pull(self, files=("x.txt",)):
+        from gitstow.cli.pull import _pull_one_repo
+        from gitstow.core.config import Workspace
+        from gitstow.core.repo import Repo
+        out = {}
+
+        def run():
+            out["row"] = _pull_one_repo(
+                Repo(owner="", name="proj", remote_url="", workspace="ws"),
+                Workspace(path=str(self.clone.parent), label="ws", layout="flat"),
+                force=True,
+            )
+            return out["row"]["status"] in ("pulled", "up_to_date"), out["row"].get("detail", "")
+        self.checked(list(files), run)
+        return out["row"]
+
+    @pytest.mark.parametrize("config", [
+        [("merge.autoStash", "true")],
+        [("pull.rebase", "true"), ("rebase.autoStash", "true")],
+        # Rebase configs: guarded by not using `git pull` at all (merge ignores them).
+        [("branch.main.rebase", "true"), ("rebase.autoStash", "true")],
+    ], ids=["merge-autostash", "rebase-autostash", "branch-rebase-autostash"])
+    def test_overlapping_unstaged_edit_is_refused_untouched(self, tmp_path, monkeypatch, config):
+        self._setup(tmp_path, monkeypatch)
+        for key, value in config:
+            _git("config", key, value, cwd=self.clone)
+        before = self.head()
+        (self.clone / "x.txt").write_bytes(b"my local edit\n")
+        self.push_change("x.txt", "x v2 from upstream\n")
+
+        row = self._force_pull()
+
+        assert row["status"] == "error", row
+        assert (self.clone / "x.txt").read_bytes() == b"my local edit\n"
+        assert self._stash_list() == ""
+        assert self.head() == before
+
+    def test_overlapping_staged_edit_is_refused_untouched(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        _git("config", "merge.autoStash", "true", cwd=self.clone)
+        before = self.head()
+        (self.clone / "x.txt").write_bytes(b"my staged edit\n")
+        _git("add", "x.txt", cwd=self.clone)
+        index_before = self._index()
+        self.push_change("x.txt", "x v2 from upstream\n")
+
+        row = self._force_pull()
+
+        assert row["status"] == "error", row
+        assert (self.clone / "x.txt").read_bytes() == b"my staged edit\n"
+        assert self._index() == index_before
+        assert self._stash_list() == ""
+        assert self.head() == before
+
+    # branch.main.rebase used to make `git pull` refuse this (rebase needs a clean tree);
+    # fetch + merge --ff-only ignores both rebase settings.
+    @pytest.mark.parametrize("key", ["pull.rebase", "branch.main.rebase"])
+    def test_non_overlapping_edit_still_fast_forwards_under_rebase_config(
+            self, tmp_path, monkeypatch, key):
+        self._setup(tmp_path, monkeypatch)
+        _git("config", key, "true", cwd=self.clone)
+        (self.clone / "x.txt").write_bytes(b"my local edit\n")
+        self.push_change("y.txt", "y v2\n")
+
+        row = self._force_pull()
+
+        assert row["status"] == "pulled", row
+        assert (self.clone / "x.txt").read_bytes() == b"my local edit\n"
+        assert (self.clone / "y.txt").read_text() == "y v2\n"
+        assert self._stash_list() == ""
+
+
+class TestPullFetchThenMerge(RealGitPullFixture):
+    """pull() = fetch + `merge --ff-only --no-overwrite-ignore`, on real git."""
+
+    def test_ignored_local_file_is_never_overwritten(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        # Upstream ignores secret.env; the clone holds its own copy.
+        (self.pusher / ".gitignore").write_text("secret.env\n")
+        _git("add", ".gitignore", cwd=self.pusher)
+        _git("commit", "-q", "-m", "ignore secret.env", cwd=self.pusher)
+        _git("push", "-q", "origin", "HEAD:main", cwd=self.pusher)
+        _git("pull", "-q", "--ff-only", cwd=self.clone)
+        (self.clone / "secret.env").write_bytes(b"MY LOCAL SECRET\n")
+        before = self.head()
+        # Upstream stops ignoring it and commits its own template.
+        (self.pusher / ".gitignore").write_text("")
+        (self.pusher / "secret.env").write_text("upstream template\n")
+        _git("add", ".gitignore", "secret.env", cwd=self.pusher)
+        _git("commit", "-q", "-m", "track secret.env", cwd=self.pusher)
+        _git("push", "-q", "origin", "HEAD:main", cwd=self.pusher)
+
+        result, row = self.cli_pull(["pull", "proj", "--json"], ["secret.env"])
+
+        assert row["status"] == "error", row
+        assert "secret.env" in row["detail"]
+        assert result.exit_code == 1
+        assert (self.clone / "secret.env").read_bytes() == b"MY LOCAL SECRET\n"
+        assert self.head() == before
+
+    def test_behind_repo_pulls_and_reports_first_line(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        before = self.head()
+        self.push_change("y.txt", "y v2\n")
+
+        _, row = self.cli_pull(["pull", "proj", "--json"], ["x.txt"])
+
+        assert row["status"] == "pulled", row
+        assert row["detail"].startswith(f"Updating {before[:7]}"), row
+        assert (self.clone / "y.txt").read_text() == "y v2\n"
+        assert self.head() != before
+
+    def test_already_up_to_date(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+
+        _, row = self.cli_pull(["pull", "proj", "--json"], ["x.txt", "y.txt"])
+
+        assert row == {"repo": "proj", "status": "up_to_date", "detail": "Already up to date"}
+
+    def test_fetch_failure_is_an_error_and_never_merges(self, tmp_path, monkeypatch):
+        from gitstow.core import git as core_git
+
+        self._setup(tmp_path, monkeypatch)
+        _git("remote", "set-url", "origin", str(tmp_path / "no-such-remote.git"), cwd=self.clone)
+        before = self.head()
+        calls = []
+        real_run = core_git._run_git
+
+        def spy(args, *a, **kw):
+            calls.append(args)
+            return real_run(args, *a, **kw)
+
+        monkeypatch.setattr(core_git, "_run_git", spy)
+        out = {}
+
+        def run():
+            out["r"] = core_git.pull(self.clone)
+            return out["r"].success, out["r"].error
+        self.checked(["x.txt"], run)
+        result = out["r"]
+
+        assert result.success is False
+        assert "no-such-remote" in result.error
+        assert calls == [["rev-parse", "--show-toplevel"], ["symbolic-ref", "-q", "HEAD"],
+                         ["fetch", "--prune"]]
+        assert self.head() == before
+
+
+@pytest.mark.skipif(
+    os.name == "nt" or not non_utf8_names_ok(),
+    reason="non-UTF-8 ref names cannot be passed exactly on Windows, and filesystems such as macOS APFS refuse them",
+)
+class TestNonUtf8BranchMessage(RealGitPullFixture):
+    """A branch named b"a=b-\xff" with merge options set is refused; the message reaches the
+    terminal and JSON with U+FFFD in place of the byte, never a UnicodeEncodeError."""
+
+    NAME = b"a=b-\xff"
+
+    def _branch(self, tmp_path, monkeypatch):
+        import subprocess
+
+        self._setup(tmp_path, monkeypatch)
+        name = self.NAME
+        for args in ([b"update-ref", b"refs/heads/" + name, b"HEAD"],
+                     [b"symbolic-ref", b"HEAD", b"refs/heads/" + name],
+                     [b"config", b"branch." + name + b".remote", b"origin"],
+                     [b"config", b"branch." + name + b".merge", b"refs/heads/main"],
+                     [b"config", b"branch." + name + b".mergeOptions", b"--autostash"],
+                     [b"update-ref", b"-d", b"refs/heads/main"]):
+            subprocess.run([b"git", *args], cwd=self.clone, check=True, capture_output=True)
+        self.push_change("y.txt", "y v2\n")
+
+    def test_json(self, tmp_path, monkeypatch):
+        self._branch(tmp_path, monkeypatch)
+
+        result, row = self.cli_pull(["pull", "proj", "--json"], ["x.txt", "y.txt"])
+
+        assert result.exit_code == 1 and isinstance(result.exception, SystemExit), repr(result.exception)
+        assert row["status"] == "error", row
+        assert row["detail"] == ("branch 'a=b-\ufffd' has merge options (branch.a=b-\ufffd.mergeOptions) "
+                                 "that gitstow cannot switch off for a branch name containing '='; "
+                                 "pull it with git")
+
+    def test_terminal(self, tmp_path, monkeypatch):
+        self._branch(tmp_path, monkeypatch)
+
+        def run():
+            out = runner.invoke(app, ["pull", "proj"])
+            assert out.exit_code == 1 and isinstance(out.exception, SystemExit), repr(out.exception)
+            return False, out.output
+        _ok, output = self.checked(["x.txt", "y.txt"], run)
+
+        assert "a=b-\ufffd" in output
+        assert "has merge options" in output
+
+
+class TestFrozenSplitFromUpstream(RealGitPullFixture):
+    """--include-frozen on a frozen repo that diverged / has no upstream: a clean skip, no doomed pull."""
+
+    def _diverge(self):
+        (self.clone / "y.txt").write_text("local commit\n")
+        _git("commit", "-q", "-am", "local", cwd=self.clone)
+        self.push_change("x.txt", "x v2\n")
+        _git("fetch", "-q", cwd=self.clone)
+
+    def test_cli_frozen_diverged(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        self._setup(tmp_path, monkeypatch, frozen=True)
+        self._diverge()
+        with patch("gitstow.cli.pull.git_pull") as spy:
+            result, row = self.cli_pull(["pull", "--include-frozen", "--json"], ["x.txt", "y.txt"])
+        assert row == {"repo": "proj", "status": "skipped",
+                       "detail": "Diverged from remote — resolve manually (rebase or merge)"}
+        assert result.exit_code == 0
+        assert not spy.called
+
+    def test_cli_frozen_no_upstream(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+
+        self._setup(tmp_path, monkeypatch, frozen=True)
+        _git("checkout", "-q", "-b", "local-only", cwd=self.clone)
+        with patch("gitstow.cli.pull.git_pull") as spy:
+            result, row = self.cli_pull(["pull", "--include-frozen", "--json"], ["x.txt", "y.txt"])
+        assert row == {"repo": "proj", "status": "skipped",
+                       "detail": "Local-only repo — no upstream configured"}
+        assert result.exit_code == 0
+        assert not spy.called
+
+    def test_mcp_frozen_diverged_and_no_upstream(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+        from gitstow.mcp.server import pull_repos
+
+        self._setup(tmp_path, monkeypatch, frozen=True)
+        self._diverge()
+        with patch("gitstow.cli.pull.git_pull") as spy:
+            diverged = json.loads(pull_repos(include_frozen=True))
+            _git("checkout", "-q", "-b", "local-only", cwd=self.clone)
+            no_upstream = json.loads(pull_repos(include_frozen=True))
+        assert diverged["results"] == [{"repo": "proj", "status": "skipped",
+                                        "detail": "Diverged from remote — resolve manually (rebase or merge)"}]
+        assert diverged["errors"] == 0
+        assert no_upstream["results"] == [{"repo": "proj", "status": "skipped",
+                                           "detail": "Local-only repo — no upstream configured"}]
+        assert not spy.called

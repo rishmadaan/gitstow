@@ -447,6 +447,47 @@ class TestAddRepo:
         assert called["clone"] == 0
         assert RepoStore().get("acme/widget", workspace="test-ws") is not None
 
+    @pytest.mark.parametrize("url", [
+        "git@ssh.dev.azure.com:v3/org/proj/repo",
+        "https://dev.azure.com/org/proj/_git/repo",
+    ])
+    def test_finds_record_tracked_under_another_url_form(
+            self, client, configured, workspace_dir, monkeypatch, url):
+        """A legacy Azure SSH record (keyed `v3/...` before 0.9.0) is found, not cloned again."""
+        RepoStore().add(Repo(owner="v3/org/proj", name="repo",
+                             remote_url="git@ssh.dev.azure.com:v3/org/proj/repo.git",
+                             workspace="test-ws", tags=["work"], frozen=True))
+        _make_repo_on_disk(workspace_dir, "v3/org/proj", "repo")  # tracked and on disk
+        called = []
+        monkeypatch.setattr("gitstow.web.routes.repos.git_clone",
+                            lambda *a, **kw: called.append(a) or (True, ""))
+
+        r = client.post("/repos/add", data={"url": url, "workspace": "test-ws"},
+                        follow_redirects=False)
+
+        assert r.status_code == 200
+        assert "Already tracked as v3/org/proj/repo in workspace &#39;test-ws&#39;." in r.text
+        assert called == []
+        assert [(x.key, x.remote_url, x.tags, x.frozen) for x in RepoStore().list_all()] == [
+            ("v3/org/proj/repo", "git@ssh.dev.azure.com:v3/org/proj/repo.git", ["work"], True)]
+        assert not (workspace_dir / "org").exists()
+
+    def test_same_key_keeps_its_tags_and_frozen_state(self, client, configured, workspace_dir, monkeypatch):
+        """Re-adding a tracked repo by its own URL used to re-register it, wiping tags and frozen."""
+        _make_repo_on_disk(workspace_dir, "acme", "widget")
+        RepoStore().add(Repo(owner="acme", name="widget", remote_url="https://github.com/acme/widget.git",
+                             workspace="test-ws", tags=["keep"], frozen=True))
+        monkeypatch.setattr("gitstow.web.routes.repos.git_clone",
+                            lambda *a, **kw: pytest.fail("must not clone"))
+
+        r = client.post("/repos/add", data={"url": "acme/widget", "workspace": "test-ws"},
+                        follow_redirects=False)
+
+        assert r.status_code == 200
+        assert "Already tracked as acme/widget" in r.text
+        repo = RepoStore().get("acme/widget", workspace="test-ws")
+        assert (repo.tags, repo.frozen) == (["keep"], True)
+
 
 # ---------- pull ----------
 
@@ -571,6 +612,20 @@ class TestRemove:
     def test_delete_404_missing(self, client, configured):
         r = client.post("/repos/test-ws/foo/bar/delete")
         assert r.status_code == 404
+
+    def test_delete_refuses_a_target_behind_a_symlinked_owner(self, client, configured, workspace_dir):
+        """A user-placed symlink: the owner folder points out of the workspace (both inside tmp)."""
+        outside = workspace_dir.parent / "elsewhere"
+        (outside / "bar").mkdir(parents=True)
+        (outside / "bar" / "keep.txt").write_bytes(b"precious\n")
+        (workspace_dir / "foo").symlink_to(outside)
+        RepoStore().add(Repo(owner="foo", name="bar", remote_url="url", workspace="test-ws"))
+
+        r = client.post("/repos/test-ws/foo/bar/delete", follow_redirects=False)
+
+        assert (outside / "bar" / "keep.txt").read_bytes() == b"precious\n"
+        assert r.status_code == 400
+        assert RepoStore().get("foo/bar", workspace="test-ws") is not None
 
 
 # ---------- freeze / tag ----------
@@ -820,6 +875,23 @@ class TestCollection:
         assert r.status_code == 303
         assert "imported=1" in r.headers["location"]
         assert captured["timeout"] == 777
+
+    def test_import_banner_names_each_failed_entry(self, client, configured):
+        """The redirect's reasons reach the page, escaped, one list item each."""
+        from urllib.parse import urlencode
+        why = ["acme/widget: conflict: acme/widget is already tracked in 'ws' with remote <x>",
+               "foo/bar: clone failed: network down"]
+        r = client.get("/?" + urlencode({"imported": 1, "failed": 2, "why": why}, doseq=True))
+
+        assert r.status_code == 200
+        assert "imported 1 repo · 2 failed" in r.text
+        assert ("<li>acme/widget: conflict: acme/widget is already tracked in &#39;ws&#39; "
+                "with remote &lt;x&gt;</li>") in r.text
+        assert "<li>foo/bar: clone failed: network down</li>" in r.text
+
+    def test_reasons_without_an_import_show_nothing(self, client, configured):
+        r = client.get("/?why=injected")
+        assert "injected" not in r.text
 
     def test_import_empty(self, client, configured):
         files = {"file": ("empty.txt", b"", "text/plain")}
@@ -2042,3 +2114,100 @@ class TestNoWorkspacesConfigured:
         saved = load_config().workspaces
         assert [(w.label, w.path) for w in saved] == [("oss", str(target))]
 
+
+
+class TestRowNumbersAgree:
+    def test_refresh_number_matches_dashboard_with_orphan_first(
+        self, client, configured, workspace_dir, monkeypatch,
+    ):
+        import re
+
+        store = RepoStore()
+        # An orphaned-workspace record earlier in the store: the dashboard hides it.
+        store.add(Repo(owner="old", name="thing", remote_url="u", workspace="gone"))
+        _make_repo_on_disk(workspace_dir, "acme", "widget")
+        store.add(Repo(owner="acme", name="widget", remote_url="u", workspace="test-ws"))
+        monkeypatch.setattr("gitstow.web.routes.dashboard.get_status", lambda p: _fake_status())
+        monkeypatch.setattr("gitstow.web.routes.repos.get_status", lambda p: _fake_status())
+        monkeypatch.setattr(
+            "gitstow.web.routes.repos.git_pull",
+            lambda p: PullResult(success=True, already_up_to_date=True),
+        )
+
+        page = client.get("/")
+        refreshed = client.post("/repos/test-ws/acme/widget/pull")
+
+        assert re.findall(r'class="row-num" title="Row (\S+)"', page.text) == ["01"]
+        assert re.findall(r'class="row-num" title="Row (\S+)"', refreshed.text) == ["01"]
+
+
+# ---------- single-row Pull / Fetch refusals are shown where pressed ----------
+
+
+class TestSingleRowFailureShown:
+    STAMP = "2026-07-12T10:00:00"
+
+    def _seed(self, workspace_dir, monkeypatch):
+        _make_repo_on_disk(workspace_dir, "acme", "widget")
+        RepoStore().add(Repo(owner="acme", name="widget", remote_url="https://example/acme/widget.git",
+                             workspace="test-ws", last_pulled=self.STAMP, last_fetched=self.STAMP))
+        monkeypatch.setattr("gitstow.web.routes.repos.get_status", lambda p: _fake_status(branch="main"))
+
+    def _error_block(self, html):
+        import re
+        m = re.search(r'<div class="row-error" role="alert"[^>]*><span>(.*?)</span>', html, re.S)
+        return m and m.group(1)
+
+    def test_pull_refusal_is_in_the_row_and_keeps_the_stamp(self, client, configured, workspace_dir,
+                                                            monkeypatch):
+        import html as html_lib
+        from gitstow.core.git import PullResult
+
+        self._seed(workspace_dir, monkeypatch)
+        error = ("error: The following untracked working tree files would be overwritten by merge:\n"
+                 "\tsecret.env\nPlease move or remove them before you merge.\nAborting")
+        monkeypatch.setattr("gitstow.web.routes.repos.git_pull",
+                            lambda p: PullResult(success=False, error=error))
+
+        r = client.post("/repos/test-ws/acme/widget/pull")
+
+        assert r.status_code == 200
+        # git's own "error: " prefix is dropped: the row already says the pull failed
+        assert html_lib.unescape(self._error_block(r.text)) == f"Pull failed: {error.removeprefix('error: ')}"
+        assert "Pull failed: The following untracked" in html_lib.unescape(r.text)
+        assert RepoStore().get("acme/widget", workspace="test-ws").last_pulled == self.STAMP
+
+    def test_fetch_failure_is_in_the_row_and_keeps_the_stamp(self, client, configured, workspace_dir,
+                                                             monkeypatch):
+        from gitstow.core.git import FetchResult
+
+        self._seed(workspace_dir, monkeypatch)
+        error = "fatal: unable to access 'https://example/acme/widget.git/': Could not resolve host"
+        monkeypatch.setattr("gitstow.web.routes.repos.git_fetch",
+                            lambda p: FetchResult(success=False, error=error))
+
+        r = client.post("/repos/test-ws/acme/widget/fetch")
+
+        assert r.status_code == 200
+        import html as html_lib
+        assert html_lib.unescape(self._error_block(r.text)) == (
+            "Fetch failed: unable to access 'https://example/acme/widget.git/': Could not resolve host")
+        assert RepoStore().get("acme/widget", workspace="test-ws").last_fetched == self.STAMP
+
+    def test_success_shows_no_error(self, client, configured, workspace_dir, monkeypatch):
+        from gitstow.core.git import FetchResult, PullResult
+
+        self._seed(workspace_dir, monkeypatch)
+        monkeypatch.setattr("gitstow.web.routes.repos.git_pull", lambda p: PullResult(success=True))
+        monkeypatch.setattr("gitstow.web.routes.repos.git_fetch", lambda p: FetchResult(success=True))
+
+        for action in ("pull", "fetch"):
+            r = client.post(f"/repos/test-ws/acme/widget/{action}")
+            assert r.status_code == 200 and "<tr" in r.text
+            assert 'class="row-error"' not in r.text
+
+    def test_auto_refresh_pauses_while_an_error_is_shown(self, client, configured, workspace_dir,
+                                                         monkeypatch):
+        self._seed(workspace_dir, monkeypatch)
+        r = client.get("/")
+        assert '<tbody hx-get="/dashboard/rows"\n             hx-trigger="every 30s [!document.querySelector(\'tr:not([hidden]) .row-error\')]"' in r.text
