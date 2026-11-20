@@ -2669,10 +2669,53 @@ class TestPullForce(RealGitPullFixture):
         assert row == {"repo": "proj", "status": "skipped",
                        "detail": "Local-only repo — no upstream configured"}
 
-    def test_mcp_force(self, tmp_path, monkeypatch):
+    FORCE_NEEDS_NAMES = "--force needs the repos to pull, e.g. gitstow pull owner/repo --force"
+
+    @pytest.mark.parametrize("argv", [
+        ["pull", "--force"],
+        ["pull", "--force", "--tag", "t"],
+        ["pull", "--force", "--owner", ""],
+        ["-w", "ws", "pull", "--force"],
+    ])
+    @pytest.mark.parametrize("as_json", [False, True])
+    def test_bulk_force_is_refused_before_any_pull(self, tmp_path, monkeypatch, argv, as_json):
+        """The owner's rule: --force applies only to repos named on the command line.
+        Filters narrow a bulk pull; they do not name repos."""
+        self._setup(tmp_path, monkeypatch)
+        from gitstow.core.repo import RepoStore
+        RepoStore().update("proj", workspace="ws", tags=["t"])
+        before = self.head()
+        (self.clone / "x.txt").write_bytes(b"my local edit\n")
+        self.push_change("y.txt", "y v2\n")
+        calls = []
+        real_pull = __import__("gitstow.cli.pull", fromlist=["git_pull"]).git_pull
+        monkeypatch.setattr("gitstow.cli.pull.git_pull", lambda p: calls.append(p) or real_pull(p))
+
+        result = runner.invoke(app, argv + (["--json"] if as_json else []))
+
+        assert result.exit_code == 1, result.output
+        assert calls == []
+        assert self.head() == before
+        assert (self.clone / "x.txt").read_bytes() == b"my local edit\n"
+        assert (self.clone / "y.txt").read_text() == "y v1\n"
+        if as_json:
+            assert json.loads(result.stdout) == {"success": False, "error": self.FORCE_NEEDS_NAMES}
+        else:
+            assert result.stdout == ""
+            assert self.FORCE_NEEDS_NAMES in " ".join(result.stderr.split())
+
+    def test_mcp_pull_never_forces(self, tmp_path, monkeypatch):
+        """MCP pull_repos is always a bulk pull, so it has no force parameter."""
+        import inspect
+
         from gitstow.mcp.server import pull_repos
 
+        assert "force" not in inspect.signature(pull_repos).parameters
+        with pytest.raises(TypeError):
+            pull_repos(force=True)
+
         self._setup(tmp_path, monkeypatch)
+        before = self.head()
         (self.clone / "x.txt").write_bytes(b"my local edit\n")
         self.push_change("y.txt", "y v2\n")
 
@@ -2682,11 +2725,10 @@ class TestPullForce(RealGitPullFixture):
             rows.append(json.loads(pull_repos(**kw))["results"][0])
             return rows[-1]["status"] == "pulled", rows[-1].get("detail", "")
         self.checked(["x.txt"], mcp_pull)
-        self.checked(["x.txt"], lambda: mcp_pull(force=True))
-        assert rows[0]["status"] == "skipped"
-        assert rows[1]["status"] == "pulled"
+        assert rows[0] == {"repo": "proj", "status": "skipped", "detail": "Local changes (1 modified)"}
+        assert self.head() == before
         assert (self.clone / "x.txt").read_bytes() == b"my local edit\n"
-        assert (self.clone / "y.txt").read_text() == "y v2\n"
+        assert (self.clone / "y.txt").read_text() == "y v1\n"
 
 
 class TestPullIgnoresAutostashConfig(RealGitPullFixture):

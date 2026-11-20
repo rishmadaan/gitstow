@@ -97,7 +97,8 @@ def pull(
     ),
     force: bool = typer.Option(
         False, "--force",
-        help="Also pull repos with modified or staged files. Git still refuses any pull that would overwrite them.",
+        help="Also pull the named repos when they have modified or staged files. Needs repo names; "
+        "git still refuses any pull that would overwrite them.",
     ),
     output_json: bool = typer.Option(
         False, "--json", "-j", help="JSON output.",
@@ -113,7 +114,8 @@ def pull(
 
     Frozen repos are skipped unless --include-frozen is set.
     Repos with modified or staged changes are skipped (never risk losing
-    local work) unless --force is set; untracked-only repos are pulled.
+    local work); untracked-only repos are pulled. --force pulls such repos
+    anyway, but only the ones you name: a bulk pull never forces.
     Diverged repos are skipped — resolve manually with rebase or merge.
 
     \b
@@ -124,6 +126,17 @@ def pull(
       gitstow pull -w oss             # Only repos in oss workspace
       gitstow pull owner/repo --force # Pull despite modified files
     """
+    # The owner's rule: --force is for repos you name, never a bulk pull. Filters
+    # (--tag, --owner, -w) narrow a bulk pull; they do not name repos.
+    if force and not repos:
+        message = "--force needs the repos to pull, e.g. gitstow pull owner/repo --force"
+        if output_json:
+            json.dump({"success": False, "error": message}, sys.stdout, indent=2)
+            print()
+        else:
+            err_console.print(f"[red]Error:[/red] {message}")
+        raise typer.Exit(code=1)
+
     settings = load_config()
     store = RepoStore()
     ws_label = ctx.obj.get("workspace") if ctx.obj else None

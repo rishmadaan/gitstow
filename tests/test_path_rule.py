@@ -186,8 +186,23 @@ def test_one_set_aside_record_reads_singular_and_doctor_is_not_in_sync(tmp_path,
     assert "Delete the entry there, then add the repo again" in doctor
 
 
-def test_bulk_pull_force_never_touches_the_outside_repo(legacy):
-    result = runner.invoke(app, ["pull", "--force", "--json"])
+def test_pull_never_touches_the_outside_repo(legacy):
+    refused = runner.invoke(app, ["pull", "--force", "--json"])  # bulk --force is refused outright
+    assert refused.exit_code == 1, refused.output
+    assert "needs the repos to pull" in json.loads(refused.stdout)["error"]
+    widget = legacy["ws"] / "acme" / "widget"
+    stale = git("rev-parse", "HEAD", cwd=widget)
+    assert stale != git("rev-parse", "HEAD", cwd=legacy["tmp"] / "pusher")
+    assert legacy["snap"]() == legacy["before"]
+
+    # Naming every set-aside key with --force reaches none of them.
+    named = runner.invoke(app, ["pull", *legacy["keys"], "--force", "--json"])
+    assert named.exit_code == 0, named.output
+    assert json.loads(named.stdout)["results"] == []
+    assert git("rev-parse", "HEAD", cwd=widget) == stale
+    assert legacy["snap"]() == legacy["before"]
+
+    result = runner.invoke(app, ["pull", "--json"])
 
     assert legacy["snap"]() == legacy["before"]
     assert result.exit_code == 0, result.output

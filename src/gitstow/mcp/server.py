@@ -235,28 +235,22 @@ def pull_repos(
     exclude_tag: str | None = None,
     workspace: str | None = None,
     include_frozen: bool = False,
-    force: bool = False,
 ) -> str:
     """Pull latest changes for all (or filtered) repos.
 
     Frozen repos are skipped unless include_frozen is true. Repos with modified
-    or staged changes are skipped (never risk losing local work) unless force
-    is true; untracked-only repos are pulled. Diverged repos are skipped —
-    resolve manually.
+    or staged changes are skipped (never risk losing local work); untracked-only
+    repos are pulled. Diverged repos are skipped — resolve manually.
 
     Args:
         tag: Only pull repos with this tag.
         exclude_tag: Skip repos with this tag.
         workspace: Only pull repos in this workspace.
         include_frozen: If true, also pull frozen repos.
-        force: If true, also pull repos with modified or staged files. Git still
-            refuses any pull that would overwrite them.
 
     Returns:
         JSON with per-repo results and summary counts.
     """
-    import functools
-
     from gitstow.cli.pull import _pull_one_repo
     from gitstow.core.operations import filter_repo_pairs, run_bulk
 
@@ -283,8 +277,7 @@ def pull_repos(
         exclude_tags=[exclude_tag] if exclude_tag else None,
     )
 
-    results = run_bulk(pairs, functools.partial(_pull_one_repo, force=force),
-                       parallel_limit=settings.parallel_limit)
+    results = run_bulk(pairs, _pull_one_repo, parallel_limit=settings.parallel_limit)
 
     # Stamp successful pulls in one locked write. run_bulk returns one outcome
     # per target in input order, so zip is the collision-safe pairing (matching
