@@ -183,7 +183,7 @@ You can also explicitly scan a workspace to discover and register repos on disk:
 One bad repo never stops operations on others. During `gitstow pull`:
 
 - Network errors → logged, other repos keep pulling
-- Repos with modified or staged files → skipped with the composition shown, others keep pulling (`--force` pulls them; git still refuses a pull that would overwrite a modified file)
+- Repos with modified or staged files → skipped with the composition shown, others keep pulling (`--force` pulls the ones you name, never a bulk pull; git still refuses a pull that would overwrite a modified file)
 - Auth failures → logged, others keep pulling
 - Merge conflicts → logged (shouldn't happen with `--ff-only`), others keep pulling
 

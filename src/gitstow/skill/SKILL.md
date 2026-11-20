@@ -93,7 +93,7 @@ For commands shown to the user to run themselves, use the human-readable form (n
 | Update with retry | `gitstow pull --retry 3` |
 | Update one workspace | `gitstow -w oss pull` |
 | Update repos by tag | `gitstow pull --tag ai` |
-| Update a repo that has modified files | `gitstow pull owner/repo --force` (git still refuses a pull that would overwrite them; diverged repos stay skipped) |
+| Update a repo that has modified files | `gitstow pull owner/repo --force` (only for repos you name: `gitstow pull --force` alone is refused; git still refuses a pull that would overwrite them; diverged repos stay skipped) |
 | List all repos | `gitstow list` |
 | List one workspace | `gitstow -w active list` |
 | Search repos | `gitstow list searchterm` |

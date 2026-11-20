@@ -36,7 +36,7 @@ Triaged non-blocking items from the 2026-07 audit remediation (see
   whitespace-only `$EDITOR` raises IndexError; fully-untracked workspaces never get the untracked
   hint (early return; `doctor` covers); dashboard vs single-row-refresh number sources diverge for
   orphaned-workspace repos.
-- [x] **Product call: `pull --force` escape hatch** — Added in 0.9.0 (CLI `--force`, MCP `force`). Was: CLI explicit args follow the bulk skip rule
+- [x] **Product call: `pull --force` escape hatch** — Added in 0.9.0 (CLI `--force`, for named repos only; a bulk `--force` is refused, and MCP has no force). Was: CLI explicit args follow the bulk skip rule
   while a web single-row Pull click pulls unconditionally; a `--force` flag would reconcile the
   "explicit intent" asymmetry.
 - [x] **Product call: frozen + diverged + `--include-frozen`** — Fixed in 0.9.0: a clean "diverged" (or "local-only") skip. Was: surfaces as an ff-only error row

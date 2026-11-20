@@ -81,7 +81,7 @@ gitstow pull                    # Update all repos across all workspaces
 gitstow -w oss pull             # Only update oss workspace
 gitstow pull --tag ai           # Only repos tagged 'ai'
 gitstow pull --exclude-tag stale # Everything except stale repos
-gitstow pull owner/repo --force  # Pull even with modified files (git still refuses to overwrite them)
+gitstow pull owner/repo --force  # Pull this repo even with modified files (git still refuses to overwrite them)
 gitstow status                  # Git status dashboard
 gitstow -w active status --dirty # Repos with local changes in active workspace
 gitstow diff <repo>              # View a repo's uncommitted changes (staged/unstaged) — view-only

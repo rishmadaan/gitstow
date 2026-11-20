@@ -113,7 +113,7 @@ gitstow pull [repos...] [flags]
 | `--exclude-tag` | | Skip repos with this tag. Repeatable. |
 | `--owner` | | Only pull repos from this owner. |
 | `--include-frozen` | | Include frozen repos (normally skipped). |
-| `--force` | | Also pull repos with modified or staged files. Git still refuses any pull that would overwrite them. |
+| `--force` | | Also pull the named repos when they have modified or staged files. Needs repo names: without them the command stops with an error and pulls nothing (filters do not count). Git still refuses any pull that would overwrite them. |
 | `--retry` | | Retry failed repos N times (e.g., `--retry 3`). |
 | `--json` | `-j` | JSON output. |
 | `--quiet` | `-q` | Suppress per-repo progress. |
@@ -142,7 +142,7 @@ gitstow pull anthropic/claude-code --force
 
 **Behavior:**
 - Frozen repos are skipped (shown as "Frozen" in summary)
-- Repos with modified or staged files are skipped — the composition is shown in the summary (e.g. "2 modified · 1 staged"). With `--force` they are pulled; git's ff-only pull still refuses (reported as an error, files untouched) if the pull would overwrite a modified file
+- Repos with modified or staged files are skipped — the composition is shown in the summary (e.g. "2 modified · 1 staged"). With `--force` the repos you name are pulled (a bulk `--force` is refused); git's ff-only pull still refuses (reported as an error, files untouched) if the pull would overwrite a modified file
 - Diverged repos (local and remote both have commits the other lacks) are skipped — resolve manually (rebase or merge). This holds with `--force`, and for frozen repos under `--include-frozen`
 - Local-only repos (no upstream configured) are skipped, likewise
 - Repos with only untracked files ARE pulled — an ff-only pull can't lose them

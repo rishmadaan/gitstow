@@ -25,7 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Added
 
-- **`gitstow pull --force`** — also pulls repos with modified or staged files, for when you have asked for a pull and mean it (the dashboard's single-row Pull already works this way). Git's fast-forward-only pull still refuses any pull that would overwrite a modified file, and that refusal is reported as an error with your file untouched. Diverged and local-only repos are still skipped, and frozen repos still need `--include-frozen`. The MCP `pull_repos` tool gains the same `force` parameter.
+- **`gitstow pull owner/repo --force`** — also pulls the repos you name when they have modified or staged files, for when you have asked for a pull and mean it (the dashboard's single-row Pull already works this way). `--force` applies only to repos you name: `gitstow pull --force` with no names (filters such as `--tag` or `-w` do not count) stops with an error before pulling anything. Git's fast-forward-only pull still refuses any pull that would overwrite a modified file, and that refusal is reported as an error with your file untouched. Diverged and local-only repos are still skipped, and frozen repos still need `--include-frozen`.
 - **MCP `pull_repos` rows for frozen repos now name their workspace** — `skipped_frozen` rows carry a `workspace` field, so two frozen repos with the same name in different workspaces can be told apart (the CLI's frozen rows already did this).
 
 ## [0.8.0] - 2026-09-13
