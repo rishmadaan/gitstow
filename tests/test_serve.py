@@ -2252,3 +2252,14 @@ class TestSingleRowFailureShown:
         self._seed(workspace_dir, monkeypatch)
         r = client.get("/")
         assert '<tbody hx-get="/dashboard/rows"\n             hx-trigger="every 30s [!document.querySelector(\'tr:not([hidden]) .row-error\')]"' in r.text
+
+
+def test_the_help_explains_every_remote_label_a_row_can_show(client, configured):
+    """R5-F4: the "?" help names no commits, no commits · ↓ N and upstream gone, as commands.md does."""
+    import re
+    help_text = re.sub(r"<[^>]+>", "", client.get("/").text)
+    assert "upstream gone means the branch follows a remote branch that no longer exists here" in help_text
+    assert ("no commits means the branch has no commits yet and its upstream had none to take at the last "
+            "fetch — bulk pulls skip these too") in help_text
+    assert ("no commits · ↓ N means its upstream has N, which the row's plain Pull (it fetches first) and Pull "
+            "all take") in help_text.replace("&#39;", "'")
