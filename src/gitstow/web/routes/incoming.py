@@ -376,26 +376,43 @@ def build_incoming(repo, repo_path, result: dict | None = None) -> dict:
 
 
 def _unreadable(repo, view: Unreadable, now: datetime) -> dict:
-    st = RepoStatus(branch="unknown", error=view.error)
+    """"Could not check". When only a read after the status failed, the status and the local
+    changes it found still drive the header and the Local changes tab; only this panel is unknown."""
+    st = view.status or RepoStatus(branch="unknown", error=view.error)
+    when = f"{_day(now, now)}, {now:%H:%M}"
+    if view.status is None:
+        failed = Markup("Reading this folder failed ({}). The commit count, the file list and the local changes "
+                        "all depend on that read.").format(when)
+        so = Markup("Nothing here is shown as clean, behind or safe to pull. Whether commits are waiting, and "
+                    "whether files are edited in this folder, is <b>unknown</b> until the read works.")
+    else:
+        failed = Markup("Reading the commits to compare failed ({}). The branch, its counts and the local "
+                        "changes were read; the list of what differs from the upstream could not be.").format(when)
+        so = Markup("Nothing here is shown as safe to pull. What a pull would bring is <b>unknown</b> until "
+                    "the read works.")
+    local = view.local
     return {
         "kind": "unknown", "base": "unknown", "panel_class": "is-blocked", "eyebrow_label": "could not read",
         "branch": "", "upstream": "", "head7": "", "tip7": "", "title": "Could not check", "stats": "", "span": "",
         "lede": [Markup("gitstow could not read this repo, so it cannot say whether anything is incoming "
                         "or whether a pull would work.")],
         "command": "", "snapshot": None, "now_behind": 0, "frozen": repo.frozen, "lists": None, "as_prev": False,
-        "facts": [
-            _fact("blocked", "failed", Markup(
-                "Reading this folder failed ({}). The commit count, the file list and the local changes "
-                "all depend on that read.").format(f"{_day(now, now)}, {now:%H:%M}")),
-            _fact("blocked", "git said", _gitsaid(view.error)),
-            _fact("info", "so", Markup(
-                "Nothing here is shown as clean, behind or safe to pull. Whether commits are waiting, and "
-                "whether files are edited in this folder, is <b>unknown</b> until the read works.")),
-        ],
+        "facts": [_fact("blocked", "failed", failed), _fact("blocked", "git said", _gitsaid(view.error)),
+                  _fact("info", "so", so)],
         "local_commits": [], "local_commit_total": "", "local_commits_cut": False, "local_log_cmd": "",
-        "incoming_count": "?", "local_count": "?", "local": None, "local_overlap": set(),
-        "status_error": view.error, "fetch_prev": {"prev_tip": ""}, "status": st,
+        "incoming_count": "?", "local_count": "?" if view.status is None else _local_count(local),
+        "local": local, "local_overlap": set(),
+        "status_error": "" if view.status else view.error, "fetch_prev": {"prev_tip": ""}, "status": st,
     }
+
+
+def _local_count(local) -> str:
+    """The Local changes tab's count: distinct edited or staged files plus untracked ones."""
+    if local is None:
+        return "0"
+    if local.error:  # a ChangedFiles holding an error is falsy: test the error, never truthiness
+        return "?"
+    return _n(len({f.path for f in (local.staged + local.unstaged)}) + len(local.untracked))
 
 
 def _inspection(repo, repo_path, view: IncomingView, now: datetime, prev_tip: str | None) -> dict:
@@ -574,6 +591,12 @@ def _inspection(repo, repo_path, view: IncomingView, now: datetime, prev_tip: st
         else:
             lede.append(Markup("The repo has a remote, but gitstow sees no branch named {} on it. Choosing the "
                                "branch to follow happens in a terminal (git branch --set-upstream-to).").format(br))
+    elif kind == "upstream-gone":
+        lede.append(Markup("{} follows {}, which does not exist in this folder: the remote branch may have been "
+                           "deleted or renamed. gitstow has nothing to compare {} with, so it cannot list incoming "
+                           "commits. Pull all skips this repo.").format(br, up, br))
+        lede.append(Markup("Fetch to check whether the remote has it again. To follow another branch, set it in a "
+                           "terminal (git branch --set-upstream-to), then reload this page."))
     elif kind == "noremote":
         lede.append(Markup("No remote is configured for this checkout. gitstow has nothing to fetch from and "
                            "nothing to compare {} with, so it lists no incoming commits.").format(br))
@@ -594,7 +617,7 @@ def _inspection(repo, repo_path, view: IncomingView, now: datetime, prev_tip: st
 
     titles = {
         "detached": "No upstream selected", "noupstream": "No upstream selected",
-        "noremote": "No remote", "none": "Up to date",
+        "noremote": "No remote", "upstream-gone": "Upstream gone", "none": "Up to date",
         "unborn": f"No commits yet, {_plural(view.behind, 'commit')} upstream" if view.tip else "No commits yet",
         "ahead": f"Nothing incoming, {_n(view.ahead)} ahead",
         "diverged": f"Diverged: {_n(view.behind)} incoming, {_n(view.ahead)} local",
@@ -611,11 +634,11 @@ def _inspection(repo, repo_path, view: IncomingView, now: datetime, prev_tip: st
 
     panel_class = {"none": "is-done", "blocked": "is-blocked", "diverged": "is-blocked", "frozen": "is-quiet",
                    "noupstream": "is-quiet", "detached": "is-quiet", "noremote": "is-quiet",
-                   "ahead": "is-quiet", "unborn": "is-quiet"}.get(unborn_block or kind, "")
+                   "ahead": "is-quiet", "unborn": "is-quiet", "upstream-gone": "is-quiet"}.get(unborn_block or kind, "")
     return {
         "kind": kind, "base": kind, "panel_class": panel_class, "unborn_block": unborn_block,
         "eyebrow_label": {"noupstream": "no upstream", "detached": "no branch", "noremote": "no remote",
-                          "unborn": "no commits"}.get(kind),
+                          "unborn": "no commits", "upstream-gone": "upstream gone"}.get(kind),
         "branch": view.branch, "upstream": view.upstream, "head7": head7, "tip7": tip7,
         "title": title, "stats": lists["stats"] if lists else "", "span": lists["span"] if lists else "",
         "lede": lede, "command": command, "facts": facts,
@@ -625,11 +648,10 @@ def _inspection(repo, repo_path, view: IncomingView, now: datetime, prev_tip: st
         "local_commits": _commit_rows(view.local_commits, now), "local_commit_total": _n(view.ahead),
         "local_commits_cut": view.ahead > len(view.local_commits),
         "local_log_cmd": _sh("git", "log", f"{view.upstream}..{view.branch}"),
-        "incoming_count": ("?" if kind in ("detached", "noupstream")
+        "incoming_count": ("?" if kind in ("detached", "noupstream", "upstream-gone")
                            else "none" if kind == "noremote" or (kind == "unborn" and not view.tip)
                            else _n(view.behind)),
-        "local_count": ("?" if local_error else
-                        _n(len(edited_paths) + len(view.local.untracked)) if view.local else "0"),
+        "local_count": _local_count(view.local),
         "local": view.local, "local_overlap": set(view.overlap) if kind not in ("ahead", "none") else set(),
         "status_error": "", "fetch_prev": {"prev_tip": view.tip},
         "status": st,  # the header reads the same status: the branch, its upstream and both counts as drawn here

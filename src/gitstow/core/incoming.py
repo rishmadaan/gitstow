@@ -152,10 +152,15 @@ class Snapshot:
 
 @dataclass
 class Unreadable:
-    """A read of the repo that failed: git's message and nothing else (no counts, no lists)."""
+    """A read of the repo that failed: git's message and no incoming counts or lists.
+
+    When the status read worked and only a later read failed (the commit list, the range),
+    `status` and `local` keep what was read, so only the incoming panel is unknown."""
 
     error: str
     kind: str = "unknown"
+    status: RepoStatus | None = None
+    local: ChangedFiles | None = None
 
 
 @dataclass
@@ -163,7 +168,7 @@ class IncomingView:
     """One repo's incoming tab, as read now: identity, counts and local edits all from one status
     read (`status`, whose `cap` is the capture)."""
 
-    kind: str   # unborn | detached | noupstream | noremote | none | ahead | behind | diverged
+    kind: str   # unborn | detached | noupstream | noremote | upstream-gone | none | ahead | behind | diverged
     cap: BranchCapture
     status: RepoStatus
     ahead: int = 0
@@ -223,30 +228,31 @@ def _read_incoming(repo_path: Path) -> IncomingView | Unreadable:
         if view.kind == "noupstream":
             hint = _same_named_remote_branch(repo_path, cap.branch)
             if isinstance(hint, str):
-                return Unreadable(hint)
+                return Unreadable(hint, status=status, local=view.local)
             view.upstream_hint = hint
         return view
     if cap.upstream_gone:
-        return Unreadable(f"{view.branch} follows {view.upstream}, which does not exist in this folder")
+        view.kind = "upstream-gone"
+        return view
     if not (view.ahead or view.behind):
         view.kind = "none"
         return view
     if view.ahead:
         local = read_log(repo_path, cap.tip, cap.head, limit=COMMIT_LIMIT)
         if isinstance(local, str):
-            return Unreadable(local)
+            return Unreadable(local, status=status, local=view.local)
         view.local_commits = local
     if not view.behind:
         view.kind = "ahead"
         return view
     rng = read_range(repo_path, cap.head, cap.tip)
     if isinstance(rng, str):
-        return Unreadable(rng)
+        return Unreadable(rng, status=status, local=view.local)
     view.incoming = rng
     if view.ahead:
         mine = read_changed_paths(repo_path, cap.tip, cap.head)
         if isinstance(mine, str):
-            return Unreadable(mine)
+            return Unreadable(mine, status=status, local=view.local)
         view.both_changed = sorted(mine & rng.paths)
     view.kind = "diverged" if view.ahead else "behind"
     if view.local is not None and not view.local.error:

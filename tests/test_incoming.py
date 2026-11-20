@@ -172,11 +172,29 @@ class TestFailedReads:
         view = read_incoming(clone)
         assert view.kind == "unknown" and view.error == status.error
 
-    def test_upstream_gone_is_could_not_check(self, behind):
+    def test_upstream_gone_is_its_own_state_and_keeps_the_status(self, behind):
         clone, _, _ = behind
+        (clone / "README.md").write_text("mine\n")
         git("update-ref", "-d", "refs/remotes/origin/main", cwd=clone)
         view = read_incoming(clone)
-        assert view.kind == "unknown" and view.error
+        assert view.kind == "upstream-gone", view
+        assert view.branch == "main" and view.upstream == "origin/main" and view.status.dirty == 1
+        assert [f.path for f in view.local.unstaged] == ["README.md"]
+
+    @pytest.mark.parametrize("which", ["read_log", "read_range", "read_changed_paths", "_same_named_remote_branch"])
+    def test_a_failed_secondary_read_keeps_the_good_status(self, behind, monkeypatch, which):
+        import gitstow.core.incoming as I
+        clone, _, _ = behind
+        if which == "_same_named_remote_branch":
+            git("branch", "--unset-upstream", cwd=clone)
+        else:  # diverged: all three range reads run
+            commit(clone, "mine", {"local.txt": "x\n"})
+        (clone / "README.md").write_text("mine\n")
+        monkeypatch.setattr(I, which, lambda *a, **k: "fatal: that read broke")
+        view = read_incoming(clone)
+        assert view.kind == "unknown" and view.error == "fatal: that read broke"
+        assert view.status.branch == "main" and not view.status.error
+        assert [f.path for f in view.local.unstaged] == ["README.md"]
 
 
 # ---------- the exact pull ----------
@@ -519,6 +537,21 @@ class TestCli:
         out = CliRunner().invoke(app, ["diff", clone.name, "--incoming"])
         assert out.exit_code == 0 and seen == [(get_status(clone).head_oid, ids[-1])]
 
+    def test_upstream_gone_is_a_note_not_an_error(self, behind, tmp_path, monkeypatch):
+        import json
+
+        from typer.testing import CliRunner
+
+        from gitstow.cli.main import app
+        clone, _, _ = behind
+        self._seed(clone, tmp_path, monkeypatch)
+        git("update-ref", "-d", "refs/remotes/origin/main", cwd=clone)
+        out = CliRunner().invoke(app, ["diff", clone.name, "--incoming", "--json"])
+        assert out.exit_code == 0, out.output
+        data = json.loads(out.stdout)
+        assert data["state"] == "upstream-gone" and data["branch"] == "main" and data["commits"] == []
+        assert "origin/main, which does not exist in this folder" in data["note"]
+
     def test_nothing_incoming_says_so(self, behind, tmp_path, monkeypatch):
         from typer.testing import CliRunner
 
@@ -728,6 +761,30 @@ class TestWeb:
         assert "/incoming/t/clone/pull" not in page and "Incoming <span class=\"ct\">?</span>" in page
         row = client.get("/dashboard/rows").text
         assert ">error<" in row and "↓ Pull" not in row and ">clean<" not in row
+
+    def test_upstream_gone_keeps_the_header_and_local_changes(self, web):
+        client, clone, _, _ = web
+        (clone / "README.md").write_text("mine\n")
+        git("update-ref", "-d", "refs/remotes/origin/main", cwd=clone)
+        page = client.get("/repo/t/clone").text
+        assert "Upstream gone" in page and "Could not check" not in page, page
+        assert "follows <code>origin/main</code>, which does not exist in this folder" in page
+        assert "<dd>main</dd>" in page and ">error<" not in page  # the header: the real branch, no error chip
+        assert "Could not read local changes" not in page and "README.md" in page
+        assert 'Local changes <span class="ct">1</span>' in page
+        assert "/incoming/t/clone/pull" not in page
+
+    def test_a_failed_secondary_read_marks_only_the_incoming_panel(self, web, monkeypatch):
+        import gitstow.core.incoming as I
+        client, clone, _, _ = web
+        (clone / "README.md").write_text("mine\n")
+        monkeypatch.setattr(I, "read_range", lambda *a, **k: "fatal: range read broke")
+        page = client.get("/repo/t/clone").text
+        assert "Could not check" in page and "range read broke" in page
+        assert "<dd>main</dd>" in page and ">error<" not in page and "3 behind" in page
+        assert "Could not read local changes" not in page and "README.md" in page
+        assert 'Local changes <span class="ct">1</span>' in page
+        assert "/incoming/t/clone/pull" not in page
 
     def test_unreadable_repo_counts_as_error_never_missing(self, web):
         import re

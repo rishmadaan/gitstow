@@ -126,7 +126,7 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
     <button type="button" class="btn btn-outline js-copy" data-copy="{{ inc.command }}" data-copy-label="command">Copy the command</button>
   {% elif k == "unknown" %}
     <a class="btn {{ 'btn-outline' if inc.secondary else 'btn-primary' }}" href="{{ page_url }}?tab=incoming">⟳ Try again</a>
-  {% elif k in ("ahead", "none") %}
+  {% elif k in ("ahead", "none", "upstream-gone") %}
     {{ fetch_button("⟳ Fetch now", primary=False) }}
   {% endif %}
   </div>
