@@ -68,6 +68,8 @@ class Tap:
             self.hooks[self.n](self.repo)
         if self.n == 1:
             self.first = truth(self.repo)
+        if getattr(self, "read", 0) is None and args and args[0] in ("symbolic-ref", "for-each-ref"):
+            self.read = truth(self.repo)  # what the first read naming the branch finds
         if "merge" in args:
             self.at_merge, self.heads_at_merge = truth(self.repo), branches(self.repo)
             self.merge_n, self.head_at_merge = self.n, raw(self.repo, "rev-parse", "HEAD")
@@ -524,3 +526,42 @@ def test_a_plain_pull_of_a_branch_with_no_commits_refuses_and_changes_nothing(un
     result = git_pull(ws / "empty")
     assert not result.success and "has no commits yet" in result.error
     assert raw(ws / "empty", "for-each-ref", "refs/heads/") == b""
+
+
+@pytest.mark.parametrize("change", CHANGES)
+def test_the_fetching_pull_moves_only_the_branch_it_read_at_every_read_boundary(lab, monkeypatch, change):
+    """E3e as a property (plain Pull, Pull all, CLI, MCP, add --update all run git.pull): one outside
+    change before every git process of the pull. A success moved exactly the branch that the pull's
+    read of the branch named, to the upstream commit that read named; "already up to date" moved nothing."""
+    client, clone, ids = lab
+    start, argv = CHANGES[change]
+    act = action(argv, ids, check=False)  # a fetch prunes origin/twin: repointing to it then changes nothing
+    tap = Tap(clone, monkeypatch)
+    reset(clone, ids, start)
+    tap.reset()
+    G.pull(clone)
+    total = tap.n
+    wrong = []
+    for k in range(1, total + 2):
+        reset(clone, ids, start)
+        tap.reset()
+        tap.hooks, tap.read, tap.at_merge = {k: act}, None, None
+        heads0 = branches(clone)
+        result = G.pull(clone)
+        moved = {r for r, oid in branches(clone).items() if heads0.get(r) != oid}
+        if not result.success:
+            continue
+        if tap.read is None:
+            wrong.append(f"before git process {k}: pulled without reading the branch")
+            continue
+        ref, _head, _up, tip = tap.read
+        # The upstream's id is read one process after the branch list; a change in between makes the
+        # pull take the newer commit, which is what a fetching pull is for. Either id is that upstream's.
+        now_up = raw(clone, "for-each-ref", "--format=%(upstream)", ref)
+        tips = {tip.encode(), raw(clone, "rev-parse", now_up + b"^{commit}") if now_up else b""}
+        if result.already_up_to_date and moved:
+            wrong.append(f"before git process {k}: said up to date, moved {sorted(map(label, moved))}")
+        elif not result.already_up_to_date and (moved != {ref} or branches(clone).get(ref) not in tips):
+            wrong.append(f"before git process {k}: pulled, moved {sorted(map(label, moved))}; the pull read "
+                         f"{label(ref)} with its upstream at {tip[:7]}")
+    assert not wrong, "\n".join(wrong)

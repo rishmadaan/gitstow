@@ -20,6 +20,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **A branch with no upstream reads "no upstream"** in the Remote Δ column when the repo has a remote; "local" is kept for repos with no remote at all. An upstream that is configured but no longer exists reads "upstream gone".
 - **Every pull is one at a time per repo** — `gitstow pull`, `gitstow add --update`, the MCP `pull_repos` tool, the dashboard's row Pull and Pull all, and the Incoming tab's Pull take the same per-repo lock (a file under `~/.gitstow/locks`, never inside your repo); a second pull of the same folder while one runs is refused with a message, nothing pulled.
 - **A successful fetching pull also records the fetch** (`last_fetched`), from every surface: it fetched before it merged.
+- **The plain Pull checks the branch too** — `gitstow pull`, `gitstow add --update`, the MCP `pull_repos` tool, a row's plain "Pull" and Pull all now fetch, then read the branch, its upstream and the upstream's commit in one read, and move that branch to exactly that commit; afterwards they read the repo back and report success only if that branch landed there, no other branch moved and its upstream setting did not change. Before, a branch switched in another terminal during the pull could have another branch moved while the pull reported success.
+- **A branch with no commits yet reads "no commits"** (a fresh `git init`, or a clone of an empty repo): in the Remote Δ column, on the repo page ("No commits yet"), in `gitstow status` and `diff --incoming` (`"state": "no-commits"` / `"unborn"` in JSON), instead of "upstream gone" or "Could not check". Pulls skip it; pulling one by name says it has no commits yet (take its first commits with `git pull`).
 
 ### Fixed
 

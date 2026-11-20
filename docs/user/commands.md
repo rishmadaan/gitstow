@@ -96,7 +96,7 @@ gitstow add anthropic/claude-code --update
 
 ### `gitstow pull`
 
-Bulk update repos: `git fetch --prune`, then a fast-forward-only merge of the upstream branch.
+Bulk update repos: `git fetch --prune`, then a fast-forward-only merge to the upstream commit just fetched. The branch, its upstream and that commit are read once after the fetch; afterwards the repo is read back, and the pull reports success only if that branch landed on that commit, no other branch moved and its upstream setting did not change.
 
 ```bash
 gitstow pull [repos...] [flags]
@@ -144,7 +144,7 @@ gitstow pull anthropic/claude-code --force
 - Frozen repos are skipped (shown as "Frozen" in summary)
 - Repos with modified or staged files are skipped — the composition is shown in the summary (e.g. "2 modified · 1 staged"). With `--force` the repos you name are pulled (a bulk `--force` is refused); git's ff-only pull still refuses (reported as an error, files untouched) if the pull would overwrite a modified file
 - Diverged repos (local and remote both have commits the other lacks) are skipped — resolve manually (rebase or merge). This holds with `--force`, and for frozen repos under `--include-frozen`
-- Local-only repos (no upstream configured) are skipped, likewise
+- Local-only repos (no upstream configured) are skipped, likewise, and so is a branch with no commits yet (a fresh `git init`, a clone of an empty repo); pulling one by name says it has no commits yet
 - Repos with only untracked files ARE pulled — an ff-only pull can't lose them
 - Uses `--ff-only` — won't create merge commits
 - Never overwrites your local edits or ignored files, whatever your git settings for stashing, rebasing or merge options: a pull that would replace a modified file, or an ignored local file (like a `.env`) that upstream has started tracking, is refused and reported as an error with the files left as they were. Autostash settings (`merge.autoStash`, `rebase.autoStash`), rebase settings (`pull.rebase`, `branch.<name>.rebase`), per-branch merge options (`branch.<name>.mergeOptions`) and a merge strategy set in `pull.twohead` are not used. A branch whose name contains `=` and that has merge options set is refused (pull it with git)
@@ -602,7 +602,7 @@ Every interactive element has a hover tooltip. There's also a `?` button in the 
 
 If a single-row **Pull** or **Fetch** fails (git refuses to overwrite a local file, the network is down), git's message appears in red under the repo name and the *Last pull* stamp keeps its old value. Dismiss it with **×**.
 
-**Remote Δ** (`↑ N`, `↓ N incoming ›`, `↑N ↓N ›`, or `—`) reflects your *last fetch*, not live remote state. If the counts look stale, use **Fetch all** (or a row's ⋯ → Fetch) to refresh them. `no upstream` means the branch does not follow a remote branch although the repo has a remote (the repo page shows the one command that sets it); `local` means the repo has no remote at all; `upstream gone` means the branch follows a remote branch that no longer exists here. Bulk pulls skip all three. `?` means the repo is missing or could not be read, so nothing is known about its upstream.
+**Remote Δ** (`↑ N`, `↓ N incoming ›`, `↑N ↓N ›`, or `—`) reflects your *last fetch*, not live remote state. If the counts look stale, use **Fetch all** (or a row's ⋯ → Fetch) to refresh them. `no upstream` means the branch does not follow a remote branch although the repo has a remote (the repo page shows the one command that sets it); `local` means the repo has no remote at all; `upstream gone` means the branch follows a remote branch that no longer exists here; `no commits` means the branch has no commits yet. Bulk pulls skip all four. `?` means the repo is missing or could not be read, so nothing is known about its upstream.
 
 #### The repo page: Incoming and Local changes
 
