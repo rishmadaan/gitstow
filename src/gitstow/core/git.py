@@ -1249,23 +1249,31 @@ _SHORTSTAT = re.compile(r"(\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:,
 
 def read_log(repo_path: Path, exclude: str, include: str, limit: int | None = None) -> list[LogEntry] | str:
     """`git log exclude..include` (or all of `include`'s history when `exclude` is ""),
-    newest first, each commit with its own shortstat."""
+    newest first, each commit with its own shortstat; git's message, or one saying the
+    output could not be read, when it fails.
+
+    Every field is ended by a NUL, which git refuses in a commit message, and each record
+    starts with one, so the output is read by position: a record is exactly seven fields
+    (the last is the shortstat git prints after the format). Output that does not line
+    up is an error, never a commit skipped."""
     args = ["log", "--no-color", "--no-show-signature", "--find-renames",
-            "--format=%x1e%H%x1f%h%x1f%aN%x1f%at%x1f%s%x1f%b%x1f", "--shortstat"]
+            "--format=%x00%H%x00%h%x00%aN%x00%at%x00%s%x00%b%x00", "--shortstat"]
     if limit is not None:
         args.append(f"-n{limit}")
     result = _run_git(args + [f"{exclude}..{include}" if exclude else include, "--"],
                       cwd=repo_path, timeout=120)
     if result.returncode != 0:
         return result.stderr.strip() or "git log failed"
+    fields = result.stdout.split("\0")
+    if fields[0].strip() or (len(fields) - 1) % 7:
+        return "could not read git log's output: its records do not line up"
     entries = []
-    for rec in result.stdout.split("\x1e")[1:]:
-        parts = rec.split("\x1f")
-        if len(parts) < 7:
-            continue
-        entry = LogEntry(oid=parts[0], short=parts[1], author=parts[2], time=int(parts[3] or 0),
-                         subject=parts[4], body=parts[5].strip())
-        if m := _SHORTSTAT.search(parts[6]):
+    for i in range(1, len(fields), 7):
+        oid, short, author, at, subject, body, stat = fields[i:i + 7]
+        if not (is_oid(oid) and at.isdigit()) or (stat.strip() and not _SHORTSTAT.fullmatch(stat.strip())):
+            return f"could not read git log's output: record {(i - 1) // 7 + 1} does not parse"
+        entry = LogEntry(oid=oid, short=short, author=author, time=int(at), subject=subject, body=body.strip())
+        if m := _SHORTSTAT.fullmatch(stat.strip()):
             entry.files, entry.added, entry.removed = (int(m.group(i) or 0) for i in (1, 2, 3))
         entries.append(entry)
     return entries

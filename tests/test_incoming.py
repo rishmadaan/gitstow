@@ -163,6 +163,50 @@ class TestNumbers:
 
 # ---------- failed reads ----------
 
+class TestLogRecords:
+    """CR9: git log's records are split on NUL, which git refuses in a commit message, and read by
+    position; separators that can appear in a message never split one, and nothing is skipped."""
+
+    def test_record_separators_in_a_message_are_kept_and_no_commit_is_skipped(self, behind):
+        from gitstow.core.git import read_log
+        clone, pusher, ids = behind
+        subject, body = "odd \x1e subject \x1f here", "a body\x1f with\x1e both\n\nand more"
+        msg = pusher / "msg"
+        msg.write_text(f"{subject}\n\n{body}\n")
+        (pusher / "README.md").write_text("odd\n")
+        git("commit", "-q", "-a", "-F", str(msg), cwd=pusher)
+        git("commit", "-q", "--allow-empty", "-m", "empty one", cwd=pusher)  # no stat at all
+        git("push", "-q", "origin", "HEAD:refs/heads/main", cwd=pusher)
+        git("fetch", "-q", cwd=clone)
+        head = git("rev-parse", "HEAD", cwd=clone)
+        log = read_log(clone, head, "origin/main")
+        assert [e.oid for e in log] == git("rev-list", f"{head}..origin/main", cwd=clone).splitlines()
+        odd = log[1]
+        assert (odd.subject, odd.body) == (subject, body.strip()) and (odd.files, odd.added, odd.removed) == (1, 1, 1)
+        assert (log[0].subject, log[0].files) == ("empty one", 0)
+        assert [e.oid for e in read_incoming(clone).incoming.commits] == [e.oid for e in log]
+
+    @pytest.mark.parametrize("lost", ["first", "last", "garbled"])
+    def test_output_that_does_not_parse_is_an_error_never_skipped(self, behind, monkeypatch, lost):
+        from gitstow.core.git import read_log
+        clone, _, _ = behind
+        real = G._run_git
+
+        def run(args, *a, **kw):
+            r = real(args, *a, **kw)
+            if args[0] != "log":
+                return r
+            if lost == "garbled":  # the records line up, but one commit id is not one
+                r.stdout = "\0not-an-id" + r.stdout[r.stdout.index("\0", 1):]
+            else:  # one field boundary lost: the records no longer line up
+                cut = r.stdout.index("\0") if lost == "first" else r.stdout.rindex("\0")
+                r.stdout = r.stdout[:cut] + r.stdout[cut + 1:]
+            return r
+        monkeypatch.setattr(G, "_run_git", run)
+        got = read_log(clone, git("rev-parse", "HEAD", cwd=clone), "origin/main")
+        assert isinstance(got, str) and "could not read" in got, got
+
+
 class TestFailedReads:
     def test_a_corrupt_index_is_an_error_never_clean(self, behind):
         clone, _, _ = behind
