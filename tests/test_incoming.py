@@ -546,6 +546,31 @@ class TestWeb:
         assert "Pull is off while files in this folder are edited or staged (1)" in page
         assert "also edited in this folder" in page and "/incoming/pull" not in page
 
+    def test_a_failed_local_listing_is_never_clean_or_zero(self, web, monkeypatch):
+        """Status says one file is edited; the listing that follows fails. The page must say so."""
+        from gitstow.core.git import ChangedFiles
+        client, clone, _, _ = web
+        (clone / "src/toc.py").write_text("my edit\n")
+        monkeypatch.setattr("gitstow.core.incoming.get_changed_files",
+                            lambda p: ChangedFiles(error="fatal: listing exploded"))
+        page = client.get("/repo/t/clone").text
+        assert "Could not read local changes: fatal: listing exploded" in page
+        assert "No local changes" not in page
+        assert "Local changes <span class=\"ct\">?</span>" in page
+        assert "Which files, and whether this update changes any of them, could not be checked" in page
+        assert "(0)" not in page and "None of them is a file this update changes" not in page
+        assert "/incoming/pull" not in page
+
+    def test_a_failed_listing_of_untracked_files_is_stated(self, web, monkeypatch):
+        from gitstow.core.git import ChangedFiles
+        client, clone, _, _ = web
+        (clone / "scratch.txt").write_text("mine\n")
+        monkeypatch.setattr("gitstow.core.incoming.get_changed_files",
+                            lambda p: ChangedFiles(error="fatal: listing exploded"))
+        page = client.get("/repo/t/clone").text
+        assert "local files could not be listed" in page and "listing exploded" in page
+        assert "No local changes" not in page
+
     def test_diff_route_only_serves_files_of_the_comparison(self, web):
         client, clone, _, ids = web
         head = git("rev-parse", "HEAD", cwd=clone)

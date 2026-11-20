@@ -221,6 +221,9 @@ def build_incoming(repo, repo_path, result: dict | None = None) -> dict:
 
     edited_paths = sorted({f.path for f in (view.local.staged + view.local.unstaged)} if view.local else set())
     hits = [p for p in view.overlap if p in edited_paths]
+    # A ChangedFiles holding an error is falsy (no lists): test presence, never truthiness.
+    local_error = view.local.error if view.local is not None else ""
+    git_said_local = Markup('<pre class="gitsaid wrap">{}</pre>').format(local_error)
 
     if base in ("behind", "stale") and kind in ("behind", "stale", "failed", "locked", "fetchfailed"):
         if kind not in ("failed", "locked", "fetchfailed"):
@@ -230,7 +233,11 @@ def build_incoming(repo, repo_path, result: dict | None = None) -> dict:
                 "An untracked file in this folder has the same name as a file this update brings: {}. "
                 "git stops rather than overwrite it.").format(Markup(", ").join(_code(p) for p in untracked_hit))))
     if base == "blocked" and kind not in ("changed",):
-        if hits:
+        if local_error:
+            facts.append(_fact("blocked", "blocked", Markup(
+                "<b>Pull is off while files in this folder are edited or staged.</b> Which files, and whether "
+                "this update changes any of them, could not be checked. git said: {}").format(git_said_local)))
+        elif hits:
             others = [p for p in edited_paths if p not in hits]
             facts.append(_fact("blocked", "blocked", Markup(
                 "<b>Pull is off while files in this folder are edited or staged ({}).</b> "
@@ -250,6 +257,10 @@ def build_incoming(repo, repo_path, result: dict | None = None) -> dict:
                 "<b>Pull is off while files in this folder are edited or staged ({}).</b> "
                 "None of them is a file this update changes.").format(len(edited_paths))))
         facts.append(_fact("clear", "clear", Markup("{} has no commits that {} lacks.").format(br, up)))
+    elif local_error and has_list and kind not in ("changed", "pulled"):
+        facts.append(_fact("note", "note", Markup(
+            "This folder's local files could not be listed, so whether one has the same name as a file this "
+            "update brings is unknown (Pull stops rather than overwrite one). git said: {}").format(git_said_local)))
     if base == "frozen" and kind != "changed":
         facts.append(_fact("note", "frozen", Markup(
             "<b>You froze this repo.</b> Pull all skips it, and there is no Pull here until you unfreeze.")))

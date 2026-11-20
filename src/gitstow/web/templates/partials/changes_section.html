@@ -4,7 +4,7 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
 <section class="local-tab" id="changes">
   {% if inc.status_error %}
   <div class="diff-note flush">Could not read local changes: the same status read failed. Nothing here is shown as clean.</div>
-  {% elif changes and changes.error %}
+  {% elif changes is not none and changes.error %}{# an error-holding ChangedFiles is falsy #}
   <div class="diff-note flush cap">Could not read local changes: {{ changes.error }} <span>Nothing here is shown as clean.</span></div>
   {% elif not changes %}
   <div class="diff-note flush">No local changes: nothing edited, staged or untracked in this folder{% if inc.pulled %} (re-read after the pull){% endif %}.</div>
