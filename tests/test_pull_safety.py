@@ -739,7 +739,9 @@ def test_broken_git_inside_another_repo_never_touches_that_repo(hermetic_git, tm
     if ancestor and broken == "empty .git folder":  # ':' defeats the ceiling: git climbs to outer
         assert result.error == f"{child} is not the top of its own git repository; left untouched"
     else:  # git refuses the folder itself, and its own words are the reason given
-        assert result.error.startswith("fatal: not a git repository"), result.error
+        # (git's wording varies by version: "not a git repository", "gitfile does not point...")
+        assert result.error.startswith("fatal:"), result.error
+        assert "not the top of its own git repository" not in result.error
     assert not fetched.success
     assert fetched.error == result.error
     assert git("rev-parse", "HEAD", cwd=outer).stdout.strip() == head
