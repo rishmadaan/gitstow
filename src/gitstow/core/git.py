@@ -779,7 +779,9 @@ def search_repo(
             cmd.append("-l")
         if glob_filter:
             cmd.extend(["--glob", glob_filter])
-        cmd.extend(["--max-count", str(max_results), "-e", pattern])
+        # An explicit path: with none, rg searches stdin when it is a pipe (the MCP
+        # server's stdin is its JSON-RPC stream). Paths then print as "./file".
+        cmd.extend(["--max-count", str(max_results), "-e", pattern, "."])
     else:
         cmd = ["git", "grep", "-n"]
         if case_insensitive:
@@ -798,6 +800,7 @@ def search_repo(
             cmd,
             cwd=repo_path,
             check=False,
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             timeout=30,
@@ -814,6 +817,8 @@ def search_repo(
     for line in result.stdout.strip().splitlines():
         if not line:
             continue
+        if use_rg:
+            line = line.removeprefix("./")
         if files_only:
             matches.append({"file": line.strip()})
             continue

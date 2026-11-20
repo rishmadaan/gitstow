@@ -779,6 +779,30 @@ class TestSearchRepo:
         matches = search_repo(self._repo(tmp_path), "-foo", use_rg=True, glob_filter="*.py")
         assert [m["file"] for m in matches] == ["a.py"]
 
+    @pytest.mark.parametrize("files_only", [False, True])
+    def test_rg_searches_the_repo_not_a_piped_stdin(self, tmp_path, files_only):
+        """The MCP server's stdin is a pipe (its JSON-RPC stream); rg must search the repo."""
+        import json
+        import os
+        import shutil
+        import subprocess
+        import sys
+
+        import gitstow
+        if shutil.which("rg") is None:
+            pytest.skip("ripgrep not installed")
+        repo = self._repo(tmp_path)
+        code = ("import json, sys; from pathlib import Path; from gitstow.core.git import search_repo; "
+                f"print(json.dumps(search_repo(Path(sys.argv[1]), '-foo', use_rg=True, "
+                f"glob_filter='*.py', files_only={files_only})))")
+        src = str(Path(gitstow.__file__).resolve().parent.parent)
+        env = {**os.environ, "PYTHONPATH": os.pathsep.join([src, os.environ.get("PYTHONPATH", "")])}
+        out = subprocess.run([sys.executable, "-c", code, str(repo)], input="stdin line -foo\n",
+                             capture_output=True, text=True, env=env, check=True)
+        expected = ([{"file": "a.py"}] if files_only
+                    else [{"file": "a.py", "line_number": "1", "text": "x = 1  # -foo flag"}])
+        assert json.loads(out.stdout) == expected
+
     @pytest.mark.parametrize("use_rg", [True, False])
     @patch("gitstow.core.git.subprocess.run")
     def test_command_uses_dash_e_and_git_env(self, mock_run, use_rg, tmp_path, monkeypatch):
@@ -787,9 +811,13 @@ class TestSearchRepo:
         monkeypatch.setenv("GIT_DIR", str(tmp_path / "elsewhere"))
         mock_run.return_value = MagicMock(returncode=1, stdout="")
         assert search_repo(tmp_path, "-foo", use_rg=use_rg, glob_filter="*.md") == []
+        import subprocess
         cmd = mock_run.call_args.args[0]
         assert cmd[0] == ("rg" if use_rg else "git")
         assert cmd[cmd.index("-e") + 1] == "-foo"
+        assert mock_run.call_args.kwargs["stdin"] == subprocess.DEVNULL
+        if use_rg:
+            assert cmd[-1] == "."  # a path, so rg never falls back to searching stdin
         if not use_rg:
             assert cmd[-2:] == ["--", "*.md"]
             assert cmd[cmd.index("--max-depth") + 1] == "10"
