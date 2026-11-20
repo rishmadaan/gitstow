@@ -269,3 +269,46 @@ def test_a_branch_with_no_commits_and_nothing_upstream_offers_no_pull(empty, tmp
     row = re.search(r'<tr[^>]*data-key="clone".*?</tr>',
                     TestClient(app, base_url="http://127.0.0.1").get("/").text, re.DOTALL).group(0)
     assert re.search(r"<button[^>]*\sdisabled\s[^>]*>Pull</button>", row), row
+
+
+def _orphan_main_beside_other(repo):
+    """A repo whose branch `other` has a commit and whose HEAD names `main`, which has none."""
+    git("init", "-q", "-b", "other", str(repo))
+    commit(repo, "commit on other", {"o.md": "o\n"})
+    git("checkout", "-q", "--orphan", "main", cwd=repo)
+    git("rm", "-q", "-rf", ".", cwd=repo)
+
+
+def test_the_last_commit_of_a_read_that_found_none_is_none(tmp_path):
+    """R4-C3: status captured an unborn main; another terminal checks out `other` before the
+    last-commit read. An empty captured id means no commit, not "read HEAD now"."""
+    repo = tmp_path / "r"
+    _orphan_main_beside_other(repo)
+    st = G.get_status(repo)
+    assert st.unborn and st.head_oid == "" and not st.error
+    git("checkout", "-q", "other", cwd=repo)
+    got = G.get_last_commit(repo, st.head_oid)
+    assert (got.hash, got.message, got.error) == ("", "", "")
+    assert G.get_last_commit(repo).message == "commit on other"  # None still reads HEAD as it is now
+
+
+def test_the_repo_page_header_shows_no_commit_for_a_branch_that_had_none_when_read(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from gitstow.web.routes import pages
+    from gitstow.web.server import create_app
+
+    _config(tmp_path, monkeypatch)
+    repo = tmp_path / "ws" / "clone"
+    _orphan_main_beside_other(repo)
+    real = pages.get_last_commit
+
+    def checkout_first(path, oid=None):  # the other terminal acts between the status read and this one
+        git("checkout", "-q", "other", cwd=path)
+        return real(path, oid)
+
+    monkeypatch.setattr(pages, "get_last_commit", checkout_first)
+    app = create_app()
+    app.state.server = type("Stub", (), {"should_exit": False})()
+    page = TestClient(app, base_url="http://127.0.0.1").get("/repo/t/clone").text
+    assert "No commits yet" in page and "commit on other" not in page

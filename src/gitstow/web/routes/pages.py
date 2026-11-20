@@ -184,7 +184,7 @@ def render_repo_detail(request, workspace: str, key: str, error=None, status_cod
     inc = build_incoming(repo, repo_path, result) if exists else None
     status = inc["status"] if inc else None
     try:
-        commit = get_last_commit(repo_path, status.head_oid if status else "") if exists else None
+        commit = get_last_commit(repo_path, status.head_oid if status and not status.error else None) if exists else None
     except Exception as exc:  # a header read that raised is shown as failed, not as no commit
         commit = CommitInfo(error=failure_text(exc))
 

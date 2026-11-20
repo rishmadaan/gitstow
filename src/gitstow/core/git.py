@@ -1044,9 +1044,12 @@ def get_remote_url(repo_path: Path) -> str | None:
     return None
 
 
-def get_last_commit(repo_path: Path, oid: str = "") -> CommitInfo:
-    """Get info about the last commit: HEAD's, or `oid`'s (the id a status read measured, so the
-    line describes the same commit as the rest of that read)."""
+def get_last_commit(repo_path: Path, oid: str | None = None) -> CommitInfo:
+    """Get info about the last commit: HEAD's as it is now (`oid` None), or `oid`'s (the id a status
+    read measured, so the line describes the same commit as the rest of that read). An empty `oid`
+    is a read that found no commit (a branch with none yet): no commit, and git is not asked."""
+    if oid == "":
+        return CommitInfo()
     result = _run_git(
         ["log", "-1", "--format=%h%n%s%n%cd%n%an", "--date=relative", *([oid, "--"] if oid else [])],
         cwd=repo_path,

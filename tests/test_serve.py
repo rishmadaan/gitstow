@@ -1416,7 +1416,7 @@ class TestDiffViewer:
                 untracked=["notes.txt"],
             ),
         )
-        monkeypatch.setattr("gitstow.web.routes.pages.get_last_commit", lambda p: CommitInfo())
+        monkeypatch.setattr("gitstow.web.routes.pages.get_last_commit", lambda p, oid=None: CommitInfo())
         monkeypatch.setattr("gitstow.web.routes.pages.get_disk_size", lambda p: 0)
         r = client.get("/repo/test-ws/owner/repo")
         assert r.status_code == 200
@@ -1428,7 +1428,7 @@ class TestDiffViewer:
     def test_drawer_hides_changes_when_clean(self, client, configured, workspace_dir, monkeypatch):
         self._seed_repo(workspace_dir)
         monkeypatch.setattr("gitstow.core.incoming.get_status", lambda p: _fake_status())
-        monkeypatch.setattr("gitstow.web.routes.pages.get_last_commit", lambda p: CommitInfo())
+        monkeypatch.setattr("gitstow.web.routes.pages.get_last_commit", lambda p, oid=None: CommitInfo())
         monkeypatch.setattr("gitstow.web.routes.pages.get_disk_size", lambda p: 0)
         r = client.get("/repo/test-ws/owner/repo")
         assert r.status_code == 200
@@ -1447,7 +1447,7 @@ class TestDiffViewer:
             "gitstow.core.incoming.get_changed_files",
             lambda p: ChangedFiles(untracked=[f"f{i}.txt" for i in range(250)]),
         )
-        monkeypatch.setattr("gitstow.web.routes.pages.get_last_commit", lambda p: CommitInfo())
+        monkeypatch.setattr("gitstow.web.routes.pages.get_last_commit", lambda p, oid=None: CommitInfo())
         monkeypatch.setattr("gitstow.web.routes.pages.get_disk_size", lambda p: 0)
         r = client.get("/repo/test-ws/owner/repo")
         assert r.status_code == 200
