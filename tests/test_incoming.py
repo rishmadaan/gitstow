@@ -389,6 +389,15 @@ class TestUnderTheLock:
         assert result.outcome == "failed" and "other branches moved during the pull: other" in result.message
         assert (result.before, result.after, result.merged) == (snap.head, ids[-1], True)
 
+    def test_the_branch_landing_elsewhere_after_a_successful_merge_is_never_pulled(self, behind, monkeypatch):
+        clone, _, ids = behind
+        snap = drawn(clone)
+        self._merge_then(monkeypatch, lambda path: git("reset", "-q", "--hard", ids[1], cwd=path))
+        result = pull_exact(clone, snap, never_frozen)
+        assert result.outcome == "failed"
+        assert result.message == f"git reported success, but main is at {ids[1][:7]}, not {ids[-1][:7]}"
+        assert (result.before, result.after) == (snap.head, ids[1]) == (snap.head, git("rev-parse", "HEAD", cwd=clone))
+
     def test_an_upstream_setting_changed_during_the_merge_is_reported(self, behind, monkeypatch):
         clone, _, ids = behind
         snap = drawn(clone)

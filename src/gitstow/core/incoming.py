@@ -414,9 +414,9 @@ def _read_back(repo_path: Path, expected: Snapshot, now: BranchCapture, shown: s
                                before=now.head, after=ref_id(repo_path, now.branch), merged=True)
     landed = after.heads.get(now.branch, "")
     moved = {r for r in now.heads.keys() | after.heads.keys() if now.heads.get(r) != after.heads.get(r)}
+    # No separate "is it still checked out" check: a switch before the merge moves the other
+    # branch (caught twice below), and a switch after it changes nothing the pull did.
     wrong = []
-    if after.branch != now.branch:
-        wrong.append(f"the checked-out branch changed during the pull (now {after.branch_name or 'none'})")
     if landed != expected.target and (ok or landed != now.head):  # a failed merge that left it alone says so itself
         wrong.append(f"{shown} is at {landed[:7] or 'an unreadable commit'}, not {expected.target[:7]}")
     if moved - {now.branch}:
