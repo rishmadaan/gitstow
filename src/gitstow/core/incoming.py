@@ -25,6 +25,7 @@ from gitstow.core.git import (
     RepoStatus,
     _not_own_toplevel,
     _run_git,
+    branch_refs,
     checked_out_branch,
     get_changed_files,
     get_status,
@@ -116,15 +117,21 @@ class Snapshot:
     and the exact pull refuses unless the repo still matches every field."""
 
     path: str       # the folder, resolved
-    branch: str     # as `git status` names it
-    upstream: str   # as `git status` names it, e.g. "origin/main"
+    branch: str     # the branch's full ref, its bytes hex-encoded (see git.branch_refs)
+    upstream: str   # the upstream's full ref, its bytes hex-encoded
     head: str       # full commit id of the branch
     target: str     # full commit id the pull moves the branch to
 
     @classmethod
-    def of(cls, repo_path: Path, status: RepoStatus) -> Snapshot:
-        return cls(path=os.path.realpath(repo_path), branch=status.branch,
-                   upstream=status.upstream, head=status.head_oid, target=status.upstream_oid)
+    def of(cls, repo_path: Path, status: RepoStatus) -> Snapshot | None:
+        """The snapshot of a status just read, or None when its branch cannot be pinned exactly."""
+        refs = branch_refs(repo_path)
+        # The refs are a second read: a different name than the status showed means the
+        # branch was switched in between, and the page would describe another branch.
+        if isinstance(refs, str) or refs[0][len(b"refs/heads/"):].decode("utf-8", "replace") != status.branch:
+            return None
+        return cls(path=os.path.realpath(repo_path), branch=refs[0].hex(), upstream=refs[1].hex(),
+                   head=status.head_oid, target=status.upstream_oid)
 
     def form(self) -> dict[str, str]:
         return {"snap_path": self.path, "snap_branch": self.branch, "snap_upstream": self.upstream,
@@ -270,10 +277,12 @@ def _pull_exact_locked(repo_path: Path, expected: Snapshot, is_frozen: Callable[
         return ExactPullResult("frozen", "this repo is frozen", before=before)
     if status.dirty or status.staged:
         return ExactPullResult("edited", "files in this folder are edited or staged", before=before)
-    # Each id and name separately: two branches can sit at one commit, and two upstreams too.
-    if status.branch != expected.branch:
+    # Each id and ref separately: two branches can sit at one commit, and two upstreams too.
+    # Refs compared as bytes, never as status's parsed names (two names can parse alike).
+    refs = branch_refs(repo_path)
+    if isinstance(refs, str) or refs[0].hex() != expected.branch:
         return _changed(before)
-    if status.upstream != expected.upstream:
+    if refs[1].hex() != expected.upstream:
         return _changed(before)
     if before != expected.head:
         return _changed(before)

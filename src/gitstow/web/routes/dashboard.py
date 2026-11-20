@@ -186,8 +186,9 @@ def row_context(repo, ws, repo_path, status, num: int | None, sorted_labels: lis
     if state.presence == "ok" and not state.has_upstream:
         pull_tooltip = "Pull not applicable — no upstream to pull from. Bulk pulls skip it."
     # "Pull N" takes exactly the commit its count came from: the row carries it.
-    snapshot = (Snapshot.of(repo_path, status).form()
-                if pull_variant == "primary" and status and status.upstream_oid else None)
+    drawn = (Snapshot.of(repo_path, status)
+             if pull_variant == "primary" and status and status.upstream_oid else None)
+    snapshot = drawn.form() if drawn else None
     if pull_variant == "primary" and snapshot is None:  # no id to honour: nothing exact to offer
         pull_variant = "disabled"
         pull_tooltip = "Pull disabled — the commit this count came from could not be read. Open the repo page."

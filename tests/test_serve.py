@@ -58,6 +58,20 @@ def client(isolated):
     return TestClient(app, base_url="http://127.0.0.1")
 
 
+@pytest.fixture(autouse=True)
+def _fake_refs_for_fake_repos(monkeypatch):
+    """The fake repos below have an empty .git; a snapshot of their fake status names main."""
+    from gitstow.core import incoming
+
+    real = incoming.branch_refs
+
+    def refs(path):
+        if (path / ".git" / "HEAD").exists():
+            return real(path)
+        return b"refs/heads/main", b"refs/remotes/origin/main"
+    monkeypatch.setattr(incoming, "branch_refs", refs)
+
+
 def _fake_status(**kw) -> RepoStatus:
     # Like get_status: with an upstream, it names it and the two commit ids its counts came from.
     if kw.get("has_upstream", True):

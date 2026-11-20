@@ -201,9 +201,48 @@ class TestExactPull:
         snap = drawn(clone)
         git("checkout", "-q", "-b", "other", "--track", "origin/main", cwd=clone)
         git("reset", "-q", "--hard", snap.head, cwd=clone)  # same commit, same upstream, other name
-        assert get_status(clone).upstream == snap.upstream
+        assert get_status(clone).upstream == "origin/main"
         refused(clone, snap, "changed")
         assert git("rev-parse", "main", cwd=clone) == snap.head
+
+    def test_refuses_on_a_branch_whose_name_parses_the_same(self, behind):
+        """U+2028 inside a name: a line-splitting parse once read both as "topic"."""
+        clone, _, _ = behind
+        one, two = "topic\u2028one", "topic\u2028two"
+        head = git("rev-parse", "HEAD", cwd=clone)
+        for name in (two, one):  # ends checked out on `one`
+            git("checkout", "-q", "-b", name, "--track", "origin/main", cwd=clone)
+            git("reset", "-q", "--hard", head, cwd=clone)
+        snap = drawn(clone)
+        assert snap is not None and get_status(clone).branch == one
+        git("checkout", "-q", two, cwd=clone)
+        refused(clone, snap, "changed")
+        assert git("rev-parse", f"refs/heads/{one}", f"refs/heads/{two}", cwd=clone).split() == [head, head]
+
+    def test_refuses_on_a_branch_whose_name_decodes_the_same(self, behind):
+        """Two non-UTF-8 names both decode to "topic\ufffd": only the bytes tell them apart."""
+        clone, _, _ = behind
+
+        def gitb(*args: bytes) -> bytes:
+            return subprocess.run([b"git", *args], cwd=clone, capture_output=True, check=True).stdout.strip()
+        head = gitb(b"rev-parse", b"HEAD")
+        for name in (b"topic\xfe", b"topic\xff"):  # ends checked out on \xff
+            gitb(b"checkout", b"-q", b"-b", name, b"--track", b"origin/main")
+            gitb(b"reset", b"-q", b"--hard", head)
+        snap = drawn(clone)
+        assert snap is not None and get_status(clone).branch == "topic\ufffd"
+        gitb(b"checkout", b"-q", b"topic\xfe")
+        result = pull_exact(clone, snap, never_frozen)
+        assert result.outcome == "changed", result
+        assert gitb(b"symbolic-ref", b"HEAD") == b"refs/heads/topic\xfe"
+        assert gitb(b"rev-parse", b"refs/heads/topic\xfe", b"refs/heads/topic\xff").split() == [head, head]
+
+    def test_no_snapshot_when_the_branch_changed_after_the_status_read(self, behind):
+        clone, _, _ = behind
+        status = get_status(clone)
+        git("checkout", "-q", "-b", "other", "--track", "origin/main", cwd=clone)
+        git("reset", "-q", "--hard", status.head_oid, cwd=clone)
+        assert Snapshot.of(clone, status) is None
 
     def test_refuses_on_a_detached_head_at_the_same_commit(self, behind):
         clone, _, _ = behind

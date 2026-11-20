@@ -335,6 +335,24 @@ def checked_out_branch(repo_path: Path) -> tuple[str, str] | str:
     return branch, shown
 
 
+def branch_refs(repo_path: Path) -> tuple[bytes, bytes] | str:
+    """The checked-out branch's full ref and its upstream's full ref, byte for byte, or why not.
+
+    Raw bytes, never a decoded or parsed name: two branch names can read the same once
+    decoded (invalid UTF-8 becomes U+FFFD) or split (U+2028 inside a name), so only the
+    bytes tell them apart. Ref names cannot hold a newline, so the final one is git's.
+    """
+    head = _run_git(["symbolic-ref", "-q", "HEAD"], cwd=repo_path, binary=True)
+    ref = head.stdout.removesuffix(b"\n")
+    if not ref.startswith(b"refs/heads/"):
+        return "not on a branch"
+    up = _run_git(["rev-parse", "--symbolic-full-name", "@{upstream}"], cwd=repo_path, binary=True)
+    upstream = up.stdout.removesuffix(b"\n")
+    if up.returncode != 0 or not upstream:
+        return up.stderr.decode("utf-8", "replace").strip() or "no upstream selected"
+    return ref, upstream
+
+
 def pull(repo_path: Path) -> PullResult:
     """Pull latest changes: fetch, then fast-forward to the upstream branch.
 
@@ -464,7 +482,8 @@ def get_status(repo_path: Path) -> RepoStatus:
 
     status = RepoStatus()
     saw_ab = False
-    for line in result.stdout.splitlines():
+    # "\n" only: splitlines() also splits at U+2028 and other characters a branch name may hold.
+    for line in result.stdout.split("\n"):
         if line.startswith("# branch.head "):
             status.branch = line.split(" ", 2)[2]
         elif line.startswith("# branch.oid "):

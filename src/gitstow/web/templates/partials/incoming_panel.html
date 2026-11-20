@@ -9,10 +9,13 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
 {% set others %}<b>Pull all</b> in the library toolbar is different: it fetches and takes the newest.{% endset %}
 
 {% macro pull_button(label, primary=True) -%}
+{% if not inc.snapshot %}<button type="button" class="btn btn-outline" disabled
+        title="Pull is off: gitstow could not pin this branch exactly as drawn (it may have just been switched). Reload this page.">{{ label }}</button>{% else -%}
 <button type="button" class="btn {{ 'btn-primary' if primary else 'btn-outline' }} pull-btn" data-busy="pulling"
         hx-post="{{ act }}/pull" hx-vals='{{ inc.snapshot|tojson }}'
         hx-target="#repo-page" hx-select="#repo-page" hx-swap="outerHTML"
         title="Moves {{ inc.branch }} to {{ inc.tip7 }} and nothing newer. Does not fetch."><span class="idle">{{ label }}</span><span class="busy"><span class="spin"></span> Pulling…</span></button>
+{%- endif %}
 {%- endmacro %}
 {% macro fetch_button(label, primary=True) -%}
 <button type="button" class="btn {{ 'btn-primary' if primary else 'btn-outline' }} fetch-btn" data-busy="fetching"

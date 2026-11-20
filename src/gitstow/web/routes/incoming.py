@@ -419,7 +419,8 @@ def build_incoming(repo, repo_path, result: dict | None = None) -> dict:
                      "unknown": "could not read"}.get(view.kind)
     snapshot = None
     if pullable and kind in ("behind", "stale", "failed", "locked", "fetchfailed") and view.snapshot_ready:
-        snapshot = Snapshot.of(repo_path, st).form()
+        drawn = Snapshot.of(repo_path, st)
+        snapshot = drawn.form() if drawn else None
 
     pinned = kind == "pulled"
     before, after = ((result["before"], result["after"]) if pinned else (view.head, view.tip))
