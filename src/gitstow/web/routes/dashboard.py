@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse
 
 from gitstow.core.config import load_config
 from gitstow.core.git import RepoStatus, get_status, is_git_repo
-from gitstow.core.incoming import Snapshot
+from gitstow.core.incoming import row_pull
 from gitstow.core.parallel import run_parallel
 from gitstow.core.repo import RepoStore
 from gitstow.core.status_model import RepoState, classify
@@ -176,8 +176,20 @@ def _pull_tooltip(variant: str, status_class: str, behind: int, label: str = "")
     return "Pull — fetches, then fast-forwards if the remote has anything new (none known as of the last fetch)."
 
 
-def row_context(repo, ws, repo_path, status, num: int | None, sorted_labels: list[str]) -> dict:
-    """The template context of one library row: the full dashboard and every row swap use this."""
+def probe_row(repo_path):
+    """One row's reads: its status, and when that shows it purely behind, the exact pull its
+    "Pull N" offers (snapshot and N from one capture, core.incoming.row_pull)."""
+    status = get_status(repo_path)
+    pull = row_pull(repo_path) if not status.error and status.behind and not status.ahead else None
+    return status, pull
+
+
+def row_context(repo, ws, repo_path, status, num: int | None, sorted_labels: list[str],
+                pull=None) -> dict:
+    """The template context of one library row: the full dashboard and every row swap use this.
+
+    `pull` is probe_row's (snapshot, count): the "Pull N" button carries that snapshot and
+    shows that N, so the count on the button is always the count the pull takes."""
     exists = status is not None
     state = classify(exists=exists, frozen=repo.frozen, status=status)
     status_class, status_label, pull_variant = _present(state)
@@ -188,12 +200,14 @@ def row_context(repo, ws, repo_path, status, num: int | None, sorted_labels: lis
     if state.presence == "ok" and not state.has_upstream:
         pull_tooltip = "Pull not applicable — no upstream to pull from. Bulk pulls skip it."
     # "Pull N" takes exactly the commit its count came from: the row carries it.
-    drawn = (Snapshot.of(repo_path, status)
-             if pull_variant == "primary" and status and status.upstream_oid else None)
-    snapshot = drawn.form() if drawn else None
+    snapshot = pull[0].form() if pull_variant == "primary" and pull else None
+    pull_count = pull[1] if snapshot else behind_n
+    pull_note = ""
     if pull_variant == "primary" and snapshot is None:  # no id to honour: nothing exact to offer
         pull_variant = "disabled"
-        pull_tooltip = "Pull disabled — the commit this count came from could not be read. Open the repo page."
+        pull_note = ("Pull is off: the commit this count came from could not be pinned (the branch may "
+                     "have just changed). Open the repo page to see what is waiting.")
+        pull_tooltip = pull_note
     page = f"/repo/{repo.workspace}/{repo.key}"
     status_tooltip = f"{_STATUS_TOOLTIPS.get(status_class, status_label)} ({state.local_summary})"
     if status_label == "local edits":
@@ -231,7 +245,9 @@ def row_context(repo, ws, repo_path, status, num: int | None, sorted_labels: lis
         "pull_variant": pull_variant,
         "pull_tooltip": pull_tooltip,
         "pull_snapshot": snapshot,
+        "pull_note": pull_note,
         "behind": behind_n,
+        "pull_count": pull_count,
         "repo_link_tooltip": f"Open details for {repo.key}",
         "changes_link": (
             f"{page}?tab=local" if state.presence == "ok" and state.has_local_changes
@@ -276,10 +292,10 @@ async def _build_repos_data(settings, store) -> tuple[list, dict]:
         ws = ws_by_label[repo.workspace]
         repo_path = repo.get_path(ws.get_path())
         if repo_path.exists() and is_git_repo(repo_path):
-            probe.append((repo.global_key, functools.partial(get_status, repo_path)))
+            probe.append((repo.global_key, functools.partial(probe_row, repo_path)))
     results = await run_parallel(probe, max_concurrent=settings.parallel_limit)
     # A probe that raised is a failed read, never a missing folder or a clean one.
-    status_by_key = {r.key: (r.data if r.success else RepoStatus(error=r.error or "git status failed"))
+    status_by_key = {r.key: (r.data if r.success else (RepoStatus(error=r.error or "git status failed"), None))
                      for r in results}
 
     # Phase 2 — assemble rows in stable order.
@@ -292,7 +308,8 @@ async def _build_repos_data(settings, store) -> tuple[list, dict]:
     for i, repo in enumerate(repos, start=1):
         ws = ws_by_label[repo.workspace]
         repo_path = repo.get_path(ws.get_path())
-        row = row_context(repo, ws, repo_path, status_by_key.get(repo.global_key), i, ws_sorted)
+        status, pull = status_by_key.get(repo.global_key, (None, None))
+        row = row_context(repo, ws, repo_path, status, i, ws_sorted, pull)
         # Counts ladder — one bucket per row; presence and the labels that share
         # a css class (local edits, diverged) are checked before the class itself.
         if repo.frozen:

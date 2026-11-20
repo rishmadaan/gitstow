@@ -16,6 +16,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from gitstow.core.config import load_config, save_config
 from gitstow.core.diff import parse_unified_diff
 from gitstow.core.git import (
+    CommitInfo,
     format_size,
     get_changed_files,
     get_disk_size,
@@ -23,6 +24,7 @@ from gitstow.core.git import (
     get_last_commit,
     is_git_repo,
 )
+from gitstow.core.incoming import failure_text
 from gitstow.core.repo import RepoStore
 from gitstow.core.status_model import classify
 from gitstow.core.tailscale import tailscale_available
@@ -181,7 +183,10 @@ def render_repo_detail(request, workspace: str, key: str, error=None, status_cod
     # One fresh read drives the header, both tabs and the Incoming panel.
     inc = build_incoming(repo, repo_path, result) if exists else None
     status = inc["status"] if inc else None
-    commit = get_last_commit(repo_path) if exists else None
+    try:
+        commit = get_last_commit(repo_path) if exists else None
+    except Exception as exc:  # a header read that raised is shown as failed, not as no commit
+        commit = CommitInfo(error=failure_text(exc))
 
     # Classification comes from the shared status model — same semantics as
     # the dashboard rows (staged/untracked count as local changes).

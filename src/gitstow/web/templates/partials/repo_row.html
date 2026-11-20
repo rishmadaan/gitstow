@@ -23,7 +23,7 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
               hx-vals='{{ repo.pull_snapshot|tojson }}'
               hx-target="closest tr"
               hx-swap="outerHTML"
-              hx-disabled-elt="this">↓ Pull {{ repo.behind }}</button>
+              hx-disabled-elt="this">↓ Pull {{ repo.pull_count }}</button>
     {% elif repo.pull_variant == "disabled" %}
       <button class="btn btn-ghost btn-sm" disabled title="{{ repo.pull_tooltip }}">Pull</button>
     {% else %}

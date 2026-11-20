@@ -59,17 +59,45 @@ def client(isolated):
 
 
 @pytest.fixture(autouse=True)
-def _fake_refs_for_fake_repos(monkeypatch):
-    """The fake repos below have an empty .git; a snapshot of their fake status names main."""
+def _fake_capture_for_fake_repos(monkeypatch):
+    """The fake repos below have an empty .git: their branch capture is built from their fake
+    status (looked up at call time, so a test's own get_status patch drives both)."""
+    from gitstow.core import git as core_git
     from gitstow.core import incoming
 
-    real = incoming.branch_refs
+    real_capture, real_count = incoming.capture_branch, incoming.count_between
 
-    def refs(path):
-        if (path / ".git" / "HEAD").exists():
-            return real(path)
-        return b"refs/heads/main", b"refs/remotes/origin/main"
-    monkeypatch.setattr(incoming, "branch_refs", refs)
+    def fake(path) -> bool:
+        return not (path / ".git" / "HEAD").exists()
+
+    def status_of(path):  # whichever module's get_status the test replaced
+        from gitstow.web.routes import dashboard, repos
+        patched = [f for f in (incoming.get_status, dashboard.get_status, repos.get_status)
+                   if f is not core_git.get_status]
+        return (patched[0] if patched else core_git.get_status)(path)
+
+    def capture(path):
+        if not fake(path):
+            return real_capture(path)
+        st = status_of(path)
+        if st.error:
+            return st.error
+        if st.branch == "(detached)":
+            return core_git.BranchCapture()
+        ref = b"refs/heads/" + st.branch.encode()
+        up = (b"refs/remotes/" + st.upstream.encode()) if st.has_upstream and st.upstream else b""
+        return core_git.BranchCapture(branch=ref, head=st.head_oid or "a" * 40, upstream=up,
+                                      tip="" if st.upstream_gone or not up else st.upstream_oid,
+                                      heads={ref: st.head_oid})
+
+    def count(path, head, tip):
+        if not fake(path):
+            return real_count(path, head, tip)
+        st = status_of(path)
+        return st.ahead, st.behind
+
+    monkeypatch.setattr(incoming, "capture_branch", capture)
+    monkeypatch.setattr(incoming, "count_between", count)
 
 
 def _fake_status(**kw) -> RepoStatus:
@@ -985,7 +1013,7 @@ class TestStatusModelInWeb:
         """"Pull 3" must carry the commit its count came from; with none, there is no exact pull to offer."""
         self._seed(workspace_dir, _fake_status(behind=3, upstream_oid=""), monkeypatch)
         r = client.get("/dashboard/rows")
-        assert "↓ Pull 3" not in r.text and "could not be read" in r.text
+        assert "↓ Pull 3" not in r.text and "could not be pinned" in r.text
 
     def test_diverged_disables_pull(self, client, configured, workspace_dir, monkeypatch):
         # Diverged + clean local: ff-only pull can't succeed, so Pull is disabled.

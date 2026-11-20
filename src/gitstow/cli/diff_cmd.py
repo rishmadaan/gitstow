@@ -120,19 +120,18 @@ def diff_cmd(
 def _incoming(r, path, output_json: bool, quiet: bool) -> None:
     """--incoming: git's own log and patch for branch..upstream, or the same facts as JSON."""
     view = read_incoming(path)
-    st = view.status
     if view.kind == "unknown":
         err_console.print(f"[red]Error:[/red] could not read {r.key}: {view.error}")
         raise typer.Exit(code=1)
     notes = {
         "detached": "no branch is checked out (detached HEAD), so there is nothing to compare",
-        "noupstream": f"{st.branch} has no upstream selected, so there is nothing to compare",
+        "noupstream": f"{view.branch} has no upstream selected, so there is nothing to compare",
         "noremote": f"no remote is configured for {r.key}, so there is nothing to compare",
     }
     payload = {
-        "repo": r.key, "workspace": r.workspace, "branch": st.branch,
-        "upstream": st.upstream or None, "from": view.head or None, "to": view.tip or None,
-        "state": view.kind, "behind": st.behind, "ahead": st.ahead,
+        "repo": r.key, "workspace": r.workspace, "branch": view.branch,
+        "upstream": view.upstream or None, "from": view.head or None, "to": view.tip or None,
+        "state": view.kind, "behind": view.behind, "ahead": view.ahead,
         "last_fetched": r.last_fetched or None,
     }
     if view.kind in notes:
@@ -141,7 +140,7 @@ def _incoming(r, path, output_json: bool, quiet: bool) -> None:
         elif not quiet:
             err_console.print(f"[yellow]note:[/yellow] {notes[view.kind]}")
         return
-    if not st.behind:
+    if not view.behind:
         if output_json:
             _dump({**payload, "commits": [], "files": []})
         elif not quiet:

@@ -23,7 +23,7 @@ from gitstow.core.git import PullResult, get_status, is_git_repo
 from gitstow.core.git import clone as git_clone
 from gitstow.core.git import fetch as git_fetch
 from gitstow.core.git import pull as git_pull
-from gitstow.core.incoming import Snapshot, pull_exact
+from gitstow.core.incoming import Snapshot, pull_exact, row_pull
 from gitstow.core.operations import move_repo
 from gitstow.core.parallel import run_parallel
 from gitstow.core.repo import MISSING_FOLDER_HINT, Repo, RepoStore, inside_workspace, target_for
@@ -42,7 +42,9 @@ def _row_context(repo, settings, sorted_labels, num: int | None) -> dict | None:
         return None
     repo_path = repo.get_path(ws.get_path())
     exists = repo_path.exists() and is_git_repo(repo_path)
-    return row_context(repo, ws, repo_path, get_status(repo_path) if exists else None, num, sorted_labels)
+    status = get_status(repo_path) if exists else None
+    pull = row_pull(repo_path) if status and not status.error and status.behind and not status.ahead else None
+    return row_context(repo, ws, repo_path, status, num, sorted_labels, pull)
 
 
 #: What a library row says when its exact pull refused; the row is re-read and redrawn.
@@ -84,7 +86,9 @@ async def pull_single(workspace: str, key: str, request: Request):
         exact = await asyncio.to_thread(pull_exact, repo_path, snapshot, _frozen)
         succeeded = exact.success
         if not succeeded:
-            error = _ROW_REFUSALS.get(exact.outcome) or (
+            error = (f"Not pulled: since this row was drawn, {exact.message}. The row now shows what is waiting."
+                     if exact.outcome == "changed" and exact.changes
+                     else _ROW_REFUSALS.get(exact.outcome)) or (
                 f"Not pulled: {_git_message(exact.message)}" if exact.outcome in ("locked", "unreadable")
                 else f"Pull failed: {_git_message(exact.message)}")
     else:

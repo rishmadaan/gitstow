@@ -1187,6 +1187,9 @@ details.diff-file[open] > summary { border-bottom: 1px solid var(--border); }
 #repo-page.is-fetching .as-prev { display: inline; }
 #repo-page.is-busy .idle-only { display: none; }
 #repo-page.is-fetching .pull-btn { display: none; }
+/* A result describes the operation that just ran; while a new one runs it is put away. */
+#repo-page.is-busy .inc-result-wrap { display: none; }
+.block.inc-now-head { margin-bottom: 0.6rem; }
 
 @media (max-width: 640px) {
   /* At phone width the three nav links spilled 22px past a 390px screen. */

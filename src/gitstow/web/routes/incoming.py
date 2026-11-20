@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shlex
+from dataclasses import replace
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request
@@ -22,13 +23,24 @@ from markupsafe import Markup, escape
 
 from gitstow.core.config import load_config
 from gitstow.core.diff import parse_unified_diff
+from gitstow.core.git import (
+    RepoStatus,
+    format_size,
+    get_file_diff,
+    is_git_repo,
+    is_oid,
+    read_range_files,
+    ref_label,
+)
 from gitstow.core.git import fetch as git_fetch
-from gitstow.core.git import format_size, get_file_diff, is_git_repo, is_oid, read_range_files
 from gitstow.core.incoming import (
     FILE_LIMIT,
     STALE_FETCH_DAYS,
+    IncomingView,
     RangeRead,
     Snapshot,
+    Unreadable,
+    failure_text,
     pull_exact,
     read_incoming,
     read_range,
@@ -161,57 +173,228 @@ def _file_rows(rng: RangeRead, tags: dict[str, str]) -> list[dict]:
     return rows
 
 
-def build_incoming(repo, repo_path, result: dict | None = None) -> dict:
-    """Everything the Incoming tab, the tab counts and the header pills say, from one fresh read.
+def _lists(rng: RangeRead, repo, before: str, after: str, pinned: bool, now: datetime,
+           tags_for: dict[str, str]) -> dict:
+    """The commit and file lists of one range read, with the commands for what they leave out."""
+    n_all = _n(rng.commit_total)
+    uncut = _sh("gitstow", "diff", repo.key, "--incoming")
+    span_bits = []
+    if rng.commits_cut and rng.first_time:
+        span_bits.append(_span(_local(rng.first_time), _local(rng.last_time), now))
+    if rng.tags:
+        shown_tags = ", ".join(rng.tags[:8]) + (f" and {len(rng.tags) - 8} more" if len(rng.tags) > 8 else "")
+        span_bits.append(f"{'Tag' if len(rng.tags) == 1 else 'Tags'} inside this update: {shown_tags}")
+    return {
+        "count": n_all,
+        "stats": Markup("{} · <span class=\"diff-add\">+{}</span> <span class=\"diff-del\">−{}</span>{} · {}").format(
+            _plural(rng.file_total, "file"), _n(rng.added), _n(rng.removed),
+            f" · {_n(rng.binary_total)} binary" if rng.binary_total else "", _plural(rng.authors, "author")),
+        "span": " · ".join(span_bits),
+        "commits": _commit_rows(rng.commits, now), "commits_cut": rng.commits_cut,
+        "commits_rest": _n(rng.commit_total - len(rng.commits)),
+        "commits_rest_cmd": (f"The messages of all {n_all}, in a terminal, run in this repo's folder: "
+                             + _sh("git", "log", f"{before[:7]}..{after[:7]}") if pinned
+                             else f"All {n_all}, uncut, in a terminal: {uncut}"),
+        "files": _file_rows(rng, tags_for), "file_total": _n(rng.file_total), "files_cut": rng.files_cut,
+        "file_limit": FILE_LIMIT,
+        "files_rest_cmd": ("Every file and its patch, in a terminal, run in this repo's folder: "
+                           + _sh("git", "diff", before[:7], after[:7]) if pinned
+                           else f"Everything, uncut, in a terminal: {uncut}"),
+        "kinds_line": (" · ".join(f"{_n(c)} {k}" for k, c in sorted(rng.kind_counts.items(), key=lambda kv: -kv[1]))
+                       if rng.files_cut else ""),
+        "diff_from": before, "diff_to": after, "pinned": pinned,
+    }
 
-    `result` is what an operation on this page just did (pull, fetch) and changes
-    the panel to that operation's outcome; the read itself always happens after it.
+
+def _gitsaid(text: str, wrap: bool = True) -> Markup:
+    return Markup('<pre class="gitsaid{}">{}</pre>').format(" wrap" if wrap else "", text)
+
+
+def _change_html(c: dict) -> Markup:
+    """One difference between the reviewed list and the repo now (core.incoming.what_changed)."""
+    w = c["what"]
+    if w == "branch":
+        if not c["now"]:
+            return Markup("No branch is checked out any more; this list was drawn for {}.").format(_code(c["was"]))
+        if c["alike"]:
+            return Markup("You switched from {} to another branch whose name reads the same since this list "
+                          "was drawn.").format(_code(c["was"]))
+        return Markup("You switched from {} to {} since this list was drawn.").format(_code(c["was"]), _code(c["now"]))
+    if w == "upstream":
+        if not c["now"]:
+            return Markup("{} no longer follows {}.").format(_code(c["name"]), _code(c["was"]))
+        if c["alike"]:
+            return Markup("{} now follows another branch whose name reads {}.").format(_code(c["name"]), _code(c["now"]))
+        return Markup("{} now follows {} instead of {}.").format(_code(c["name"]), _code(c["now"]), _code(c["was"]))
+    return Markup("{} was at {}, now at {}.").format(
+        _code(c["name"]), _code(c["was"][:7]), _code(c["now"][:7]) if c["now"] else Markup("no commit"))
+
+
+def build_result(repo, repo_path, result: dict, now: datetime) -> dict:
+    """What an operation on this page just did, from what the operation itself measured.
+
+    Built before and apart from the fresh inspection, and never changed by it: a read that
+    fails afterwards cannot erase git's message or the measured ids.
+    """
+    op = result["op"]
+    br = _code(result.get("branch_name") or "the branch")
+    before, after = result.get("before", ""), result.get("after", "")
+    message = result.get("message", "")
+    stamp = f"{_day(now, now)}, {now:%H:%M}"
+    res = {"op": op, "facts": [], "lists": None, "title": "", "panel_class": "is-blocked", "retry": False}
+    facts = res["facts"]
+    if op == "pulled":
+        res["panel_class"] = "is-done"
+        facts.append(_fact("clear", "done", Markup(
+            "<b>{} moved from {} to {}</b> ({}). Both ids were read back from git after the pull finished.").format(
+            br, _code(before[:7]), _code(after[:7]), stamp)))
+        try:
+            rng = read_range(repo_path, before, after)
+        except Exception as exc:  # a read that raised is a failed read
+            rng = failure_text(exc)
+        if isinstance(rng, str):  # the move above was measured; only the list of what came in is missing
+            res["title"] = "Pulled"
+            facts.append(_fact("blocked", "not read", Markup(
+                "<b>The list of what came in could not be read.</b> In a terminal, run in this repo's folder: "
+                "{} git said: {}").format(_code(_sh("git", "log", f"{before[:7]}..{after[:7]}")), _gitsaid(rng))))
+        else:
+            res["title"] = f"Pulled {_plural(rng.commit_total, 'commit')}"
+            res["lists"] = _lists(rng, repo, before, after, True, now, {})
+        facts.append(_fact("info", "next", Markup(
+            "This pull did not fetch, so the remote may have newer commits. What is here now is read again below.")))
+    elif op in ("changed", "edited", "frozen", "unreadable", "locked"):
+        res["title"] = {"changed": "Not pulled: changed since review", "locked": "Not pulled: another pull is running",
+                        }.get(op, "Not pulled")
+        facts.append(_fact("blocked", "stopped", Markup("<b>Nothing was pulled.</b> {}").format({
+            "changed": "Upstream or your branch changed since this list was drawn.",
+            "edited": "Files in this folder are now edited or staged.",
+            "frozen": "This repo is frozen.",
+            "unreadable": "This folder could not be read when the pull checked it, so it did not go ahead.",
+            "locked": "Another gitstow pull is running on this repo.",
+        }[op])))
+        for c in result.get("changes") or []:
+            facts.append(_fact("info", "what", _change_html(c)))
+        if op == "changed" and not result.get("changes"):
+            facts.append(_fact("info", "what", Markup("{}.").format(message.capitalize())))
+        if op == "unreadable":
+            facts.append(_fact("blocked", "git said", _gitsaid(message)))
+    elif op == "failed":
+        res["title"] = "Pull failed"
+        facts.append(_fact("blocked", "git said", _gitsaid(message, wrap=False)))
+        if not result.get("merged"):
+            facts.append(_fact("clear", "checked", Markup(
+                "Nothing was pulled: gitstow stopped before asking git to move {}{}.").format(
+                br, Markup(", which is at {}").format(_code(before[:7])) if before else "")))
+        elif after and after == before:
+            facts.append(_fact("clear", "checked", Markup(
+                "Read back afterwards: {} is still at {}. Nothing was pulled.").format(br, _code(before[:7]))))
+        elif after:
+            facts.append(_fact("note", "checked", Markup(
+                "Read back afterwards: {} moved from {} to {}, so part of the pull may have happened. "
+                "Check this folder in a terminal (git status, git log) before going on.").format(
+                br, _code(before[:7]), _code(after[:7]))))
+        else:
+            facts.append(_fact("note", "checked", Markup(
+                "Where {} is now could not be read back afterwards (it was at {}). Check this folder in a "
+                "terminal (git status, git log) before going on.").format(br, _code(before[:7]))))
+        blocked_files = [line.strip() for line in message.splitlines() if line.startswith("\t")]
+        if "untracked working tree files would be overwritten" in message and blocked_files:
+            facts.append(_fact("info", "next", Markup(
+                "git stopped rather than overwrite a file in this folder that it does not track "
+                "(untracked or ignored): {}. This update brings a file with that name. Move or rename "
+                "yours in a terminal, then try again.").format(Markup(", ").join(_code(p) for p in blocked_files[:5]))))
+        elif not after or after == before or not result.get("merged"):
+            facts.append(_fact("info", "next", Markup("Resolve what git reports in a terminal, then try again.")))
+    elif op == "fetchfailed":
+        res["title"], res["retry"] = "Fetch failed", True
+        facts.append(_fact("blocked", "git said", _gitsaid(message)))
+        fetched = _fetch_info(repo.last_fetched, now)
+        facts.append(_fact("note", "old fetch", Markup(
+            "<b>No fetch recorded by gitstow.</b> The fetch at {} failed, so there is still none on record.").format(
+            f"{now:%H:%M}") if fetched["none"] else Markup(
+            "<b>Last fetch recorded by gitstow: {}</b> ({}). The fetch at {} failed, so that is still the latest "
+            "one on record.").format(fetched["rel"], fetched["abs"], f"{now:%H:%M}")))
+    return res
+
+
+def build_incoming(repo, repo_path, result: dict | None = None) -> dict:
+    """The Incoming tab: what an operation just did (`result`, if any), then one fresh read of the repo.
+
+    The two are built apart. The result says only what the operation measured; the
+    inspection below it says only what the fresh read found, and a failed read there
+    is "Could not check" with git's message, whatever the operation did.
     """
     now = datetime.now()
+    res = build_result(repo, repo_path, result, now) if result else None
     view = read_incoming(repo_path)
-    st = view.status
-    op = (result or {}).get("op", "")
+    prev_tip = (result or {}).get("prev_tip", "") if (result or {}).get("op") == "fetchfailed" else None
+    inc = (_unreadable(repo, view, now) if isinstance(view, Unreadable)
+           else _inspection(repo, repo_path, view, now, prev_tip))
+    inc["result"] = res
+    inc["compact"] = bool(res) and res["op"] == "changed"  # the reviewed list is off the screen; Show redraws
+    inc["secondary"] = bool(res)  # the result's own button, if any, is the page's main one
+    return inc
+
+
+def _unreadable(repo, view: Unreadable, now: datetime) -> dict:
+    st = RepoStatus(branch="unknown", error=view.error)
+    return {
+        "kind": "unknown", "base": "unknown", "panel_class": "is-blocked", "eyebrow_label": "could not read",
+        "branch": "", "upstream": "", "head7": "", "tip7": "", "title": "Could not check", "stats": "", "span": "",
+        "lede": [Markup("gitstow could not read this repo, so it cannot say whether anything is incoming "
+                        "or whether a pull would work.")],
+        "command": "", "snapshot": None, "now_behind": 0, "frozen": repo.frozen, "lists": None, "as_prev": False,
+        "facts": [
+            _fact("blocked", "failed", Markup(
+                "Reading this folder failed ({}). The commit count, the file list and the local changes "
+                "all depend on that read.").format(f"{_day(now, now)}, {now:%H:%M}")),
+            _fact("blocked", "git said", _gitsaid(view.error)),
+            _fact("info", "so", Markup(
+                "Nothing here is shown as clean, behind or safe to pull. Whether commits are waiting, and "
+                "whether files are edited in this folder, is <b>unknown</b> until the read works.")),
+        ],
+        "local_commits": [], "local_commit_total": "", "local_commits_cut": False, "local_log_cmd": "",
+        "incoming_count": "?", "local_count": "?", "local": None, "local_overlap": set(),
+        "status_error": view.error, "fetch_prev": {"prev_tip": ""}, "status": st,
+    }
+
+
+def _inspection(repo, repo_path, view: IncomingView, now: datetime, prev_tip: str | None) -> dict:
+    """The panel for a read that worked. Every label, id and count comes from the view's one capture."""
+    st = view.status  # local edits only
     fetched = _fetch_info(repo.last_fetched, now)
-    br, up = _code(st.branch), _code(st.upstream)
+    br, up = _code(view.branch), _code(view.upstream)
     head7, tip7 = view.head[:7], view.tip[:7]
     edited = st.edited  # distinct files: one both staged and edited again is one file
     rng = view.incoming
 
-    # The state of the repo, then what just happened to it on top.
-    base = view.kind
-    if base == "behind":
+    kind = view.kind
+    if kind == "behind":
         if repo.frozen:
-            base = "frozen"
+            kind = "frozen"
         elif edited:
-            base = "blocked"
+            kind = "blocked"
         elif fetched["old"]:
-            base = "stale"
-    kind = base
-    if op == "pulled":
-        kind = "pulled"
-    elif op == "failed":  # git's message always shows; where the branch is now is re-read below
-        kind = "failed"
-    elif op == "locked" and base in ("behind", "stale"):
-        kind = "locked"
-    elif op in ("changed", "locked"):  # both refuse before any change
-        kind = "changed"
-    elif op == "fetchfailed":
-        kind = "fetchfailed"
-    has_list = base in ("behind", "stale", "blocked", "diverged", "frozen") and kind != "changed"
-    pullable = base in ("behind", "stale")
+            kind = "stale"
+    has_list = rng is not None
+    after_failed_fetch = prev_tip is not None
 
     cmp_line = Markup("This list compares {} at {} with {} at {}.").format(br, _code(head7), up, _code(tip7))
     facts: list[dict] = []
     lede: list[Markup] = []
     command = ""
 
-    if op in ("edited", "frozen", "unreadable"):
-        facts.append(_fact("blocked", "stopped", Markup("<b>Nothing was pulled.</b> {}.").format(
-            {"edited": "Files in this folder are now edited or staged",
-             "frozen": "This repo is frozen",
-             "unreadable": "This folder's status could not be read"}[op])))
-
-    if has_list and kind not in ("pulled", "fetchfailed"):
+    if after_failed_fetch and view.tip:
+        if prev_tip == view.tip:
+            facts.append(_fact("info", "checked", Markup(
+                "Re-read after the failed fetch: {} is still at {}, so {} as of the previous fetch. Newer upstream "
+                "changes may be missing.").format(
+                up, _code(tip7), "the list below is" if has_list else "this is")))
+        else:
+            facts.append(_fact("info", "checked", Markup(
+                "Re-read after the failed fetch: {} is now at {}, so part of the fetch got through; what is shown "
+                "below is what is here now. Other changes may be missing.").format(up, _code(tip7))))
+    elif has_list:
         fetch_btn = Markup('<button type="button" class="linkbtn" data-busy="fetching" '
                            'hx-post="{}" hx-vals=\'{}\' hx-target="#repo-page" hx-select="#repo-page" '
                            'hx-swap="outerHTML">⟳ Fetch again</button>').format(
@@ -220,11 +403,11 @@ def build_incoming(repo, repo_path, result: dict | None = None) -> dict:
         if fetched["none"]:
             facts.append(_fact("note", "old fetch", Markup(
                 "<b>No fetch recorded by gitstow.</b> Newer upstream changes may be missing. {}{}").format(
-                cmp_line, Markup(" ") + fetch_btn if base != "stale" else "")))
+                cmp_line, Markup(" ") + fetch_btn if kind != "stale" else "")))
         elif fetched["old"]:
             facts.append(_fact("note", "old fetch", Markup(
                 "<b>Last fetch recorded by gitstow: {}</b> ({}). Newer upstream changes may be missing. {}{}").format(
-                fetched["rel"], fetched["abs"], cmp_line, Markup(" ") + fetch_btn if base != "stale" else "")))
+                fetched["rel"], fetched["abs"], cmp_line, Markup(" ") + fetch_btn if kind != "stale" else "")))
         else:
             facts.append(_fact("info", "as of", Markup("Last fetch recorded by gitstow: {} ({}). {} {}").format(
                 fetched["rel"], fetched["abs"], cmp_line, fetch_btn)))
@@ -240,20 +423,18 @@ def build_incoming(repo, repo_path, result: dict | None = None) -> dict:
     hits = [p for p in view.overlap if p in edited_paths]
     # A ChangedFiles holding an error is falsy (no lists): test presence, never truthiness.
     local_error = view.local.error if view.local is not None else ""
-    git_said_local = Markup('<pre class="gitsaid wrap">{}</pre>').format(local_error)
 
-    if base in ("behind", "stale") and kind in ("behind", "stale", "failed", "locked", "fetchfailed"):
-        if kind not in ("failed", "locked", "fetchfailed"):
-            facts += [clear_ff, clear_edits]
-        if untracked_hit and kind not in ("failed", "locked"):
+    if kind in ("behind", "stale"):
+        facts += [clear_ff, clear_edits]
+        if untracked_hit:
             facts.append(_fact("note", "note", Markup(
                 "An untracked file in this folder has the same name as a file this update brings: {}. "
                 "git stops rather than overwrite it.").format(Markup(", ").join(_code(p) for p in untracked_hit))))
-    if base == "blocked" and kind not in ("changed",):
+    if kind == "blocked":
         if local_error:
             facts.append(_fact("blocked", "blocked", Markup(
                 "<b>Pull is off while files in this folder are edited or staged.</b> Which files, and whether "
-                "this update changes any of them, could not be checked. git said: {}").format(git_said_local)))
+                "this update changes any of them, could not be checked. git said: {}").format(_gitsaid(local_error))))
         elif hits:
             others = [p for p in edited_paths if p not in hits]
             facts.append(_fact("blocked", "blocked", Markup(
@@ -274,21 +455,22 @@ def build_incoming(repo, repo_path, result: dict | None = None) -> dict:
                 "<b>Pull is off while files in this folder are edited or staged ({}).</b> "
                 "None of them is a file this update changes.").format(len(edited_paths))))
         facts.append(_fact("clear", "clear", Markup("{} has no commits that {} lacks.").format(br, up)))
-    elif local_error and has_list and kind not in ("changed", "pulled"):
+    elif local_error and has_list:
         facts.append(_fact("note", "note", Markup(
             "This folder's local files could not be listed, so whether one has the same name as a file this "
-            "update brings is unknown (Pull stops rather than overwrite one). git said: {}").format(git_said_local)))
-    if base == "frozen" and kind != "changed":
+            "update brings is unknown (Pull stops rather than overwrite one). git said: {}").format(
+            _gitsaid(local_error))))
+    if kind == "frozen":
         facts.append(_fact("note", "frozen", Markup(
             "<b>You froze this repo.</b> Pull all skips it, and there is no Pull here until you unfreeze.")))
         facts.append(clear_ff)
         facts.append(clear_edits if not edited else _fact("note", "note", Markup(
             "Files in this folder are edited or staged ({}); Pull would stay off after unfreezing until "
             "they are resolved.").format(edited)))
-    if base == "diverged" and kind != "changed":
+    if kind == "diverged":
         facts.append(_fact("blocked", "blocked", Markup(
             "<b>Diverged: {} not in {}.</b> gitstow only fast-forwards, so it will not pull here.").format(
-            _plural(view.local_commit_total, "local commit"), up)))
+            _plural(view.ahead, "local commit"), up)))
         if view.both_changed:
             facts.append(_fact("note", "note", Markup(
                 "<b>{} changed on both branches:</b> {}. Conflicts have not been checked.").format(
@@ -299,111 +481,12 @@ def build_incoming(repo, repo_path, result: dict | None = None) -> dict:
             "No edited or staged files in this folder when this page was drawn.")) if not edited
             else _fact("note", "note", Markup("Files in this folder are edited or staged ({}).").format(edited)))
 
-    now_hm = f"{now:%H:%M}"
-    if kind == "pulled":
-        before, after = result["before"], result["after"]
-        facts = [
-            _fact("clear", "done", Markup(
-                "<b>{} moved from {} to {}</b> ({}). Both ids were read back from git after the pull finished.").format(
-                br, _code(before[:7]), _code(after[:7]), f"{_day(now, now)}, {now_hm}")),
-            _fact("clear", "checked", Markup(
-                "Status re-read after the pull: no edited or staged files in this folder.")) if not edited and not st.error
-            else _fact("note", "checked", Markup("Status re-read after the pull: {}.").format(
-                st.error or f"{edited} edited or staged files in this folder")),
-        ]
-        level = (Markup("{} is now at the same commit as {}.").format(br, up) if view.kind == "none"
-                 else Markup("{} is now at {}; {} is at {}.").format(br, _code(view.head[:7]), up, _code(view.tip[:7]))
-                 if view.head and view.tip else Markup(""))
-        fetch_words = (Markup("No fetch recorded by gitstow") if fetched["none"] else
-                       Markup("Last fetch recorded by gitstow: {} ({})").format(fetched["rel"], fetched["abs"]))
-        facts.append(_fact("info", "as of", Markup(
-            "{} {}; this pull did not fetch. The remote may have newer commits. Fetch to check.").format(
-            level, fetch_words)))
-        rng = read_range(repo_path, before, after)
-        if rng.error:  # the move above was read back; only the list of what came in is missing
-            facts.insert(1, _fact("blocked", "not read", Markup(
-                "<b>The list of what came in could not be read.</b> In a terminal, run in this repo's folder: "
-                "{} git said: {}").format(_code(_sh("git", "log", f"{before[:7]}..{after[:7]}")),
-                                          Markup('<pre class="gitsaid wrap">{}</pre>').format(rng.error))))
-    elif kind in ("failed", "locked"):
-        message = result.get("message", "")
-        if kind == "failed":
-            facts.insert(0, _fact("blocked", "git said", Markup('<pre class="gitsaid">{}</pre>').format(message)))
-        else:
-            facts.insert(0, _fact("blocked", "stopped", Markup(
-                "<b>Nothing was pulled.</b> Another gitstow pull is running on this repo.")))
-        # "Nothing was pulled" only when the branch is still where the pull found it: a command
-        # can fail after moving it (a merge that timed out once HEAD was updated).
-        was, now_id = result.get("before", ""), st.head_oid
-        unmoved = bool(was) and now_id == was
-        still = (Markup("{} is still at {}").format(br, _code(was[:7])) if unmoved
-                 else Markup("{} moved from {} to {}").format(br, _code(was[:7]), _code(now_id[:7]))
-                 if was and now_id else Markup("where {} is now could not be read").format(br))
-        facts.append(_fact("clear" if unmoved and not edited else "note", "checked", Markup(
-            "Re-read after the failure: {}, and {}.").format(
-            still, Markup("no file in this folder shows as edited or staged") if not edited
-            else Markup("{} files in this folder are edited or staged").format(edited))))
-        if kind == "failed" and not unmoved:
-            facts.append(_fact("info", "next", Markup(
-                "git reported a failure, but {} is not where the pull found it, so part of the pull may have "
-                "happened. Check this folder in a terminal (git status, git log) before going on.").format(br)))
-        elif kind == "failed":
-            blocked_files = [line.strip() for line in message.splitlines() if line.startswith("\t")]
-            if "untracked working tree files would be overwritten" in message and blocked_files:
-                facts.append(_fact("info", "next", Markup(
-                    "git stopped rather than overwrite a file in this folder that it does not track "
-                    "(untracked or ignored): {}. This update brings a file with that name. Move or rename "
-                    "yours in a terminal, then try again.").format(
-                    Markup(", ").join(_code(p) for p in blocked_files[:5]))))
-            else:
-                facts.append(_fact("info", "next", Markup(
-                    "Resolve what git reports in a terminal, then try again. Nothing was pulled.")))
-    elif kind == "changed":
-        old_tip = (result or {}).get("snapshot_target", "")
-        facts = [_fact("blocked", "stopped", Markup(
-            "<b>Nothing was pulled.</b> Upstream or your branch changed since this list was drawn."))]
-        if view.head and view.tip:
-            facts.append(_fact("info", "what", Markup(
-                "When this list was drawn, {} was at {}. It is now at {}, with {} waiting. {} is at {}.").format(
-                up, _code(old_tip[:7]) if old_tip else Markup("another commit"), _code(tip7),
-                _plural(st.behind, "commit"), br, _code(head7))))
-    elif kind == "fetchfailed":
-        prev_tip = (result or {}).get("prev_tip", "")
-        facts = [_fact("blocked", "git said", Markup('<pre class="gitsaid wrap">{}</pre>').format(result["message"]))]
-        if fetched["none"]:
-            facts.append(_fact("note", "old fetch", Markup(
-                "<b>No fetch recorded by gitstow.</b> The fetch at {} failed, so there is still none on record.").format(now_hm)))
-        else:
-            facts.append(_fact("note", "old fetch", Markup(
-                "<b>Last fetch recorded by gitstow: {}</b> ({}). The fetch at {} failed, so that is still the "
-                "latest one on record.").format(fetched["rel"], fetched["abs"], now_hm)))
-        if view.tip and prev_tip == view.tip:
-            facts.append(_fact("info", "checked", Markup(
-                "Re-read after the failure: {} is still at {}, so the list below is as of the previous fetch. "
-                "Newer upstream changes may be missing. {}").format(up, _code(tip7), cmp_line if has_list else "")))
-        elif view.tip:
-            facts.append(_fact("info", "checked", Markup(
-                "Re-read after the failure: {} is now at {}, so part of the fetch got through; what is shown "
-                "below is what is here now. Other changes may be missing.").format(up, _code(tip7))))
-
-    if view.kind == "unknown":
-        lede.append(Markup("gitstow could not read this repo, so it cannot say whether anything is incoming "
-                           "or whether a pull would work."))
-        facts = [
-            _fact("blocked", "failed", Markup(
-                "Reading this folder failed ({}). The commit count, the file list and the local changes "
-                "all depend on that read.").format(f"{_day(now, now)}, {now_hm}")),
-            _fact("blocked", "git said", Markup('<pre class="gitsaid wrap">{}</pre>').format(view.error)),
-            _fact("info", "so", Markup(
-                "Nothing here is shown as clean, behind or safe to pull. Whether commits are waiting, and "
-                "whether files are edited in this folder, is <b>unknown</b> until the read works.")),
-        ]
-    elif view.kind == "detached":
+    if kind == "detached":
         lede.append(Markup("No branch is checked out in this folder (detached HEAD at {}), so there is no "
                            "upstream to compare with and gitstow cannot list incoming commits. Pull all skips "
                            "this repo.").format(_code(st.head_oid[:7])))
         lede.append(Markup("Check out a branch in a terminal, then reload this page."))
-    elif view.kind == "noupstream":
+    elif kind == "noupstream":
         lede.append(Markup("{} in this folder is not set to follow a remote branch, so gitstow has nothing to "
                            "compare it with and cannot list incoming commits. Pull all skips this repo.").format(br))
         if view.upstream_hint:
@@ -411,111 +494,69 @@ def build_incoming(repo, repo_path, result: dict | None = None) -> dict:
             lede.append(Markup("The repo does have a remote, {}, and gitstow can see a branch {} from it. To make "
                                "{} follow that branch, run this in the repo's folder, then reload this page:").format(
                 _code(remote), _code(view.upstream_hint), br))
-            command = _sh("git", "branch", f"--set-upstream-to={view.upstream_hint}", st.branch)
+            command = _sh("git", "branch", f"--set-upstream-to={view.upstream_hint}", view.branch)
         else:
             lede.append(Markup("The repo has a remote, but gitstow sees no branch named {} on it. Choosing the "
                                "branch to follow happens in a terminal (git branch --set-upstream-to).").format(br))
-    elif view.kind == "noremote":
+    elif kind == "noremote":
         lede.append(Markup("No remote is configured for this checkout. gitstow has nothing to fetch from and "
                            "nothing to compare {} with, so it lists no incoming commits.").format(br))
         lede.append(Markup("If it should follow one, that is set up in a terminal: add the remote "
                            "(<code>git remote add</code>), fetch, then choose the branch to follow."))
     fetch_sentence = (Markup("Last fetch recorded by gitstow: none on record.") if fetched["none"] else
                       Markup("Last fetch recorded by gitstow: {} ({}).").format(fetched["rel"], fetched["abs"]))
-    if view.kind == "ahead" and kind != "fetchfailed":
+    if kind == "ahead":
         lede.append(Markup("{} (at {}) has nothing that {} lacks. {} has {} that {} does not have; "
                            "{} listed below.").format(
-            up, _code(tip7), br, br, _plural(st.ahead, "commit"), up, "it is" if st.ahead == 1 else "they are"))
-        lede.append(fetch_sentence + Markup(" The remote may have newer commits. Fetch to check."))
-    if view.kind == "none" and kind not in ("pulled", "fetchfailed"):
-        lede.append(Markup("{} and {} are at the same commit, {}. {} The remote may have newer commits. "
-                           "Fetch to check.").format(br, up, _code(head7), fetch_sentence))
+            up, _code(tip7), br, br, _plural(view.ahead, "commit"), up, "it is" if view.ahead == 1 else "they are"))
+        if not after_failed_fetch:
+            lede.append(fetch_sentence + Markup(" The remote may have newer commits. Fetch to check."))
+    if kind == "none":
+        lede.append(Markup("{} and {} are at the same commit, {}.{}").format(
+            br, up, _code(head7), "" if after_failed_fetch else Markup(" {} The remote may have newer commits. "
+                                                                      "Fetch to check.").format(fetch_sentence)))
 
     titles = {
-        "unknown": "Could not check", "detached": "No upstream selected", "noupstream": "No upstream selected",
+        "detached": "No upstream selected", "noupstream": "No upstream selected",
         "noremote": "No remote", "none": "Up to date",
-        "ahead": f"Nothing incoming, {_n(st.ahead)} ahead",
-        "diverged": f"Diverged: {_n(rng.commit_total)} incoming, {_n(view.local_commit_total)} local",
-        "pulled": f"Pulled {_plural(rng.commit_total, 'commit')}" if not rng.error else "Pulled",
-        "failed": "Pull failed",
-        "locked": "Not pulled: another pull is running", "changed": "Not pulled: changed since review",
-        "fetchfailed": "Fetch failed",
+        "ahead": f"Nothing incoming, {_n(view.ahead)} ahead",
+        "diverged": f"Diverged: {_n(view.behind)} incoming, {_n(view.ahead)} local",
     }
-    title = titles.get(kind, f"{_plural(rng.commit_total, 'commit')} waiting")
+    title = titles.get(kind, f"{_plural(view.behind, 'commit')} waiting")
 
-    show_lists = (kind == "pulled" and not rng.error) or (has_list and kind != "changed")
-    stats = ""
-    if show_lists and kind != "fetchfailed" and rng.commit_total:
-        stats = Markup("{} · <span class=\"diff-add\">+{}</span> <span class=\"diff-del\">−{}</span>{} · {}").format(
-            _plural(rng.file_total, "file"), _n(rng.added), _n(rng.removed),
-            f" · {_n(rng.binary_total)} binary" if rng.binary_total else "", _plural(rng.authors, "author"))
-    span_bits = []
-    if show_lists and rng.commits_cut and rng.first_time:
-        span_bits.append(_span(_local(rng.first_time), _local(rng.last_time), now))
-    if show_lists and rng.tags:
-        shown_tags = ", ".join(rng.tags[:8]) + (f" and {len(rng.tags) - 8} more" if len(rng.tags) > 8 else "")
-        span_bits.append(f"{'Tag' if len(rng.tags) == 1 else 'Tags'} inside this update: {shown_tags}")
-
-    eyebrow_label = {"noupstream": "no upstream", "detached": "no branch", "noremote": "no remote",
-                     "unknown": "could not read"}.get(view.kind)
-    snapshot = None
-    if pullable and kind in ("behind", "stale", "failed", "locked", "fetchfailed") and view.snapshot_ready:
-        drawn = Snapshot.of(repo_path, st)
-        snapshot = drawn.form() if drawn else None
-
-    pinned = kind == "pulled"
-    before, after = ((result["before"], result["after"]) if pinned else (view.head, view.tip))
     tags_for = {}
-    if base == "blocked":
+    if kind == "blocked":
         tags_for = {p: "also edited in this folder" for p in hits}
-    elif base == "diverged":
+    elif kind == "diverged":
         tags_for = {p: "changed on both branches" for p in view.both_changed}
-    commits = _commit_rows(rng.commits, now) if show_lists else []
-    files = _file_rows(rng, tags_for) if show_lists else []
-    n_all = _n(rng.commit_total)
-    uncut = _sh("gitstow", "diff", repo.key, "--incoming")
-    rest_c = (f"The messages of all {n_all}, in a terminal, run in this repo's folder: "
-              + _sh("git", "log", f"{before[:7]}..{after[:7]}") if pinned
-              else f"All {n_all}, uncut, in a terminal: {uncut}")
-    rest_f = ("Every file and its patch, in a terminal, run in this repo's folder: "
-              + _sh("git", "diff", before[:7], after[:7]) if pinned
-              else f"Everything, uncut, in a terminal: {uncut}")
-    kinds_line = (" · ".join(f"{_n(c)} {k}" for k, c in sorted(rng.kind_counts.items(), key=lambda kv: -kv[1]))
-                  if rng.files_cut else "")
+    lists = _lists(rng, repo, view.head, view.tip, False, now, tags_for) if has_list else None
+    drawn = view.snapshot(repo_path) if kind in ("behind", "stale") else None
 
-    panel_class = {"pulled": "is-done", "none": "is-done", "blocked": "is-blocked", "diverged": "is-blocked",
-                   "unknown": "is-blocked", "failed": "is-blocked", "locked": "is-blocked", "changed": "is-blocked",
-                   "fetchfailed": "is-blocked", "frozen": "is-quiet", "noupstream": "is-quiet",
-                   "detached": "is-quiet", "noremote": "is-quiet", "ahead": "is-quiet"}.get(kind, "")
-    if op in ("edited", "frozen", "unreadable"):
-        panel_class = "is-blocked"
-
-    incoming_count = ("?" if view.kind in ("unknown", "detached", "noupstream") or st.upstream_gone
-                      else "none" if view.kind == "noremote" else _n(st.behind))
-    local_count = ("?" if st.error or (view.local is not None and view.local.error) else
-                   _n(len(edited_paths) + len(view.local.untracked)) if view.local else "0")
+    panel_class = {"none": "is-done", "blocked": "is-blocked", "diverged": "is-blocked", "frozen": "is-quiet",
+                   "noupstream": "is-quiet", "detached": "is-quiet", "noremote": "is-quiet",
+                   "ahead": "is-quiet"}.get(kind, "")
     return {
-        "kind": kind, "base": base, "panel_class": panel_class,
-        "eyebrow_label": eyebrow_label, "pulled": kind == "pulled",
-        "branch": st.branch, "upstream": st.upstream, "head": view.head, "tip": view.tip,
-        "head7": head7, "tip7": tip7, "before7": before[:7], "after7": after[:7],
-        "title": title, "stats": stats, "span": " · ".join(span_bits), "lede": lede, "command": command,
-        "facts": facts, "snapshot": snapshot, "count": _n(rng.commit_total),
-        "now_behind": st.behind, "frozen": repo.frozen,
-        "show_lists": show_lists, "as_prev": kind == "fetchfailed" and view.tip == (result or {}).get("prev_tip"),
-        "commits": commits, "commits_cut": rng.commits_cut and show_lists,
-        "commits_rest": _n(rng.commit_total - len(rng.commits)), "commits_rest_cmd": rest_c,
-        "files": files, "file_total": _n(rng.file_total), "files_cut": rng.files_cut and show_lists,
-        "file_limit": FILE_LIMIT, "files_rest_cmd": rest_f, "kinds_line": kinds_line,
-        "local_commits": _commit_rows(view.local_commits, now),
-        "local_commit_total": _n(view.local_commit_total),
-        "local_commits_cut": view.local_commit_total > len(view.local_commits),
-        "local_log_cmd": _sh("git", "log", f"{st.upstream}..{st.branch}"),
-        "diff_from": before, "diff_to": after, "pinned": pinned,
-        "incoming_count": incoming_count, "local_count": local_count,
-        "local": view.local, "local_overlap": set(view.overlap) if view.kind in ("behind", "diverged") else set(),
-        "status_error": st.error, "fetch_prev": {"prev_tip": view.tip},
-        "status": st,
+        "kind": kind, "base": kind, "panel_class": panel_class,
+        "eyebrow_label": {"noupstream": "no upstream", "detached": "no branch", "noremote": "no remote"}.get(kind),
+        "branch": view.branch, "upstream": view.upstream, "head7": head7, "tip7": tip7,
+        "title": title, "stats": lists["stats"] if lists else "", "span": lists["span"] if lists else "",
+        "lede": lede, "command": command, "facts": facts,
+        "snapshot": drawn.form() if drawn else None, "count": _n(view.behind),
+        "now_behind": view.behind, "frozen": repo.frozen, "lists": lists,
+        "as_prev": after_failed_fetch and bool(view.tip) and prev_tip == view.tip,
+        "local_commits": _commit_rows(view.local_commits, now), "local_commit_total": _n(view.ahead),
+        "local_commits_cut": view.ahead > len(view.local_commits),
+        "local_log_cmd": _sh("git", "log", f"{view.upstream}..{view.branch}"),
+        "incoming_count": ("?" if kind in ("detached", "noupstream") else "none" if kind == "noremote"
+                           else _n(view.behind)),
+        "local_count": ("?" if local_error else
+                        _n(len(edited_paths) + len(view.local.untracked)) if view.local else "0"),
+        "local": view.local, "local_overlap": set(view.overlap) if kind not in ("ahead", "none") else set(),
+        "status_error": "", "fetch_prev": {"prev_tip": view.tip},
+        # The header reads the same capture: the branch, its upstream and both counts as drawn here.
+        "status": replace(st, branch=view.branch, upstream=view.upstream, has_upstream=bool(view.cap.upstream),
+                          ahead=view.ahead, behind=view.behind, head_oid=view.head or st.head_oid,
+                          upstream_oid=view.tip),
     }
 
 
@@ -554,8 +595,8 @@ async def incoming_pull(workspace: str, key: str, request: Request):
     if exact.success:
         store.update(repo.key, workspace=repo.workspace,
                      last_pulled=datetime.now().isoformat(timespec="seconds"))
-    result = {"op": exact.outcome, "message": exact.message, "before": exact.before or snapshot.head,
-              "after": exact.after, "snapshot_target": snapshot.target}
+    result = {"op": exact.outcome, "message": exact.message, "before": exact.before, "after": exact.after,
+              "merged": exact.merged, "changes": exact.changes, "branch_name": ref_label(snapshot.ref("branch"))}
     return await asyncio.to_thread(render_repo_detail, request, workspace, key, result=result)
 
 

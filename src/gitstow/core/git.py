@@ -102,6 +102,7 @@ class CommitInfo:
     message: str = ""
     date: str = ""          # Relative date (e.g., "2 hours ago")
     author: str = ""
+    error: str = ""         # git's message when the read failed (a branch with no commits is not a failure)
 
 
 # What `git rev-parse --local-env-vars` prints (git 2.43). A git hook or alias runs
@@ -318,6 +319,11 @@ def checked_out_branch(repo_path: Path) -> tuple[str, str] | str:
     if not ref:  # -q: silent on a detached HEAD, stderr only for a real failure
         return (head.stderr.decode("utf-8", "replace").strip()
                 or "not on a branch (detached HEAD): check out a branch, then pull")
+    return merge_name(repo_path, ref)
+
+
+def merge_name(repo_path: Path, ref: bytes) -> tuple[str, str] | str:
+    """A branch's full ref as (name for git's argv, name for messages), or why it cannot be merged into."""
     if not ref.startswith(b"refs/heads/"):
         return (f"not on a branch (HEAD points at {ref.decode('utf-8', 'replace')}): "
                 "check out a branch, then pull")
@@ -336,22 +342,92 @@ def checked_out_branch(repo_path: Path) -> tuple[str, str] | str:
     return branch, shown
 
 
-def branch_refs(repo_path: Path) -> tuple[bytes, bytes] | str:
-    """The checked-out branch's full ref and its upstream's full ref, byte for byte, or why not.
+def ref_label(ref: bytes) -> str:
+    """A full ref as people read it ("main", "origin/main"). Display only: two refs can read alike."""
+    for prefix in (b"refs/heads/", b"refs/remotes/"):
+        if ref.startswith(prefix):
+            ref = ref[len(prefix):]
+            break
+    return ref.decode("utf-8", "replace")
 
-    Raw bytes, never a decoded or parsed name: two branch names can read the same once
-    decoded (invalid UTF-8 becomes U+FFFD) or split (U+2028 inside a name), so only the
-    bytes tell them apart. Ref names cannot hold a newline, so the final one is git's.
+
+@dataclass
+class BranchCapture:
+    """Which branch is checked out, its commit, its upstream and the upstream's commit, as one read.
+
+    One `for-each-ref` process lists every local branch with git's mark for the
+    checked-out one, its id and its upstream's full ref, so the branch, its id and
+    its upstream can never come from two different moments; a second process
+    resolves that upstream by its full name. Refs stay bytes: two names can read
+    the same once decoded, only the bytes tell them apart.
     """
-    head = _run_git(["symbolic-ref", "-q", "HEAD"], cwd=repo_path, binary=True)
-    ref = head.stdout.removesuffix(b"\n")
-    if not ref.startswith(b"refs/heads/"):
-        return "not on a branch"
-    up = _run_git(["rev-parse", "--symbolic-full-name", "@{upstream}"], cwd=repo_path, binary=True)
-    upstream = up.stdout.removesuffix(b"\n")
-    if up.returncode != 0 or not upstream:
-        return up.stderr.decode("utf-8", "replace").strip() or "no upstream selected"
-    return ref, upstream
+
+    branch: bytes = b""    # the checked-out branch's full ref; b"" when no branch with a commit is checked out
+    head: str = ""         # its full commit id
+    upstream: bytes = b""  # its upstream's full ref; b"" when none is set
+    tip: str = ""          # the upstream's full commit id; "" when none is set or it is gone
+    heads: dict[bytes, str] = field(default_factory=dict)  # every local branch -> its id, same read
+
+    @property
+    def identity(self) -> tuple[bytes, str, bytes, str]:
+        return self.branch, self.head, self.upstream, self.tip
+
+    @property
+    def branch_name(self) -> str:
+        return ref_label(self.branch)
+
+    @property
+    def upstream_name(self) -> str:
+        return ref_label(self.upstream)
+
+    @property
+    def upstream_gone(self) -> bool:
+        return bool(self.upstream) and not self.tip
+
+
+def capture_branch(repo_path: Path) -> BranchCapture | str:
+    """The checked-out branch's identity (see BranchCapture), or git's message when it cannot be read."""
+    rows = _run_git(["for-each-ref", "--format=%(HEAD)%00%(refname)%00%(objectname)%00%(upstream)",
+                     "refs/heads/"], cwd=repo_path, binary=True)
+    if rows.returncode != 0:
+        return rows.stderr.decode("utf-8", "replace").strip() or f"git for-each-ref failed (exit {rows.returncode})"
+    # Ref names cannot hold a newline or a NUL, so these split exactly.
+    parts = [line.split(b"\0") for line in rows.stdout.split(b"\n") if line]
+    if any(len(p) != 4 for p in parts):
+        return "git for-each-ref printed a line gitstow cannot read"
+    heads = {p[1]: p[2].decode("ascii", "replace") for p in parts}
+    mine = [p for p in parts if p[0] == b"*"]
+    if not mine:
+        return BranchCapture(heads=heads)
+    _, ref, oid, upstream = mine[0]
+    cap = BranchCapture(branch=ref, head=oid.decode("ascii", "replace"), upstream=upstream, heads=heads)
+    if not upstream:
+        return cap
+    tip = _run_git(["rev-parse", "--verify", "-q", os.fsdecode(upstream) + "^{commit}"],
+                   cwd=repo_path, binary=True)
+    if tip.returncode == 0:
+        cap.tip = tip.stdout.strip().decode("ascii", "replace")
+    elif tip.returncode != 1 or tip.stderr.strip():  # -q: exit 1 and silence mean "no such ref"
+        return tip.stderr.decode("utf-8", "replace").strip() or f"git rev-parse failed (exit {tip.returncode})"
+    return cap
+
+
+def ref_id(repo_path: Path, ref: bytes) -> str:
+    """The commit id one full ref points at, or "" when it cannot be read."""
+    try:
+        result = _run_git(["rev-parse", "--verify", "-q", os.fsdecode(ref) + "^{commit}"], cwd=repo_path)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def count_between(repo_path: Path, head: str, tip: str) -> tuple[int, int] | str:
+    """(commits only in `head`, commits only in `tip`), by commit id, or git's message."""
+    counts = _run_git(["rev-list", "--left-right", "--count", f"{head}...{tip}"], cwd=repo_path)
+    fields = counts.stdout.split()
+    if counts.returncode != 0 or len(fields) != 2:
+        return counts.stderr.strip() or f"could not count the commits between {head[:7]} and {tip[:7]}"
+    return int(fields[0]), int(fields[1])
 
 
 def pull(repo_path: Path) -> PullResult:
@@ -419,12 +495,6 @@ def merge_exact(repo_path: Path, branch: str, target_oid: str) -> tuple[bool, st
     if result.returncode == 0:
         return True, result.stdout.strip()
     return False, result.stderr.strip() or result.stdout.strip() or f"git merge failed (exit {result.returncode})"
-
-
-def head_oid(repo_path: Path) -> str:
-    """HEAD's full commit id, or "" when it cannot be read."""
-    result = _run_git(["rev-parse", "--verify", "-q", "HEAD^{commit}"], cwd=repo_path)
-    return result.stdout.strip() if result.returncode == 0 else ""
 
 
 def fetch(repo_path: Path) -> FetchResult:
@@ -867,6 +937,8 @@ def get_last_commit(repo_path: Path) -> CommitInfo:
         ["log", "-1", "--format=%h%n%s%n%cd%n%an", "--date=relative"],
         cwd=repo_path,
     )
+    if result.returncode != 0 and "does not have any commits yet" not in result.stderr:
+        return CommitInfo(error=result.stderr.strip() or f"git log failed (exit {result.returncode})")
     if result.returncode != 0 or not result.stdout.strip():
         return CommitInfo()
 

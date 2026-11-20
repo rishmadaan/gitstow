@@ -59,7 +59,10 @@ FILES = ["README.md", "src/toc.py", "src/slug.py", "docs/cli.md", ".tool-version
 
 
 def drawn(clone) -> Snapshot:
-    return Snapshot.of(clone, get_status(clone))
+    """The snapshot the page's Pull button would carry, from the page's own read."""
+    view = read_incoming(clone)
+    assert view.kind == "behind", view
+    return view.snapshot(clone)
 
 
 def never_frozen() -> bool:
@@ -147,7 +150,7 @@ class TestNumbers:
         clone, _, _ = behind
         commit(clone, "my toc change", {"src/toc.py": "mine\n", "notes.md": "n\n"})
         view = read_incoming(clone)
-        assert view.kind == "diverged" and view.local_commit_total == 1
+        assert view.kind == "diverged" and view.ahead == 1
         assert view.both_changed == ["src/toc.py"]
 
 
@@ -237,12 +240,16 @@ class TestExactPull:
         assert gitb(b"symbolic-ref", b"HEAD") == b"refs/heads/topic\xfe"
         assert gitb(b"rev-parse", b"refs/heads/topic\xfe", b"refs/heads/topic\xff").split() == [head, head]
 
-    def test_no_snapshot_when_the_branch_changed_after_the_status_read(self, behind):
-        clone, _, _ = behind
-        status = get_status(clone)
-        git("checkout", "-q", "-b", "other", "--track", "origin/main", cwd=clone)
-        git("reset", "-q", "--hard", status.head_oid, cwd=clone)
-        assert Snapshot.of(clone, status) is None
+    def test_the_snapshot_is_the_capture_the_page_was_drawn_from(self, behind):
+        """Branch, upstream, both ids: exactly git's bytes, all from the page's one read."""
+        clone, _, ids = behind
+        view = read_incoming(clone)
+        snap = view.snapshot(clone)
+        assert bytes.fromhex(snap.branch) == subprocess.run(
+            ["git", "symbolic-ref", "HEAD"], cwd=clone, capture_output=True, check=True).stdout.strip()
+        assert bytes.fromhex(snap.upstream) == b"refs/remotes/origin/main"
+        assert (snap.head, snap.target) == (view.head, view.tip) == (git("rev-parse", "HEAD", cwd=clone), ids[-1])
+        assert (view.branch, view.upstream, view.behind) == ("main", "origin/main", 3)
 
     def test_refuses_on_a_detached_head_at_the_same_commit(self, behind):
         clone, _, _ = behind
@@ -314,6 +321,98 @@ class TestExactPull:
         snap = drawn(clone)
         (clone / "src/toc.py").write_text("my edit\n")
         refused(clone, snap, "edited")
+
+
+class TestUnderTheLock:
+    """What the exact pull checks between taking the lock and moving the branch, and after."""
+
+    def test_a_capture_that_fails_under_the_lock_refuses(self, behind, monkeypatch):
+        """Nothing to compare with is a refusal, never "the snapshot still holds"."""
+        import gitstow.core.incoming as inc
+        clone, _, _ = behind
+        snap = drawn(clone)
+        monkeypatch.setattr(inc, "capture_branch", lambda path: "fatal: capture exploded")
+        result = refused(clone, snap, "unreadable")
+        assert "capture exploded" in result.message
+        assert git("rev-parse", "HEAD", cwd=clone) == snap.head
+
+    @pytest.mark.parametrize("change, said", [
+        (lambda clone, ids: git("checkout", "-q", "-b", "other", "--track", "origin/main", cwd=clone),
+         "you switched from main to other"),
+        (lambda clone, ids: git("reset", "-q", "--hard", ids[0], cwd=clone), "main was at {H}, now at {c1}"),
+        (lambda clone, ids: git("update-ref", "refs/remotes/origin/main", ids[1], cwd=clone),
+         "origin/main was at {T}, now at {c2}"),
+        (lambda clone, ids: (git("update-ref", "refs/remotes/origin/twin", ids[-1], cwd=clone),
+                             git("branch", "-q", "--set-upstream-to=origin/twin", "main", cwd=clone)),
+         "main now follows origin/twin instead of origin/main"),
+    ], ids=["branch", "head", "tip", "upstream"])
+    def test_a_refusal_names_what_changed(self, behind, change, said):
+        clone, _, ids = behind
+        snap = drawn(clone)
+        change(clone, ids)
+        result = refused(clone, snap, "changed")
+        assert result.message == said.format(H=snap.head[:7], c1=ids[0][:7], T=ids[-1][:7], c2=ids[1][:7])
+
+    def test_two_names_that_read_alike_are_named_as_such(self, behind):
+        clone, _, _ = behind
+
+        def gitb(*args: bytes) -> bytes:
+            return subprocess.run([b"git", *args], cwd=clone, capture_output=True, check=True).stdout.strip()
+        head = gitb(b"rev-parse", b"HEAD")
+        for name in (b"topic\xfe", b"topic\xff"):  # ends checked out on \xff
+            gitb(b"checkout", b"-q", b"-b", name, b"--track", b"origin/main")
+            gitb(b"reset", b"-q", b"--hard", head)
+        snap = drawn(clone)
+        gitb(b"checkout", b"-q", b"topic\xfe")
+        result = pull_exact(clone, snap, never_frozen)  # (the text-mode `refused` helper cannot read these names)
+        assert result.outcome == "changed"
+        assert result.message == "you switched from topic\ufffd to another branch whose name reads the same"
+        assert gitb(b"symbolic-ref", b"HEAD") == b"refs/heads/topic\xfe"
+        assert gitb(b"rev-parse", b"refs/heads/topic\xfe", b"refs/heads/topic\xff").split() == [head, head]
+
+    def _merge_then(self, monkeypatch, act):
+        import gitstow.core.incoming as inc
+        real = inc.merge_exact
+
+        def merge(path, branch, target):
+            out = real(path, branch, target)
+            act(path)
+            return out
+        monkeypatch.setattr(inc, "merge_exact", merge)
+
+    def test_another_branch_moving_during_the_merge_is_never_pulled(self, behind, monkeypatch):
+        clone, _, ids = behind
+        snap = drawn(clone)
+        git("branch", "-q", "other", snap.head, cwd=clone)
+        self._merge_then(monkeypatch, lambda path: git("update-ref", "refs/heads/other", ids[0], cwd=path))
+        result = pull_exact(clone, snap, never_frozen)
+        assert result.outcome == "failed" and "other branches moved during the pull: other" in result.message
+        assert (result.before, result.after, result.merged) == (snap.head, ids[-1], True)
+
+    def test_an_upstream_setting_changed_during_the_merge_is_reported(self, behind, monkeypatch):
+        clone, _, ids = behind
+        snap = drawn(clone)
+        git("update-ref", "refs/remotes/origin/twin", ids[-1], cwd=clone)
+        self._merge_then(monkeypatch, lambda path: git("branch", "-q", "--set-upstream-to=origin/twin", "main",
+                                                       cwd=path))
+        result = pull_exact(clone, snap, never_frozen)
+        assert result.outcome == "failed"
+        assert "upstream setting changed during the pull, from origin/main to origin/twin" in result.message
+        assert git("rev-parse", "HEAD", cwd=clone) == result.after == ids[-1]
+
+    def test_a_read_back_that_fails_is_never_pulled_but_keeps_the_measured_move(self, behind, monkeypatch):
+        import gitstow.core.incoming as inc
+        clone, _, ids = behind
+        snap = drawn(clone)
+        real, calls = inc.capture_branch, []
+
+        def capture(path):
+            calls.append(path)
+            return real(path) if len(calls) == 1 else "fatal: read-back exploded"
+        monkeypatch.setattr(inc, "capture_branch", capture)
+        result = pull_exact(clone, snap, never_frozen)
+        assert result.outcome == "failed" and "read-back exploded" in result.message
+        assert (result.before, result.after) == (snap.head, ids[-1]) == (snap.head, git("rev-parse", "HEAD", cwd=clone))
 
 
 class TestPullLock:
@@ -457,7 +556,8 @@ class TestWeb:
         git("fetch", "-q", cwd=clone)
         head = git("rev-parse", "HEAD", cwd=clone)
         r = client.post("/repos/t/clone/pull", data=vals)
-        assert "Not pulled: upstream or your branch changed" in r.text and "↓ Pull 4" in r.text
+        assert (f"Not pulled: since this row was drawn, origin/main was at {ids[-1][:7]}, now at "
+                f"{git('rev-parse', 'origin/main', cwd=clone)[:7]}." in r.text) and "↓ Pull 4" in r.text
         assert git("rev-parse", "HEAD", cwd=clone) == head and not self.record().last_pulled
 
     def test_plain_pull_fetches_and_stamps_the_fetch(self, web):
@@ -511,6 +611,25 @@ class TestWeb:
         assert "Not pulled: changed since review" in r.text and "Show the 5 now waiting" in r.text
         assert "What this pull brought in" not in r.text and 'class="commit"' not in r.text
         assert git("rev-parse", "HEAD", cwd=clone) == head
+
+    def test_a_refused_pull_names_the_branch_it_was_drawn_for(self, web):
+        """R2-C6/R2-F1: after a switch the page names both branches, not only the current one."""
+        import json
+        import re
+        client, clone, _, _ = web
+        one, two = "topic-one", "topic-two"
+        head = git("rev-parse", "HEAD", cwd=clone)
+        for name in (two, one):  # ends checked out on `topic one`
+            git("checkout", "-q", "-b", name, "--track", "origin/main", cwd=clone)
+            git("reset", "-q", "--hard", head, cwd=clone)
+        html = client.get("/repo/t/clone").text
+        vals = json.loads(re.search(r'hx-post="/repos/t/clone/incoming/pull" hx-vals=\'([^\']+)\'', html)
+                          .group(1).replace("&#34;", '"'))
+        git("checkout", "-q", two, cwd=clone)
+        r = client.post("/repos/t/clone/incoming/pull", data=vals)
+        assert "Not pulled: changed since review" in r.text
+        assert f"You switched from <code>{one}</code> to <code>{two}</code> since this list was drawn." in r.text
+        assert git("rev-parse", f"refs/heads/{one}", f"refs/heads/{two}", cwd=clone).split() == [head, head]
 
     def test_fetch_failure_quotes_git_and_keeps_the_old_record(self, web):
         client, clone, _, _ = web
@@ -611,14 +730,13 @@ class TestWeb:
         import json
         import re
 
-        from gitstow.core.incoming import RangeRead
         client, clone, _, ids = web
         html = client.get("/repo/t/clone").text
         vals = json.loads(re.search(r'hx-post="/repos/t/clone/incoming/pull" hx-vals=\'([^\']+)\'', html)
                           .group(1).replace("&#34;", '"'))
         before = git("rev-parse", "HEAD", cwd=clone)
         monkeypatch.setattr("gitstow.web.routes.incoming.read_range",
-                            lambda *a: RangeRead(error="fatal: range exploded"))
+                            lambda *a: "fatal: range exploded")  # a failed read: git's message, no counts
         r = client.post("/repos/t/clone/incoming/pull", data=vals)
         assert git("rev-parse", "HEAD", cwd=clone) == ids[-1]
         assert f"moved from <code>{before[:7]}</code> to <code>{ids[-1][:7]}</code>" in r.text
@@ -641,7 +759,7 @@ class TestWeb:
         def failing(path, snap, is_frozen):
             if move_to:
                 git("merge", "-q", "--ff-only", move_to, cwd=clone)
-            return ExactPullResult("failed", "error: the merge timed out (2 minutes)",
+            return ExactPullResult("failed", "error: the merge timed out (2 minutes)", merged=True,
                                    before=before, after=git("rev-parse", "HEAD", cwd=clone))
         monkeypatch.setattr("gitstow.web.routes.incoming.pull_exact", failing)
         return before, client.post("/repos/t/clone/incoming/pull", data=vals).text
@@ -654,7 +772,7 @@ class TestWeb:
         assert f"moved from <code>{before[:7]}</code> to <code>{ids[-1][:7]}</code>" in page
         assert "part of the pull may have happened" in page
         assert "Nothing was pulled" not in page and "changed since review" not in page
-        assert "Try the pull again" not in page and "Show what is here now" in page
+        assert "Up to date" in page and "/incoming/pull" not in page  # the fresh read below, on its own
 
     def test_a_failure_with_the_branch_unmoved_says_nothing_was_pulled(self, web, monkeypatch):
         client, clone, _, _ = web
@@ -662,7 +780,7 @@ class TestWeb:
         assert git("rev-parse", "HEAD", cwd=clone) == before
         assert "Pull failed" in page and "the merge timed out (2 minutes)" in page
         assert f"is still at <code>{before[:7]}</code>" in page and "Nothing was pulled." in page
-        assert "Try the pull again" in page
+        assert 'hx-post="/repos/t/clone/incoming/pull"' in page  # the fresh read below offers the same pull
 
     # Names git accepts that a shell would run, split or expand when pasted unquoted.
     HOSTILE = ["fix;echo${IFS}injected", "it's", "cost$HOME"]
