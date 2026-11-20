@@ -11,7 +11,8 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
     {% if repo.action_error %}<div class="row-error" role="alert" title="Auto-refresh pauses while this message is shown. Dismiss it with ×; if you filter this row out instead, the next refresh clears it."><span>{{ repo.action_error }}</span><button type="button" class="row-error-close" onclick="this.closest('.row-error').remove()" aria-label="Dismiss this message" title="Dismiss">×</button></div>{% endif %}</td>
   <td><span class="ws ws-{{ repo.ws_slot }}" title="{{ repo.ws_tooltip }}">{{ repo.workspace }}</span></td>
   <td class="col-branch"><span class="branch-name" title="{{ repo.branch_tooltip }}">{{ repo.branch }}</span></td>
-  <td><span class="delta {{ repo.delta_class }}" title="{{ repo.delta_tooltip }}">{{ repo.delta_text }}</span></td>
+  <td>{% if repo.delta_class == "chip" %}<a class="inc-chip" href="{{ repo.incoming_link }}" title="{{ repo.delta_tooltip }}">{{ repo.delta_text }} <span class="chev" aria-hidden="true">›</span></a>
+    {%- else %}<span class="delta {{ repo.delta_class }}" title="{{ repo.delta_tooltip }}">{{ repo.delta_text }}</span>{% endif %}</td>
   <td class="col-tags">{% for tag in repo.tags %}<span class="tag" title="Tag: {{ tag }}">{{ tag }}</span>{% endfor %}</td>
   <td class="col-lastpull"><span class="last-pull" title="{{ repo.last_pull_tooltip }}">{{ repo.last_pull }}</span></td>
   <td title="{{ repo.pull_tooltip }}"><div class="row-actions">
@@ -19,6 +20,7 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
       <button class="btn btn-primary btn-sm"
               title="{{ repo.pull_tooltip }}"
               hx-post="/repos/{{ repo.workspace }}/{{ repo.key }}/pull"
+              hx-vals='{{ repo.pull_snapshot|tojson }}'
               hx-target="closest tr"
               hx-swap="outerHTML"
               hx-disabled-elt="this">↓ Pull {{ repo.behind }}</button>

@@ -26,7 +26,7 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
       <div class="metrics-strip">
         {% if counts.clean %}<span class="m" title="{{ counts.clean }} clean — working tree matches HEAD and is in sync with the last fetch"><span class="pip clean"></span><span class="count">{{ '%02d' % counts.clean }}</span> <span class="lbl">clean</span></span>{% endif %}
         {% if counts.dirty %}<span class="m" title="{{ counts.dirty }} with local changes — modified, staged, or untracked files"><span class="pip dirty"></span><span class="count">{{ '%02d' % counts.dirty }}</span> <span class="lbl">local changes</span></span>{% endif %}
-        {% if counts.conflict %}<span class="m" title="{{ counts.conflict }} in conflict — working tree is dirty AND behind remote; resolve locally before pulling"><span class="pip conflict"></span><span class="count">{{ '%02d' % counts.conflict }}</span> <span class="lbl">conflict</span></span>{% endif %}
+        {% if counts.local_edits %}<span class="m" title="{{ counts.local_edits }} with local edits and behind — files are edited or staged, and upstream has commits waiting; Pull is off until the edits are resolved"><span class="pip dirty"></span><span class="count">{{ '%02d' % counts.local_edits }}</span> <span class="lbl">local edits</span></span>{% endif %}
         {% if counts.diverged %}<span class="m" title="{{ counts.diverged }} diverged — local and remote both have commits the other doesn't; rebase or merge to reconcile"><span class="pip diverged"></span><span class="count">{{ '%02d' % counts.diverged }}</span> <span class="lbl">diverged</span></span>{% endif %}
         {% if counts.missing %}<span class="m" title="{{ counts.missing }} missing — tracked in gitstow but not found on disk (or unreadable); re-clone or remove"><span class="pip missing"></span><span class="count">{{ '%02d' % counts.missing }}</span> <span class="lbl">missing</span></span>{% endif %}
         {% if counts.behind %}<span class="m" title="{{ counts.behind }} behind upstream — remote has commits you don't"><span class="pip behind"></span><span class="count">{{ '%02d' % counts.behind }}</span> <span class="lbl">behind</span></span>{% endif %}
@@ -139,8 +139,11 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
           <dt><span class="status status-dirty"><span class="dot"></span>local changes</span></dt>
           <dd>Uncommitted local changes — the label shows the composition (modified/staged/untracked). Commit or stash modified/staged work before pulling. Untracked-only repos can still pull.</dd>
 
-          <dt><span class="status status-conflict"><span class="dot"></span>conflict</span></dt>
-          <dd>Working tree is dirty AND behind remote, or local and remote have diverged. Resolve locally before pulling.</dd>
+          <dt><span class="status status-dirty"><span class="dot"></span>local edits</span></dt>
+          <dd>Files are edited or staged AND the branch is behind (the Remote Δ chip shows how many commits). Pull is off until the edits are resolved; nothing has been checked for conflicts. Open the repo page to see which files the update also changes.</dd>
+
+          <dt><span class="status status-conflict"><span class="dot"></span>diverged</span></dt>
+          <dd>Local and remote both have commits the other lacks. gitstow only fast-forwards, so Pull is off; rebase or merge in a terminal.</dd>
 
           <dt><span class="status status-behind"><span class="dot"></span>behind</span></dt>
           <dd>Remote has commits you don't. The Pull button turns orange and shows the count.</dd>
@@ -157,19 +160,19 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
         <h4>The Pull button</h4>
         <dl class="help-grid">
           <dt><button type="button" class="btn btn-primary btn-sm" onclick="return false;">↓ Pull 5</button></dt>
-          <dd><strong>Orange</strong> — repo is behind. Click to fast-forward by the shown count.</dd>
+          <dd><strong>Orange</strong> — repo is behind. Takes exactly those 5 commits: it moves the branch to the commit the count came from and does not fetch. If the branch or upstream changed since the row was drawn, nothing is pulled and the row says so.</dd>
 
           <dt><button type="button" class="btn btn-ghost btn-sm" onclick="return false;">Pull</button></dt>
-          <dd><strong>Ghost</strong> — already up to date, or has local changes/ahead. The button still works; it just won't change anything useful.</dd>
+          <dd><strong>Ghost</strong> — nothing is known to be waiting (up to date, ahead, or untracked files only). It fetches, then fast-forwards if the remote has anything new.</dd>
 
           <dt><button type="button" class="btn btn-ghost btn-sm" disabled>Pull</button></dt>
-          <dd><strong>Disabled</strong> — repo is frozen, in conflict, diverged from remote, or missing on disk. Pull is blocked until you resolve.</dd>
+          <dd><strong>Disabled</strong> — repo is frozen, has local edits while behind, diverged from remote, or missing/unreadable. Pull is blocked until you resolve.</dd>
         </dl>
       </section>
 
       <section class="section">
         <h4>The Remote Δ column</h4>
-        <p>Ahead (<code>↑ N</code>), behind (<code>↓ N</code>), or even (<code>—</code>) relative to upstream. <strong>These counts reflect your last <code>git fetch</code>, not live remote state.</strong> Click <strong>Fetch all</strong> to refresh them without merging, or <strong>Pull all</strong> to fetch and merge. A <code>local</code> badge means the repo has no upstream remote at all — bulk pulls skip it.</p>
+        <p>Ahead (<code>↑ N</code>), behind (<code>↓ N incoming ›</code>), or even (<code>—</code>) relative to upstream. <strong>These counts reflect your last <code>git fetch</code>, not live remote state.</strong> Click <strong>Fetch all</strong> to refresh them without merging, or <strong>Pull all</strong> to fetch and merge. The <code>↓ N incoming ›</code> chip opens the repo page on its Incoming tab: the commits and file-level diff a pull would bring, before you pull. <code>no upstream</code> means the branch does not follow a remote branch although the repo has a remote; <code>local</code> means there is no remote at all — bulk pulls skip both.</p>
       </section>
 
       <section class="section">
@@ -186,7 +189,7 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
       <section class="section">
         <h4>Actions</h4>
         <dl class="help-grid">
-          <dt>Pull</dt><dd>Pull from remote (fast-forward only).</dd>
+          <dt>Pull</dt><dd>Fast-forward only. "Pull N" takes exactly the N commits counted (no fetch); a plain "Pull" fetches first.</dd>
           <dt>↓ Pull all</dt><dd>Pull every non-frozen repo in parallel. Automatically fetches first, then merges.</dd>
           <dt>⟳ Fetch all</dt><dd>Fetch all remotes in parallel — updates ahead/behind counts without merging. Includes frozen repos.</dd>
           <dt>+ Add repo</dt><dd>Clone a new repo into a workspace.</dd>

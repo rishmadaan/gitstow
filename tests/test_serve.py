@@ -15,7 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from gitstow.core.config import Settings, Workspace, load_config, save_config
-from gitstow.core.git import ChangedFiles, CommitInfo, FetchResult, FileChange, PullResult, RepoStatus
+from gitstow.core.git import ChangedFiles, CommitInfo, DiffRead, FetchResult, FileChange, PullResult, RepoStatus
 from gitstow.core.repo import Repo, RepoStore
 from gitstow.web.server import create_app
 
@@ -59,6 +59,11 @@ def client(isolated):
 
 
 def _fake_status(**kw) -> RepoStatus:
+    # Like get_status: with an upstream, it names it and the two commit ids its counts came from.
+    if kw.get("has_upstream", True):
+        kw.setdefault("upstream", "origin/main")
+        kw.setdefault("head_oid", "a" * 40)
+        kw.setdefault("upstream_oid", "b" * 40 if kw.get("ahead") or kw.get("behind") else kw["head_oid"])
     return RepoStatus(branch=kw.get("branch", "main"), **{k: v for k, v in kw.items() if k != "branch"})
 
 
@@ -701,7 +706,7 @@ class TestMoveRepo:
         (a / "widget" / ".git").mkdir(parents=True)
         (b / "widget").mkdir()  # destination collision
         RepoStore().add(Repo(owner="", name="widget", remote_url="u", workspace="a"))
-        monkeypatch.setattr("gitstow.web.routes.pages.get_status", lambda p: _fake_status())
+        monkeypatch.setattr("gitstow.core.incoming.get_status", lambda p: _fake_status())
 
         r = client.post("/repos/a/widget/move", data={"target": "b"})
         assert r.status_code == 422
@@ -717,7 +722,7 @@ class TestMoveRepo:
         a, _ = self._two_ws(isolated)
         (a / "widget" / ".git").mkdir(parents=True)
         RepoStore().add(Repo(owner="", name="widget", remote_url="u", workspace="a"))
-        monkeypatch.setattr("gitstow.web.routes.pages.get_status", lambda p: _fake_status())
+        monkeypatch.setattr("gitstow.core.incoming.get_status", lambda p: _fake_status())
 
         html = client.get("/repo/a/widget").text
         assert 'action="/repos/a/widget/move"' in html
@@ -730,7 +735,7 @@ class TestMoveRepo:
         a, _ = self._two_ws(isolated)
         (a / "widget" / ".git").mkdir(parents=True)
         RepoStore().add(Repo(owner="", name="widget", remote_url="u", workspace="a"))
-        monkeypatch.setattr("gitstow.web.routes.pages.get_status", lambda p: _fake_status())
+        monkeypatch.setattr("gitstow.core.incoming.get_status", lambda p: _fake_status())
 
         html = client.get("/repo/a/widget").text
         # the section states the current workspace
@@ -978,7 +983,7 @@ class TestStatusModelInWeb:
         _make_repo_on_disk(workspace_dir, "a", "one")
         RepoStore().add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws"))
         monkeypatch.setattr(
-            "gitstow.web.routes.pages.get_status", lambda p: _fake_status(staged=2)
+            "gitstow.core.incoming.get_status", lambda p: _fake_status(staged=2)
         )
         r = client.get("/repo/test-ws/a/one")
         assert r.status_code == 200
@@ -1193,16 +1198,27 @@ class TestLocalOnlyRepos:
         assert called == []
         assert "no upstream" in r.text.lower()
 
-    def test_delta_shows_local_for_no_upstream(self, client, configured, workspace_dir, monkeypatch):
+    def test_delta_shows_local_for_no_remote(self, client, configured, workspace_dir, monkeypatch):
         from gitstow.core.repo import Repo, RepoStore
 
         _make_repo_on_disk(workspace_dir, "a", "one")
         RepoStore().add(Repo(owner="a", name="one", remote_url="", workspace="test-ws"))
         monkeypatch.setattr("gitstow.web.routes.dashboard.get_status",
-                            lambda p: _fake_status(has_upstream=False))
+                            lambda p: _fake_status(has_upstream=False, has_remote=False))
         r = client.get("/dashboard/rows")
-        assert ">local<" in r.text or "delta local" in r.text
-        assert "no upstream remote" in r.text.lower()
+        assert ">local<" in r.text
+        assert "no remote — nothing to fetch from" in r.text.lower()
+
+    def test_delta_says_no_upstream_when_a_remote_exists(self, client, configured, workspace_dir, monkeypatch):
+        """A branch that follows nothing, in a repo that has a remote, is not "local"."""
+        from gitstow.core.repo import Repo, RepoStore
+
+        _make_repo_on_disk(workspace_dir, "a", "one")
+        RepoStore().add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws"))
+        monkeypatch.setattr("gitstow.web.routes.dashboard.get_status",
+                            lambda p: _fake_status(has_upstream=False, has_remote=True))
+        r = client.get("/dashboard/rows")
+        assert ">no upstream<" in r.text and ">local<" not in r.text
 
 
 class TestHonestTimestamps:
@@ -1216,7 +1232,7 @@ class TestHonestTimestamps:
 
     def test_detail_page_humanizes_and_shows_fetched(self, client, configured, workspace_dir, monkeypatch):
         self._seed(workspace_dir)
-        monkeypatch.setattr("gitstow.web.routes.pages.get_status", lambda p: _fake_status())
+        monkeypatch.setattr("gitstow.core.incoming.get_status", lambda p: _fake_status())
         html = client.get("/repo/test-ws/a/one").text
         assert "2026-07-12T10:00:00.123456" not in html.replace('title="2026-07-12T10:00:00.123456"', "")
         assert "LAST FETCHED" in html.upper()
@@ -1270,7 +1286,7 @@ class TestStyledConfirm:
 
         _make_repo_on_disk(workspace_dir, "a", "one")
         RepoStore().add(Repo(owner="a", name="one", remote_url="u", workspace="test-ws"))
-        monkeypatch.setattr("gitstow.web.routes.pages.get_status", lambda p: _fake_status())
+        monkeypatch.setattr("gitstow.core.incoming.get_status", lambda p: _fake_status())
         r = client.get("/repo/test-ws/a/one")
         assert "data-confirm=" in r.text
         assert "data-danger" in r.text  # the delete-from-disk form
@@ -1368,10 +1384,10 @@ class TestDiffViewer:
     def test_drawer_shows_changes_when_dirty(self, client, configured, workspace_dir, monkeypatch):
         self._seed_repo(workspace_dir)
         monkeypatch.setattr(
-            "gitstow.web.routes.pages.get_status", lambda p: _fake_status(dirty=1)
+            "gitstow.core.incoming.get_status", lambda p: _fake_status(dirty=1)
         )
         monkeypatch.setattr(
-            "gitstow.web.routes.pages.get_changed_files",
+            "gitstow.core.incoming.get_changed_files",
             lambda p: ChangedFiles(
                 unstaged=[FileChange(path="src/app.py", kind="modified", added=3, removed=2)],
                 untracked=["notes.txt"],
@@ -1388,22 +1404,24 @@ class TestDiffViewer:
 
     def test_drawer_hides_changes_when_clean(self, client, configured, workspace_dir, monkeypatch):
         self._seed_repo(workspace_dir)
-        monkeypatch.setattr("gitstow.web.routes.pages.get_status", lambda p: _fake_status())
+        monkeypatch.setattr("gitstow.core.incoming.get_status", lambda p: _fake_status())
         monkeypatch.setattr("gitstow.web.routes.pages.get_last_commit", lambda p: CommitInfo())
         monkeypatch.setattr("gitstow.web.routes.pages.get_disk_size", lambda p: 0)
         r = client.get("/repo/test-ws/owner/repo")
         assert r.status_code == 200
-        assert 'id="changes"' not in r.text
+        # The Local changes tab says the folder is clean instead of listing anything.
+        assert "No local changes: nothing edited, staged or untracked in this folder." in r.text
+        assert '<details class="diff-file">' not in r.text
 
     def test_drawer_caps_huge_change_list(self, client, configured, workspace_dir, monkeypatch):
         # A repo with a giant unignored dir must not render one <details> per
         # file (frozen browser). Each group caps at 200 rows + a note.
         self._seed_repo(workspace_dir)
         monkeypatch.setattr(
-            "gitstow.web.routes.pages.get_status", lambda p: _fake_status(untracked=250)
+            "gitstow.core.incoming.get_status", lambda p: _fake_status(untracked=250)
         )
         monkeypatch.setattr(
-            "gitstow.web.routes.pages.get_changed_files",
+            "gitstow.core.incoming.get_changed_files",
             lambda p: ChangedFiles(untracked=[f"f{i}.txt" for i in range(250)]),
         )
         monkeypatch.setattr("gitstow.web.routes.pages.get_last_commit", lambda p: CommitInfo())
@@ -1432,7 +1450,7 @@ class TestDiffViewer:
         self._mock_member(monkeypatch)
         monkeypatch.setattr(
             "gitstow.web.routes.pages.get_file_diff",
-            lambda p, f, **kw: "--- a/f\n+++ b/f\n@@ -1,2 +1,2 @@\n ctx\n-old\n+new\n",
+            lambda p, f, **kw: DiffRead("--- a/f\n+++ b/f\n@@ -1,2 +1,2 @@\n ctx\n-old\n+new\n"),
         )
         r = client.get("/repos/test-ws/owner/repo/diff?file=f&group=unstaged")
         assert r.status_code == 200
@@ -1452,7 +1470,7 @@ class TestDiffViewer:
 
         def fake_diff(p, f, **kw):
             captured.update(kw)
-            return "--- a/old.py\n+++ b/new.py\n@@ -1 +1 @@\n-x\n+y\n"
+            return DiffRead("--- a/old.py\n+++ b/new.py\n@@ -1 +1 @@\n-x\n+y\n")
 
         monkeypatch.setattr("gitstow.web.routes.pages.get_file_diff", fake_diff)
         r = client.get("/repos/test-ws/owner/repo/diff?file=new.py&group=staged")
@@ -1482,7 +1500,7 @@ class TestDiffViewer:
         self._mock_member(monkeypatch, path="link.txt")
         monkeypatch.setattr(
             "gitstow.web.routes.pages.get_file_diff",
-            lambda p, f, **kw: "--- a/link.txt\n+++ b/link.txt\n@@ -1 +1 @@\n-/old\n+/etc/passwd\n",
+            lambda p, f, **kw: DiffRead("--- a/link.txt\n+++ b/link.txt\n@@ -1 +1 @@\n-/old\n+/etc/passwd\n"),
         )
         r = client.get("/repos/test-ws/owner/repo/diff?file=link.txt&group=unstaged")
         assert r.status_code == 200
@@ -1524,7 +1542,7 @@ class TestDiffViewer:
         self._mock_member(monkeypatch)
         monkeypatch.setattr(
             "gitstow.web.routes.pages.get_file_diff",
-            lambda p, f, **kw: "--- a/f\n+++ b/f\n@@ -0,0 +1 @@\n+<script>alert(1)</script>\n",
+            lambda p, f, **kw: DiffRead("--- a/f\n+++ b/f\n@@ -0,0 +1 @@\n+<script>alert(1)</script>\n"),
         )
         r = client.get("/repos/test-ws/owner/repo/diff?file=f&group=unstaged")
         assert "<script>alert(1)</script>" not in r.text
@@ -1542,7 +1560,7 @@ class TestDiffViewer:
         )
         monkeypatch.setattr(
             "gitstow.web.routes.pages.get_file_diff",
-            lambda p, f, **kw: (
+            lambda p, f, **kw: DiffRead(
                 "diff --git a/a.txt b/b.txt\n"
                 "similarity index 100%\n"
                 "rename from a.txt\n"
@@ -1559,7 +1577,7 @@ class TestDiffViewer:
             "gitstow.web.routes.dashboard.get_status", lambda p: _fake_status(dirty=2)
         )
         r = client.get("/")
-        assert "/repo/test-ws/owner/repo#changes" in r.text
+        assert "/repo/test-ws/owner/repo?tab=local" in r.text
 
 
 # ---------- tailscale host guard ----------

@@ -1,7 +1,14 @@
 {# SPDX-FileCopyrightText: 2026 rishmadaan
 SPDX-License-Identifier: GPL-3.0-or-later #}
-<section class="section" id="changes">
-  <h4>Changes</h4>
+{# The repo page's "Local changes" tab: files edited, staged or untracked in this folder. #}
+<section class="local-tab" id="changes">
+  {% if inc.status_error %}
+  <div class="diff-note flush">Could not read local changes: the same status read failed. Nothing here is shown as clean.</div>
+  {% elif changes and changes.error %}
+  <div class="diff-note flush cap">Could not read local changes: {{ changes.error }} <span>Nothing here is shown as clean.</span></div>
+  {% elif not changes %}
+  <div class="diff-note flush">No local changes: nothing edited, staged or untracked in this folder{% if inc.pulled %} (re-read after the pull){% endif %}.</div>
+  {% else %}
   {% set cap = 200 %}
   {% for group, files in [("staged", changes.staged), ("unstaged", changes.unstaged)] %}
     {% if files %}
@@ -12,6 +19,7 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
         <summary title="{{ f.kind }}: {{ f.path }} — click to view the diff">
           <span class="diff-kind diff-kind-{{ f.kind }}">{{ f.kind[0]|upper }}</span>
           <span class="diff-path">{% if f.old_path %}{{ f.old_path }} → {% endif %}{{ f.path }}</span>
+          {% if f.path in inc.local_overlap %}<span class="mine-tag">this update changes this too</span>{% endif %}
           {% if f.binary %}<span class="diff-stat">binary</span>
           {% else %}<span class="diff-stat"><span class="diff-add">+{{ f.added }}</span> <span class="diff-del">−{{ f.removed }}</span></span>{% endif %}
         </summary>
@@ -33,6 +41,7 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
       <summary title="untracked: {{ path }} — click to view the file as all-new lines">
         <span class="diff-kind diff-kind-added">U</span>
         <span class="diff-path">{{ path }}</span>
+        {% if path in inc.local_overlap %}<span class="mine-tag">this update brings a file with this name</span>{% endif %}
         <span class="diff-stat"><span class="diff-add">new</span></span>
       </summary>
       <div class="diff-body"
@@ -43,5 +52,6 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
     {% endfor %}
     {% if changes.untracked|length > cap %}<div class="diff-note">showing first {{ cap }} of {{ changes.untracked|length }} — full list in a terminal via git status</div>{% endif %}
   </div>
+  {% endif %}
   {% endif %}
 </section>

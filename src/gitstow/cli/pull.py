@@ -221,7 +221,7 @@ def pull(
     with store.bulk():
         for (repo, _ws), outcome in zip(targets, result_dicts):
             if outcome["status"] in ("pulled", "up_to_date"):
-                store.update(repo.key, workspace=repo.workspace, last_pulled=now_iso)
+                store.update(repo.key, workspace=repo.workspace, last_pulled=now_iso, last_fetched=now_iso)  # the pull fetched first
 
     # Add frozen repos to results for completeness
     for r in sorted(frozen_repos, key=lambda x: x.global_key):

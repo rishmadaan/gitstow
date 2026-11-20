@@ -12,7 +12,8 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse
 
 from gitstow.core.config import load_config
-from gitstow.core.git import get_status, is_git_repo
+from gitstow.core.git import RepoStatus, get_status, is_git_repo
+from gitstow.core.incoming import Snapshot
 from gitstow.core.parallel import run_parallel
 from gitstow.core.repo import RepoStore
 from gitstow.core.status_model import RepoState, classify
@@ -59,7 +60,7 @@ def _relative_time(iso_str: str) -> str:
 _STATUS_TOOLTIPS = {
     "clean":    "Clean — working tree matches HEAD; up to date with the last fetch.",
     "dirty":    "Local changes — uncommitted work in the tree (see label for modified/staged/untracked). Untracked-only repos can still pull.",
-    "conflict": "Conflict — working tree is dirty AND behind remote. Resolve locally before pulling.",
+    "conflict": "Diverged, missing or unreadable — see the label. Pull is off.",
     "behind":   "Behind — remote upstream has commits your local copy doesn't. Pull to fast-forward.",
     "ahead":    "Ahead — you have local commits not yet pushed to remote.",
     "frozen":   "Frozen — 'Pull all' skips this repo. Open details to unfreeze.",
@@ -72,7 +73,9 @@ def _present(state: RepoState) -> tuple[str, str, str]:
     Keeps the existing css-class vocabulary; semantics come from the shared
     model — staged and untracked files count as local changes (they used to
     render as 'clean'), and a diverged repo's Pull is disabled (ff-only
-    pull cannot succeed there).
+    pull cannot succeed there). Edited or staged files on a branch that is also
+    behind read "local edits": nothing has been checked for conflicts, and the
+    commits behind are shown beside it (the Remote Δ chip, the repo page pill).
     """
     if state.presence == "missing":
         return "conflict", "missing", "disabled"
@@ -81,7 +84,7 @@ def _present(state: RepoState) -> tuple[str, str, str]:
     if state.frozen:
         return "frozen", "frozen", "disabled"
     if state.blocks_pull and state.behind:
-        return "conflict", "conflict", "disabled"
+        return "dirty", "local edits", "disabled"
     if state.blocks_pull:
         return "dirty", state.local_summary, "ghost"
     if state.pull_action == "skip-diverged":
@@ -100,25 +103,36 @@ def _delta(state: RepoState, last_fetched: str = "") -> tuple[str, str, str]:
 
     The fetch-age suffix lives here so it can be gated on presence AND upstream
     together — a missing/unreadable repo has stale counts that no fetch reflects,
-    so it must never claim "as of last fetch".
+    so it must never claim "as of last fetch". The "chip" class marks rows with
+    commits waiting (behind or diverged): the cell becomes a link to the repo
+    page's Incoming tab.
     """
     if state.presence != "ok":
         return ("even", "—", "Unknown — repo is missing or unreadable on disk.")
     if not state.has_upstream:
+        if state.has_remote:
+            return ("local", "no upstream",
+                    ("No upstream selected — this branch does not follow a remote branch, although "
+                     "the repo has a remote. Bulk pulls skip it; the repo page shows the command to set one."))
         return (
             "local",
             "local",
-            "Local-only — no upstream remote. Bulk pulls skip this repo.",
+            "No remote — nothing to fetch from or compare with. Bulk pulls skip this repo.",
         )
+    if state.upstream_gone:
+        return ("local", "upstream gone",
+                ("The upstream this branch follows does not exist here (deleted on the remote?). "
+                 "Open the repo page for git's message."))
     ahead, behind = state.ahead, state.behind
     suffix = ""
     if last_fetched and state.presence == "ok" and state.has_upstream:
         suffix = f" Counts as of last fetch, {_relative_time(last_fetched)}."
     if ahead and behind:
         return (
-            "down",
+            "chip",
             f"↑{ahead} ↓{behind}",
-            f"Diverged — {ahead} local commit(s) ahead, {behind} remote commit(s) behind. Use Fetch all to refresh counts.{suffix}",
+            (f"Diverged — {ahead} local commit(s) ahead, {behind} remote commit(s) behind. Click to see "
+             f"what is incoming.{suffix}"),
         )
     if ahead:
         return (
@@ -128,9 +142,10 @@ def _delta(state: RepoState, last_fetched: str = "") -> tuple[str, str, str]:
         )
     if behind:
         return (
-            "down",
-            f"↓ {behind}",
-            f"Behind — {behind} remote commit(s) not yet pulled. Use Fetch all to refresh counts.{suffix}",
+            "chip",
+            f"↓ {behind} incoming",
+            (f"Behind — {behind} remote commit(s) not yet pulled. Click to see what they bring before "
+             f"pulling.{suffix}"),
         )
     return "even", "—", f"Even — local and remote upstream in sync (since last fetch). Use Fetch all to refresh.{suffix}"
 
@@ -138,21 +153,88 @@ def _delta(state: RepoState, last_fetched: str = "") -> tuple[str, str, str]:
 def _pull_tooltip(variant: str, status_class: str, behind: int, label: str = "") -> str:
     """Tooltip explaining what Pull will do (or why it's disabled) for this row."""
     if variant == "primary":
-        return f"Pull — fast-forward this repo by {behind} commit(s) from remote."
+        return (f"Pull {behind} — moves this branch to the commit this count of {behind} came from, "
+                "without fetching. If the branch or its upstream changed since this row was drawn, "
+                "nothing is pulled.")
     if variant == "disabled":
         if status_class == "frozen":
             return "Pull disabled — repo is frozen. Unfreeze from the ⋯ menu to pull."
-        if status_class == "conflict":
-            if label == "diverged":
-                return "Pull disabled — local and remote have diverged. Resolve manually (rebase or merge)."
-            return "Pull disabled — dirty AND behind remote. Resolve locally before pulling."
+        if label == "local edits":
+            return ("Pull disabled — files in this folder are edited or staged, and the branch is behind. "
+                    "Open the repo page to see what is incoming and which files overlap.")
+        if label == "diverged":
+            return "Pull disabled — local and remote have diverged. Resolve manually (rebase or merge)."
         return "Pull disabled — repo is missing on disk or status can't be read."
     # ghost
     if status_class == "dirty":
-        return "Pull available — this repo has local changes; modified/staged files will make a bulk pull skip it, untracked-only files won't."
+        return ("Pull — fetches, then fast-forwards to the newest upstream commit. This repo has local "
+                "changes; modified/staged files will make a bulk pull skip it, untracked-only files won't.")
     if status_class == "ahead":
-        return "Pull available — nothing behind to pull. You have local commits to push instead."
-    return "Pull available — already up to date with the last fetch."
+        return "Pull — fetches, then fast-forwards if the remote has anything new. You have local commits to push."
+    return "Pull — fetches, then fast-forwards if the remote has anything new (none known as of the last fetch)."
+
+
+def row_context(repo, ws, repo_path, status, num: int | None, sorted_labels: list[str]) -> dict:
+    """The template context of one library row: the full dashboard and every row swap use this."""
+    exists = status is not None
+    state = classify(exists=exists, frozen=repo.frozen, status=status)
+    status_class, status_label, pull_variant = _present(state)
+    behind_n = state.behind
+    delta_cls, delta_txt, delta_tip = _delta(state, repo.last_fetched)
+
+    pull_tooltip = _pull_tooltip(pull_variant, status_class, behind_n, status_label)
+    if state.presence == "ok" and not state.has_upstream:
+        pull_tooltip = "Pull not applicable — no upstream to pull from. Bulk pulls skip it."
+    # "Pull N" takes exactly the commit its count came from: the row carries it.
+    snapshot = (Snapshot.of(repo_path, status).form()
+                if pull_variant == "primary" and status and status.upstream_oid else None)
+    if pull_variant == "primary" and snapshot is None:  # no id to honour: nothing exact to offer
+        pull_variant = "disabled"
+        pull_tooltip = "Pull disabled — the commit this count came from could not be read. Open the repo page."
+    page = f"/repo/{repo.workspace}/{repo.key}"
+    status_tooltip = f"{_STATUS_TOOLTIPS.get(status_class, status_label)} ({state.local_summary})"
+    if status_label == "local edits":
+        status_tooltip = (f"Local edits — files are edited or staged ({state.local_summary}) and the branch is "
+                          f"{behind_n} behind. Pull is off until the edits are resolved.")
+    if state.error:
+        status_tooltip = f"Could not read this repo: {state.error}"
+    return {
+        "num": f"{num:02d}" if num else "—",
+        "key": repo.key,
+        "display_name": repo.key,
+        "workspace": repo.workspace,
+        "remote_url": repo.remote_url or "",
+        "local_path": str(repo_path),
+        "ws_slot": _workspace_slot(repo.workspace, sorted_labels),
+        "ws_tooltip": f"Workspace '{repo.workspace}' — {ws.path} ({ws.layout} layout)",
+        "branch": status.branch if status else "—",
+        "branch_tooltip": (f"Current local branch: {status.branch}" if status
+                           else "Branch unknown — repo missing or unreadable"),
+        "delta_class": delta_cls,
+        "delta_text": delta_txt,
+        "delta_tooltip": delta_tip,
+        "incoming_link": f"{page}?tab=incoming",
+        "tags": repo.tags,
+        "last_pull": _relative_time(repo.last_pulled),
+        "last_pull_tooltip": (
+            f"gitstow last pulled this repo at {repo.last_pulled}"
+            if repo.last_pulled else
+            "gitstow hasn't pulled this repo yet"
+        ),
+        "status_class": status_class,
+        "status_label": status_label,
+        "status_tooltip": status_tooltip,
+        "frozen": repo.frozen,
+        "pull_variant": pull_variant,
+        "pull_tooltip": pull_tooltip,
+        "pull_snapshot": snapshot,
+        "behind": behind_n,
+        "repo_link_tooltip": f"Open details for {repo.key}",
+        "changes_link": (
+            f"{page}?tab=local"
+            if state.presence == "ok" and state.has_local_changes else ""
+        ),
+    }
 
 
 def _dashboard_repos(settings, store) -> list:
@@ -192,81 +274,34 @@ async def _build_repos_data(settings, store) -> tuple[list, dict]:
         if repo_path.exists() and is_git_repo(repo_path):
             probe.append((repo.global_key, functools.partial(get_status, repo_path)))
     results = await run_parallel(probe, max_concurrent=settings.parallel_limit)
-    status_by_key = {r.key: (r.data if r.success else None) for r in results}
+    # A probe that raised is a failed read, never a missing folder or a clean one.
+    status_by_key = {r.key: (r.data if r.success else RepoStatus(error=r.error or "git status failed"))
+                     for r in results}
 
     # Phase 2 — assemble rows in stable order.
     repos_data = []
     counts = {
-        "clean": 0, "dirty": 0, "conflict": 0, "diverged": 0,
+        "clean": 0, "dirty": 0, "local_edits": 0, "diverged": 0,
         "missing": 0, "behind": 0, "ahead": 0, "frozen": 0,
     }
 
     for i, repo in enumerate(repos, start=1):
         ws = ws_by_label[repo.workspace]
         repo_path = repo.get_path(ws.get_path())
-        exists = repo.global_key in status_by_key
-        status = status_by_key.get(repo.global_key)
-
-        state = classify(exists=exists, frozen=repo.frozen, status=status)
-        status_class, status_label, pull_variant = _present(state)
-
-        # Counts ladder — disambiguate the buckets that _present collapses onto
-        # the "conflict" css class (missing/unreadable, dirty+behind, diverged)
-        # so the chips row stays honest. Presence and the "diverged" label are
-        # checked before falling through to status_class.
+        row = row_context(repo, ws, repo_path, status_by_key.get(repo.global_key), i, ws_sorted)
+        # Counts ladder — one bucket per row; presence and the labels that share
+        # a css class (local edits, diverged) are checked before the class itself.
         if repo.frozen:
             counts["frozen"] += 1
-        elif state.presence != "ok":
+        elif row["status_label"] in ("missing", "error"):
             counts["missing"] += 1
-        elif status_label == "diverged":
+        elif row["status_label"] == "diverged":
             counts["diverged"] += 1
-        elif status_class in counts:
-            counts[status_class] += 1
-
-        behind_n = status.behind if status else 0
-        delta_cls, delta_txt, delta_tip = _delta(state, repo.last_fetched)
-
-        pull_tooltip = _pull_tooltip(pull_variant, status_class, behind_n, status_label)
-        if state.presence == "ok" and not state.has_upstream:
-            pull_tooltip = "Pull not applicable — local-only repo with no upstream. Bulk pulls skip it."
-
-        ws_path = ws.path if ws else ""
-        ws_layout = ws.layout if ws else ""
-
-        repos_data.append({
-            "num": f"{i:02d}",
-            "key": repo.key,
-            "display_name": repo.key,
-            "workspace": repo.workspace,
-            "remote_url": repo.remote_url or "",
-            "local_path": str(repo_path),
-            "ws_slot": _workspace_slot(repo.workspace, ws_sorted),
-            "ws_tooltip": f"Workspace '{repo.workspace}' — {ws_path} ({ws_layout} layout)",
-            "branch": status.branch if status else "—",
-            "branch_tooltip": f"Current local branch: {status.branch}" if status else "Branch unknown — repo missing or unreadable",
-            "delta_class": delta_cls,
-            "delta_text": delta_txt,
-            "delta_tooltip": delta_tip,
-            "tags": repo.tags,
-            "last_pull": _relative_time(repo.last_pulled),
-            "last_pull_tooltip": (
-                f"gitstow last pulled this repo at {repo.last_pulled}"
-                if repo.last_pulled else
-                "gitstow hasn't pulled this repo yet"
-            ),
-            "status_class": status_class,
-            "status_label": status_label,
-            "status_tooltip": f"{_STATUS_TOOLTIPS.get(status_class, status_label)} ({state.local_summary})",
-            "frozen": repo.frozen,
-            "pull_variant": pull_variant,
-            "pull_tooltip": pull_tooltip,
-            "behind": behind_n,
-            "repo_link_tooltip": f"Open details for {repo.key}",
-            "changes_link": (
-                f"/repo/{repo.workspace}/{repo.key}#changes"
-                if state.presence == "ok" and state.has_local_changes else ""
-            ),
-        })
+        elif row["status_label"] == "local edits":
+            counts["local_edits"] += 1
+        elif row["status_class"] in counts:
+            counts[row["status_class"]] += 1
+        repos_data.append(row)
 
     return repos_data, counts
 
@@ -291,8 +326,8 @@ async def dashboard(
     bits.append(f"{len(workspaces)} {'workspace' if len(workspaces) == 1 else 'workspaces'}")
     if counts["dirty"]:
         bits.append(f"{counts['dirty']} with local changes")
-    if counts["conflict"]:
-        bits.append(f"{counts['conflict']} conflict")
+    if counts["local_edits"]:
+        bits.append(f"{counts['local_edits']} with local edits and behind")
     if counts["diverged"]:
         bits.append(f"{counts['diverged']} diverged")
     if counts["missing"]:

@@ -287,7 +287,7 @@ def pull_repos(
     with store.bulk():
         for outcome, (r, _ws) in zip(results, pairs):
             if outcome.get("status") in ("pulled", "up_to_date"):
-                store.update(r.key, workspace=r.workspace, last_pulled=now)
+                store.update(r.key, workspace=r.workspace, last_pulled=now, last_fetched=now)  # the pull fetched first
 
     for r, _ws in sorted(frozen_pairs, key=lambda p: p[0].global_key):
         results.append({"repo": r.key, "workspace": r.workspace, "status": "skipped_frozen",

@@ -1,0 +1,140 @@
+{# SPDX-FileCopyrightText: 2026 rishmadaan
+SPDX-License-Identifier: GPL-3.0-or-later #}
+{# The repo page's Incoming tab: the facts, at most one main button, then the lists.
+   Every word is computed by web/routes/incoming.py build_incoming() from one fresh read. #}
+{% set page_url = "/repo/" ~ repo.workspace ~ "/" ~ repo.key %}
+{% set act = "/repos/" ~ repo.workspace ~ "/" ~ repo.key ~ "/incoming" %}
+{% set br %}<code>{{ inc.branch }}</code>{% endset %}
+{% set how %}moves {{ br }} forward to <code>{{ inc.tip7 }}</code>, the newest commit listed here, and nothing newer. It does not fetch first. If {{ br }} or <code>{{ inc.upstream }}</code> has changed since this list was drawn, it stops and shows the new list.{% endset %}
+{% set others %}<b>Pull all</b> in the library toolbar is different: it fetches and takes the newest.{% endset %}
+
+{% macro pull_button(label, primary=True) -%}
+<button type="button" class="btn {{ 'btn-primary' if primary else 'btn-outline' }} pull-btn" data-busy="pulling"
+        hx-post="{{ act }}/pull" hx-vals='{{ inc.snapshot|tojson }}'
+        hx-target="#repo-page" hx-select="#repo-page" hx-swap="outerHTML"
+        title="Moves {{ inc.branch }} to {{ inc.tip7 }} and nothing newer. Does not fetch."><span class="idle">{{ label }}</span><span class="busy"><span class="spin"></span> Pulling…</span></button>
+{%- endmacro %}
+{% macro fetch_button(label, primary=True) -%}
+<button type="button" class="btn {{ 'btn-primary' if primary else 'btn-outline' }} fetch-btn" data-busy="fetching"
+        hx-post="{{ act }}/fetch" hx-vals='{{ inc.fetch_prev|tojson }}'
+        hx-target="#repo-page" hx-select="#repo-page" hx-swap="outerHTML"
+        title="Ask the remote what is there now, then redraw this page. Does not pull."><span class="idle">{{ label }}</span><span class="busy"><span class="spin"></span> Fetching…</span></button>
+{%- endmacro %}
+{% macro commit_row(c) -%}
+<div class="commit"><span class="h" title="{{ c.oid }}">{{ c.short }}</span><span class="s">{{ c.subject }}</span>
+  <span class="m"><span class="who">{{ c.author }}</span> · {{ c.when }}{% if c.files %} · <span class="nw">{{ c.files_word }}</span> <span class="nw"><span class="diff-add">+{{ c.added }}</span> <span class="diff-del">−{{ c.removed }}</span></span>{% endif %}</span>
+  {% if c.body %}<details><summary>more of this message</summary><p class="commit-body">{{ c.body }}</p></details>{% endif %}
+</div>
+{%- endmacro %}
+
+<div class="inc-panel {{ inc.panel_class }}" id="incoming-panel">
+  <div class="inc-eyebrow"><span>{% if inc.eyebrow_label %}Incoming · <b>{{ inc.eyebrow_label }}</b>{% else %}{{ 'Pulled' if inc.pulled else 'Incoming' }} · <b>{{ inc.upstream }}</b> → <b>{{ inc.branch }}</b>{% endif %}</span></div>
+  <div class="inc-head">
+    <span class="inc-title"><span class="idle-only">{{ inc.title }}</span><span class="only-fetching">Fetching…</span><span class="only-pulling">Pulling {{ inc.count }} commit{{ '' if inc.count == '1' else 's' }}…</span></span>
+    {% if inc.stats %}<span class="inc-stats idle-only">{{ inc.stats }}</span>{% endif %}
+  </div>
+  {% if inc.span %}<p class="inc-span">{{ inc.span }}</p>{% endif %}
+  {% for para in inc.lede %}<p class="inc-lede">{{ para }}</p>{% endfor %}
+  {% if inc.command %}<pre class="gitsaid">{{ inc.command }}</pre>{% endif %}
+  {% if inc.facts %}
+  <ul class="facts">
+    {% for f in inc.facts %}<li class="fact-{{ f.t }}"><span class="fact-k">{{ f.k }}</span><span>{{ f.html }}</span></li>{% endfor %}
+  </ul>
+  {% endif %}
+
+  <div class="inc-actions">
+  {% set k = inc.kind %}
+  {% if k == "behind" %}
+    {{ pull_button("↓ Pull these " ~ inc.count) }}
+  {% elif k == "stale" %}
+    {{ fetch_button("⟳ Fetch first") }}{{ pull_button("↓ Pull these " ~ inc.count ~ " without fetching", primary=False) }}
+  {% elif k == "blocked" %}
+    <button type="button" class="btn btn-outline" data-tab="local">See your local changes →</button>
+  {% elif k in ("diverged", "noremote") or (k in ("noupstream", "detached") and not inc.command) %}
+    <button type="button" class="btn btn-outline" hx-post="/repos/{{ repo.workspace }}/{{ repo.key }}/open-folder"
+            hx-swap="none" data-toast="Opened {{ repo.key }} in file manager">Open folder</button>
+  {% elif k in ("noupstream", "detached") %}
+    <button type="button" class="btn btn-outline js-copy" data-copy="{{ inc.command }}" data-copy-label="command">Copy the command</button>
+  {% elif k == "frozen" %}
+    <form method="POST" action="/repos/{{ repo.workspace }}/{{ repo.key }}/freeze" class="inline-form">
+      <input type="hidden" name="frozen" value="0">
+      <button type="submit" class="btn btn-outline">Unfreeze</button>
+    </form>
+  {% elif k == "unknown" %}
+    <a class="btn btn-primary" href="{{ page_url }}?tab=incoming">⟳ Try again</a>
+  {% elif k in ("ahead", "none") %}
+    {{ fetch_button("⟳ Fetch now", primary=False) }}
+  {% elif k == "pulled" %}
+    {{ fetch_button("⟳ Fetch again", primary=False) }}
+  {% elif k in ("failed", "locked") %}
+    {{ pull_button("↓ Try the pull again") }}
+  {% elif k == "changed" %}
+    <a class="btn btn-primary" href="{{ page_url }}?tab=incoming">{% if inc.now_behind %}Show the {{ "{:,}".format(inc.now_behind) }} now waiting{% else %}Show what is here now{% endif %}</a>
+  {% elif k == "fetchfailed" %}
+    {{ fetch_button("⟳ Retry") }}{% if inc.snapshot %}{{ pull_button("↓ Pull these " ~ inc.count ~ " without fetching", primary=False) }}{% endif %}
+  {% endif %}
+  </div>
+
+  <p class="inc-explain only-fetching">Asking the remote what is there now. This page shows a new list only after git has finished and the fetch succeeded. Pull is not offered while a fetch is running.</p>
+  <p class="inc-explain only-pulling">Moving {{ br }} from <code>{{ inc.head7 }}</code> to <code>{{ inc.tip7 }}</code>. This page reports success only after git has finished and gitstow has read the result back.</p>
+  {% set explain %}
+    {%- if k == "behind" %}<b>Pull</b> {{ how }} {{ others }} Leaving this page changes nothing.
+    {%- elif k == "stale" %}<b>Fetch</b> asks the remote what is there now and redraws this list. <b>Pull without fetching</b> {{ how }} {{ others }}
+    {%- elif k == "blocked" %}<b>Resolve the local work, then come back for a fresh check.</b> gitstow shows local changes but does not alter them, so that happens in a terminal. Committing them on this branch may mean the two histories need reconciling before a pull.
+    {%- elif k == "diverged" %}<b>Pull is off.</b> Bringing the two histories together (a rebase or a merge) happens in a terminal. Come back afterwards for a fresh check.
+    {%- elif k == "frozen" %}<b>Unfreezing does not pull.</b> It lets Pull and Pull all work on this repo again; the Pull button appears here once the repo is unfrozen.
+    {%- elif k == "unknown" %}<b>Try again</b> repeats the read. If git keeps failing, the repair happens in a terminal; gitstow changes nothing in this folder.
+    {%- elif k in ("failed", "locked") %}Nothing is retried on its own. The pull on offer is the same one: {{ br }} from <code>{{ inc.head7 }}</code> to <code>{{ inc.tip7 }}</code>, the {{ inc.count }} commit{{ '' if inc.count == '1' else 's' }} listed below.
+    {%- elif k == "changed" %}<b>Show</b> redraws this page with the list as it is now, to review before pulling. It does not fetch: the check that stopped the pull already read the new state.
+    {%- elif k == "fetchfailed" %}<b>Retry</b> runs the same fetch again; nothing is retried on its own.{% if inc.snapshot %} <b>Pull without fetching</b> {{ how }} {{ others }}{% endif %}
+    {%- endif %}
+  {% endset %}
+  {% if explain|trim %}<p class="inc-explain idle-only">{{ explain }}</p>{% endif %}
+</div>
+
+{% if inc.kind == "changed" %}
+<div class="diff-note flush">The list reviewed earlier is no longer shown, because it no longer matches this repo.</div>
+{% endif %}
+
+{% set prev %}<span class="as-prev{% if inc.as_prev %} on{% endif %}">as of the previous fetch · </span>{% endset %}
+{% if inc.show_lists %}
+<div class="block">
+  <h4>{{ 'What this pull brought in' if inc.pulled else 'Commits' }} <span class="sub">{{ inc.count }} · {{ prev }}newest first</span></h4>
+  <div class="commits{% if inc.commits|length > 12 %} capbox{% endif %}">{% for c in inc.commits %}{{ commit_row(c) }}{% endfor %}</div>
+  {% if inc.commits_cut %}<p class="cap-note">Showing the newest {{ inc.commits|length }} of {{ inc.count }} commits (scroll the box). <span>The other {{ inc.commits_rest }} are older. {% if inc.pulled %}The pull took all {{ inc.count }}.{% else %}Pull takes all {{ inc.count }}, including those not listed.{% endif %} {{ inc.commits_rest_cmd }}</span></p>{% endif %}
+</div>
+{% endif %}
+
+{% if inc.local_commits %}
+<div class="block">
+  <h4>Local commits not in {{ inc.upstream }} <span class="sub">{{ inc.local_commit_total }}</span></h4>
+  <div class="commits{% if inc.local_commits|length > 12 %} capbox{% endif %}">{% for c in inc.local_commits %}{{ commit_row(c) }}{% endfor %}</div>
+  {% if inc.local_commits_cut %}<p class="cap-note">Showing the newest {{ inc.local_commits|length }} of {{ inc.local_commit_total }} local commits. <span>All of them, in a terminal: git log {{ inc.upstream }}..{{ inc.branch }}</span></p>{% endif %}
+</div>
+{% endif %}
+
+{% if inc.show_lists %}
+<div class="block">
+  <h4>{{ 'Files it changed' if inc.pulled else 'Files' }} <span class="sub">{{ inc.file_total }} · {{ prev }}{% if inc.base == "diverged" and not inc.pulled %}upstream's changes since the branches split · {% endif %}click a file for its line-by-line diff</span></h4>
+  {% if inc.kinds_line %}<p class="inc-span" style="margin: 0 0 0.6rem;">{{ inc.kinds_line }}</p>{% endif %}
+  <div class="{% if inc.files|length > 20 %}filebox{% endif %}">
+  {% for f in inc.files %}
+    <details class="diff-file">
+      <summary title="{{ f.kind }}: {{ f.path }}">
+        <span class="diff-kind diff-kind-{{ f.kind if f.kind in ('modified', 'added', 'deleted', 'renamed') else 'modified' }}">{{ f.letter }}</span>
+        <span class="diff-path">{% if f.old_path %}{{ f.old_path }} → {% endif %}{{ f.path }}</span>
+        {% if f.tag %}<span class="mine-tag">{{ f.tag }}</span>{% endif %}
+        <span class="diff-stat">{% if f.stat %}{{ f.stat }}{% else %}<span class="diff-add">+{{ f.added }}</span> <span class="diff-del">−{{ f.removed }}</span>{% endif %}</span>
+      </summary>
+      {% if f.note %}<div class="diff-body"><div class="diff-note">{{ f.note }}</div></div>
+      {% else %}<div class="diff-body"
+           hx-get="{{ act }}/diff?file={{ f.path|urlencode }}&base={{ inc.diff_from }}&tip={{ inc.diff_to }}&pinned={{ 1 if inc.pinned else 0 }}"
+           hx-trigger="toggle once from:closest details"
+           hx-swap="innerHTML"><div class="diff-note">loading…</div></div>{% endif %}
+    </details>
+  {% endfor %}
+  </div>
+  {% if inc.files_cut %}<p class="cap-note">Showing {{ inc.files|length }} of {{ inc.file_total }} files, largest first (scroll the box). <span>{{ inc.files_rest_cmd }}</span></p>{% endif %}
+  <a class="backtop" href="#incoming-panel">↑ Back to the top of this panel</a>
+</div>
+{% endif %}
