@@ -303,6 +303,11 @@ def build_incoming(repo, repo_path, result: dict | None = None) -> dict:
             "{} {}; this pull did not fetch. The remote may have newer commits. Fetch to check.").format(
             level, fetch_words)))
         rng = read_range(repo_path, before, after)
+        if rng.error:  # the move above was read back; only the list of what came in is missing
+            facts.insert(1, _fact("blocked", "not read", Markup(
+                "<b>The list of what came in could not be read.</b> In a terminal, run in this repo's folder: "
+                "{} git said: {}").format(_code(f"git log {before[:7]}..{after[:7]}"),
+                                          Markup('<pre class="gitsaid wrap">{}</pre>').format(rng.error))))
     elif kind in ("failed", "locked"):
         message = result.get("message", "")
         if kind == "failed":
@@ -405,13 +410,14 @@ def build_incoming(repo, repo_path, result: dict | None = None) -> dict:
         "noremote": "No remote", "none": "Up to date",
         "ahead": f"Nothing incoming, {_n(st.ahead)} ahead",
         "diverged": f"Diverged: {_n(rng.commit_total)} incoming, {_n(view.local_commit_total)} local",
-        "pulled": f"Pulled {_plural(rng.commit_total, 'commit')}", "failed": "Pull failed",
+        "pulled": f"Pulled {_plural(rng.commit_total, 'commit')}" if not rng.error else "Pulled",
+        "failed": "Pull failed",
         "locked": "Not pulled: another pull is running", "changed": "Not pulled: changed since review",
         "fetchfailed": "Fetch failed",
     }
     title = titles.get(kind, f"{_plural(rng.commit_total, 'commit')} waiting")
 
-    show_lists = kind == "pulled" or (has_list and kind != "changed")
+    show_lists = (kind == "pulled" and not rng.error) or (has_list and kind != "changed")
     stats = ""
     if show_lists and kind != "fetchfailed" and rng.commit_total:
         stats = Markup("{} · <span class=\"diff-add\">+{}</span> <span class=\"diff-del\">−{}</span>{} · {}").format(

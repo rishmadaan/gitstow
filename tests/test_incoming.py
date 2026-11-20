@@ -571,6 +571,35 @@ class TestWeb:
         assert "local files could not be listed" in page and "listing exploded" in page
         assert "No local changes" not in page
 
+    def test_a_failed_diverged_comparison_is_could_not_check(self, web, monkeypatch):
+        client, clone, _, _ = web
+        commit(clone, "local", {"notes.md": "n\n"})
+        assert "Diverged: 3 incoming, 1 local" in client.get("/repo/t/clone").text
+        monkeypatch.setattr("gitstow.core.incoming.read_changed_paths", lambda *a: "fatal: compare exploded")
+        page = client.get("/repo/t/clone").text
+        assert "Could not check" in page and "compare exploded" in page
+        assert "Diverged:" not in page and "/incoming/pull" not in page
+
+    def test_a_failed_read_after_a_pull_keeps_the_move_and_shows_no_zero_totals(self, web, monkeypatch):
+        import json
+        import re
+
+        from gitstow.core.incoming import RangeRead
+        client, clone, _, ids = web
+        html = client.get("/repo/t/clone").text
+        vals = json.loads(re.search(r'hx-post="/repos/t/clone/incoming/pull" hx-vals=\'([^\']+)\'', html)
+                          .group(1).replace("&#34;", '"'))
+        before = git("rev-parse", "HEAD", cwd=clone)
+        monkeypatch.setattr("gitstow.web.routes.incoming.read_range",
+                            lambda *a: RangeRead(error="fatal: range exploded"))
+        r = client.post("/repos/t/clone/incoming/pull", data=vals)
+        assert git("rev-parse", "HEAD", cwd=clone) == ids[-1]
+        assert f"moved from <code>{before[:7]}</code> to <code>{ids[-1][:7]}</code>" in r.text
+        assert "The list of what came in could not be read" in r.text and "range exploded" in r.text
+        assert f"git log {before[:7]}..{ids[-1][:7]}" in r.text
+        assert "Pulled 0 commits" not in r.text and "0 files" not in r.text
+        assert "What this pull brought in" not in r.text
+
     def test_diff_route_only_serves_files_of_the_comparison(self, web):
         client, clone, _, ids = web
         head = git("rev-parse", "HEAD", cwd=clone)

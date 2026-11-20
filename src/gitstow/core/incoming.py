@@ -210,13 +210,13 @@ def read_incoming(repo_path: Path) -> IncomingView:
     if view.incoming.error:
         view.error = view.incoming.error
         return view
-    view.kind = "diverged" if status.ahead else "behind"
-    if view.kind == "diverged":
+    if status.ahead:  # read before the kind is set: a failed read leaves the view "unknown"
         mine = read_changed_paths(repo_path, view.tip, view.head)
         if isinstance(mine, str):
             view.error = mine
             return view
         view.both_changed = sorted(mine & view.incoming.paths)
+    view.kind = "diverged" if status.ahead else "behind"
     if view.local is not None and not view.local.error:
         edited = ({f.path for f in view.local.staged} | {f.path for f in view.local.unstaged}
                   | set(view.local.untracked))
