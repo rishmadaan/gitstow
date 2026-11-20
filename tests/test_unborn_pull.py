@@ -271,6 +271,51 @@ def test_a_branch_with_no_commits_and_nothing_upstream_offers_no_pull(empty, tmp
     assert re.search(r"<button[^>]*\sdisabled\s[^>]*>Pull</button>", row), row
 
 
+def _fail_git(monkeypatch, module, hit, message="fatal: unable to read upstream config"):
+    """Make every git call `hit(args)` matches exit 128 with `message`; the rest run for real."""
+    real = module._run_git
+
+    def run(args, *a, **kw):
+        if hit(args):
+            empty = b"" if kw.get("binary") else ""
+            err = message.encode() if kw.get("binary") else message
+            return subprocess.CompletedProcess(["git", *args], 128, empty, err)
+        return real(args, *a, **kw)
+    monkeypatch.setattr(module, "_run_git", run)
+
+
+@pytest.mark.parametrize("read", ["upstream", "tip"])
+def test_a_failed_upstream_read_on_a_branch_with_no_commits_is_never_none(empty, tmp_path, monkeypatch, read):
+    """R5-C1: an unborn branch's upstream that is absent reads as none; one that could not be read
+    is "Could not check" with git's words, never "none". Pull stays refused either way."""
+    from fastapi.testclient import TestClient
+
+    from gitstow.web.server import create_app
+
+    clone, pusher, _ = empty
+    _config(tmp_path, monkeypatch)
+    st = G.get_status(clone)  # upstream set, its remote branch not there yet: absent, not failed
+    assert not st.error and not st.has_upstream and st.unborn, st
+    git("config", "--unset", "branch.main.merge", cwd=clone)
+    st = G.get_status(clone)  # no upstream set at all: absent, not failed
+    assert not st.error and not st.has_upstream and st.unborn, st
+    git("config", "branch.main.merge", "refs/heads/main", cwd=clone)
+    push_first(pusher)
+    git("fetch", "-q", cwd=clone)
+    assert G.get_status(clone).behind == 1
+
+    end = "@{upstream}" if read == "upstream" else "^{commit}"
+    _fail_git(monkeypatch, G, lambda args: args[0] == "rev-parse" and args[-1].endswith(end))
+    st = G.get_status(clone)
+    assert st.error == "fatal: unable to read upstream config", st
+    app = create_app()
+    app.state.server = type("Stub", (), {"should_exit": False})()
+    page = TestClient(app, base_url="http://127.0.0.1").get("/repo/t/clone").text
+    assert "Could not check" in page and "unable to read upstream config" in page
+    assert "1 commit upstream" not in page  # the title of a read that worked
+    assert not G.pull(clone).success and raw(clone, "for-each-ref", "refs/heads/") == b""
+
+
 def _orphan_main_beside_other(repo):
     """A repo whose branch `other` has a commit and whose HEAD names `main`, which has none."""
     git("init", "-q", "-b", "other", str(repo))

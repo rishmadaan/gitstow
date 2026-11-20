@@ -423,8 +423,11 @@ def _capture_head(repo_path: Path, heads: dict[bytes, str], ups: dict[bytes, byt
         if not ref.startswith(b"refs/heads/"):
             return (f"not on a branch (HEAD points at {ref.decode('utf-8', 'replace')}): "
                     "check out a branch, then pull")
+        up = _unborn_upstream(repo_path, ref)
+        if isinstance(up, str):
+            return up
         cap = BranchCapture(heads=heads, ups=ups, unborn=ref)
-        cap.upstream, cap.tip = _unborn_upstream(repo_path, ref)
+        cap.upstream, cap.tip = up
         return cap
     oid = _run_git(["rev-parse", "--verify", "-q", "HEAD"], cwd=repo_path)
     if oid.returncode != 0 or not oid.stdout.strip():
@@ -432,24 +435,32 @@ def _capture_head(repo_path: Path, heads: dict[bytes, str], ups: dict[bytes, byt
     return BranchCapture(head=oid.stdout.strip(), heads=heads, ups=ups)
 
 
-def _unborn_upstream(repo_path: Path, ref: bytes) -> tuple[bytes, str]:
-    """An unborn branch's upstream full ref and its commit id, or (b"", "") when either cannot be read.
+def _unborn_upstream(repo_path: Path, ref: bytes) -> tuple[bytes, str] | str:
+    """An unborn branch's upstream full ref and its commit id; (b"", "") when it has none (no
+    upstream set, or its remote branch does not exist here yet); git's message when a read failed.
 
     for-each-ref lists no branch without a commit, so its upstream is asked for by name:
-    `<name>@{upstream}` (the full ref form does not resolve there). A name starting with
-    "-" would read as an option, so it gets no upstream, and so no pull is offered.
+    `<name>@{upstream}` (the full ref form does not resolve there). With `--verify -q`, every
+    absence (none set, a remote branch not fetched) is exit 1 and silence; anything else is a
+    failed read. A name starting with "-" would read as an option, so it gets no upstream, and
+    so no pull is offered.
     """
     name = ref[len(b"refs/heads/"):]
     if name.startswith(b"-"):
         return b"", ""
-    up = _run_git(["rev-parse", "--symbolic-full-name", os.fsdecode(name) + "@{upstream}"],
+    up = _run_git(["rev-parse", "--verify", "-q", "--symbolic-full-name", os.fsdecode(name) + "@{upstream}"],
                   cwd=repo_path, binary=True)
     upstream = up.stdout.strip()
+    if up.returncode == 1 and not up.stderr.strip():
+        return b"", ""
     if up.returncode != 0 or not upstream.startswith(b"refs/"):
-        return b"", ""
+        return (up.stderr.decode("utf-8", "replace").strip()
+                or f"could not read the upstream of {name.decode('utf-8', 'replace')} (git rev-parse exit {up.returncode})")
     tip = _run_git(["rev-parse", "--verify", "-q", os.fsdecode(upstream) + "^{commit}"], cwd=repo_path)
-    if tip.returncode != 0 or not tip.stdout.strip():
+    if tip.returncode == 1 and not tip.stderr.strip():
         return b"", ""
+    if tip.returncode != 0 or not tip.stdout.strip():
+        return tip.stderr.strip() or f"could not read the commit {upstream.decode('utf-8', 'replace')} points at"
     return upstream, tip.stdout.strip()
 
 

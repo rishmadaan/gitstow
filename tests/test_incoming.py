@@ -977,6 +977,27 @@ class TestWeb:
         assert self._command(page) is None and "release/solo" not in page
         assert "sees no branch named <code>solo</code>" in page
 
+    @pytest.mark.parametrize("listing", ["remote", "for-each-ref"])
+    def test_a_failed_listing_of_remote_branches_is_not_no_branch(self, web, monkeypatch, listing):
+        """R5-C1: when listing the remotes or their branches fails, the page says it could not check,
+        with git's words, never that the remote has no branch of that name."""
+        import subprocess
+
+        from gitstow.core import incoming
+
+        client, clone, _, _ = web
+        git("checkout", "-q", "--no-track", "-b", "solo", cwd=clone)
+        real = incoming._run_git
+
+        def run(args, *a, **kw):
+            if args[0] == listing:
+                return subprocess.CompletedProcess(["git", *args], 128, b"", b"fatal: cannot list refs")
+            return real(args, *a, **kw)
+        monkeypatch.setattr(incoming, "_run_git", run)
+        page = client.get("/repo/t/clone").text
+        assert "Could not check" in page and "fatal: cannot list refs" in page
+        assert "sees no branch named" not in page
+
     def test_a_remote_whose_name_holds_a_slash_is_shown_whole(self, web, tmp_path):
         client, clone, _, _ = web
         git("remote", "add", "my/fork", str(tmp_path / "nowhere.git"), cwd=clone)

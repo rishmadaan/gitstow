@@ -221,7 +221,10 @@ def _read_incoming(repo_path: Path) -> IncomingView | Unreadable:
     if not cap.upstream:
         view.kind = "noupstream" if status.has_remote else "noremote"
         if view.kind == "noupstream":
-            view.upstream_hint = _same_named_remote_branch(repo_path, cap.branch)
+            hint = _same_named_remote_branch(repo_path, cap.branch)
+            if isinstance(hint, str):
+                return Unreadable(hint)
+            view.upstream_hint = hint
         return view
     if cap.upstream_gone:
         return Unreadable(f"{view.branch} follows {view.upstream}, which does not exist in this folder")
@@ -253,14 +256,17 @@ def _read_incoming(repo_path: Path) -> IncomingView | Unreadable:
     return view
 
 
-def _same_named_remote_branch(repo_path: Path, branch: bytes) -> tuple[bytes, bytes] | None:
+def _same_named_remote_branch(repo_path: Path, branch: bytes) -> tuple[bytes, bytes] | None | str:
     """(remote, full ref) of a remote-tracking branch named exactly like the checked-out one
     (refs/remotes/<remote>/<name> for a remote `git remote` lists): origin's when it has one, else
-    the only match; None when there is none or more than one. Bytes, so the name is never altered."""
+    the only match; None when there is none or more than one; git's message when a listing failed.
+    Bytes, so the name is never altered."""
     remotes = _run_git(["remote"], cwd=repo_path, binary=True)
     refs = _run_git(["for-each-ref", "--format=%(refname)", "refs/remotes/"], cwd=repo_path, binary=True)
-    if remotes.returncode != 0 or refs.returncode != 0:
-        return None
+    for listed in (remotes, refs):
+        if listed.returncode != 0:
+            return (listed.stderr.decode("utf-8", "replace").strip()
+                    or f"git {listed.args[1]} failed (exit {listed.returncode})")
     have = set(refs.stdout.split(b"\n"))
     name = branch.removeprefix(b"refs/heads/")
     found = [(r, b"refs/remotes/" + r + b"/" + name) for r in remotes.stdout.split(b"\n")
