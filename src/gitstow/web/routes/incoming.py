@@ -523,7 +523,7 @@ def _inspection(repo, repo_path, view: IncomingView, now: datetime, prev_tip: st
     # An unborn branch with upstream commits is held back like a behind one: frozen first, then edits.
     unborn_block = ("frozen" if repo.frozen else "blocked" if edited else "") if kind == "unborn" and view.tip else ""
     if kind == "unborn" and view.tip:
-        lede.append(Markup("{} has no commits yet. {} has {}; Pull takes them.").format(
+        lede.append(Markup("{} has no commits yet. {} has {}; Pull on its library row takes them.").format(
             br, up, _plural(view.behind, "commit")))
         lede.append(Markup("{}Pull on this repo's row in the library, Pull all, or {} in a terminal fetches first "
                            "and takes the newest. It stops, changing nothing, if anything in this folder sits where "

@@ -246,7 +246,7 @@ def test_after_a_fetch_every_surface_says_the_upstream_has_commits_to_take(empty
     client = TestClient(app, base_url="http://127.0.0.1")
     page = client.get("/repo/t/clone").text
     assert "Could not check" not in page and ">error<" not in page.lower()
-    assert "<code>origin/main</code> has 2 commits; Pull takes them." in page
+    assert "<code>origin/main</code> has 2 commits; Pull on its library row takes them." in page
     row = re.search(r'<tr[^>]*data-key="clone".*?</tr>', client.get("/").text, re.DOTALL).group(0)
     assert "no commits · ↓ 2" in row and "status-conflict" not in row
     button = re.search(r"<button[^>]*>\s*Pull\s*</button>", row, re.DOTALL).group(0)
