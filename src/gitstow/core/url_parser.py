@@ -10,7 +10,8 @@ Supports:
   - Host-prefixed: github.com/owner/repo
   - Nested groups: gitlab.com/group/subgroup/repo
   - Azure DevOps: dev.azure.com/org/project/_git/repo,
-    git@ssh.dev.azure.com:v3/org/project/repo, org.visualstudio.com/project/_git/repo
+    git@ssh.dev.azure.com:v3/org/project/repo, org.visualstudio.com/project/_git/repo,
+    org@vs-ssh.visualstudio.com:v3/org/project/repo
 
 Resolution algorithm adopted from ghq (3.5k stars) with improvements.
 """
@@ -144,9 +145,11 @@ def parse_git_url(
     if path and not all(valid_segment(seg) for seg in _before_browse_marker(host, path.split("/"))):
         raise ValueError(f"Cannot use '{original}': {_SEGMENT_RULE}")
 
-    # Azure DevOps SSH (git@ssh.dev.azure.com:v3/org/project/repo) names the
-    # same repo as the HTTPS form: normalise the host and drop the "v3" segment.
-    if host == "ssh.dev.azure.com":
+    # Azure DevOps SSH (git@ssh.dev.azure.com:v3/org/project/repo, or the legacy
+    # org@vs-ssh.visualstudio.com:v3/org/project/repo) names the same repo as the
+    # HTTPS form: normalise the host (every visualstudio.com organisation is also
+    # served at dev.azure.com) and drop the "v3" segment.
+    if host in ("ssh.dev.azure.com", "vs-ssh.visualstudio.com"):
         host = "dev.azure.com"
         path = path.removeprefix("v3/")
 

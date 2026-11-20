@@ -133,6 +133,7 @@ class TestAzureAndMultiDotHosts:
     AZ_HTTPS = "https://dev.azure.com/org/project/_git/repo"
     AZ_SSH = "git@ssh.dev.azure.com:v3/org/project/repo"
     VS_HTTPS = "https://org.visualstudio.com/project/_git/repo"
+    VS_SSH = "org@vs-ssh.visualstudio.com:v3/org/project/repo"
 
     @pytest.mark.parametrize("url, prefer_ssh, host, owner, repo, clone_url", [
         ("dev.azure.com/org/project/_git/repo", False, "dev.azure.com", "org/project", "repo", AZ_HTTPS),
@@ -146,6 +147,12 @@ class TestAzureAndMultiDotHosts:
         (VS_HTTPS, False, "org.visualstudio.com", "project", "repo", VS_HTTPS),
         ("org.visualstudio.com/project/_git/repo", False, "org.visualstudio.com", "project", "repo", VS_HTTPS),
         (VS_HTTPS, True, "org.visualstudio.com", "project", "repo", VS_HTTPS),
+        # legacy SSH host: same repo as the dev.azure.com forms, cloned by Azure's SSH form
+        (VS_SSH, False, "dev.azure.com", "org/project", "repo", AZ_SSH),
+        (VS_SSH, True, "dev.azure.com", "org/project", "repo", AZ_SSH),
+        (VS_SSH + ".git", False, "dev.azure.com", "org/project", "repo", AZ_SSH),
+        ("ssh://org@vs-ssh.visualstudio.com/v3/org/project/repo", False,
+         "dev.azure.com", "org/project", "repo", AZ_SSH),
         ("git.example.co.uk/group/repo", False, "git.example.co.uk", "group", "repo",
          "https://git.example.co.uk/group/repo.git"),
         ("git.example.co.uk/group/sub/repo", False, "git.example.co.uk", "group/sub", "repo",
@@ -162,6 +169,13 @@ class TestAzureAndMultiDotHosts:
         from gitstow.core.url_parser import same_repo
         assert same_repo(self.AZ_SSH, self.AZ_HTTPS, "github.com")
         assert parse_git_url(self.AZ_SSH).key == parse_git_url(self.AZ_HTTPS).key == "org/project/repo"
+
+    def test_legacy_vs_ssh_is_the_same_repo_as_the_https_forms(self):
+        from gitstow.core.url_parser import same_repo
+        assert same_repo(self.VS_SSH, self.AZ_HTTPS, "github.com")
+        assert same_repo(self.VS_SSH, "https://org@dev.azure.com/org/project/_git/repo", "github.com")
+        assert same_repo(self.VS_SSH, self.AZ_SSH, "github.com")
+        assert parse_git_url(self.VS_SSH).key == "org/project/repo"
 
 
 class TestPreferSSH:
