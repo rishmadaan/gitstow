@@ -113,6 +113,16 @@ def _sh(*argv: str) -> str:
     return shlex.join(argv)
 
 
+def _copyable(name: bytes) -> str | None:
+    """A ref name as text a terminal reproduces exactly, or None: not strict UTF-8, or holding a
+    character that does not print (a copied command would then name another branch, or none)."""
+    try:
+        text = name.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    return text if text.isprintable() else None
+
+
 def _n(x: int) -> str:
     return f"{x:,}"
 
@@ -527,11 +537,18 @@ def _inspection(repo, repo_path, view: IncomingView, now: datetime, prev_tip: st
         lede.append(Markup("{} in this folder is not set to follow a remote branch, so gitstow has nothing to "
                            "compare it with and cannot list incoming commits. Pull all skips this repo.").format(br))
         if view.upstream_hint:
-            remote = view.upstream_hint.split("/", 1)[0]
-            lede.append(Markup("The repo does have a remote, {}, and gitstow can see a branch {} from it. To make "
-                               "{} follow that branch, run this in the repo's folder, then reload this page:").format(
-                _code(remote), _code(view.upstream_hint), br))
-            command = _sh("git", "branch", f"--set-upstream-to={view.upstream_hint}", view.branch)
+            remote, ref = view.upstream_hint
+            exact = _copyable(ref), _copyable(view.cap.branch.removeprefix(b"refs/heads/"))
+            if None not in exact:
+                lede.append(Markup("The repo does have a remote, {}, and gitstow can see a branch {} from it. To "
+                                   "make {} follow that branch, run this in the repo's folder, then reload this "
+                                   "page:").format(_code(ref_label(remote)), _code(ref_label(ref)), br))
+                command = _sh("git", "branch", f"--set-upstream-to={exact[0]}", exact[1])
+            else:
+                lede.append(Markup("The repo does have a remote, {}, and gitstow can see a branch {} from it. The "
+                                   "branch names hold characters that cannot be copied exactly, so gitstow shows no "
+                                   "command: set the upstream in a terminal (git branch --set-upstream-to), then "
+                                   "reload this page.").format(_code(ref_label(remote)), _code(ref_label(ref))))
         else:
             lede.append(Markup("The repo has a remote, but gitstow sees no branch named {} on it. Choosing the "
                                "branch to follow happens in a terminal (git branch --set-upstream-to).").format(br))

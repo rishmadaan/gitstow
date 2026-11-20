@@ -893,9 +893,65 @@ class TestWeb:
         copied = re.search(r'data-copy="([^"]*)" data-copy-label="command"', page).group(1)
         argv = self._words(html_mod.unescape(copied))
         assert self._copied(page, '<pre class="gitsaid">') == argv  # the shown text is the copied text
-        assert argv == ["git", "branch", f"--set-upstream-to=origin/{name}", name]
+        assert argv == ["git", "branch", f"--set-upstream-to=refs/remotes/origin/{name}", name]
         git(*argv[1:], cwd=clone)  # the copied words, run without a shell, do what the page says
         assert get_status(clone).upstream == f"origin/{name}"
+
+    # R4-C2 / R4-F5: the upstream command names exactly the refs it was read from, or is not offered.
+    @staticmethod
+    def _command(page: str) -> list[str] | None:
+        import html as html_mod
+        import re
+        found = re.search(r'data-copy="([^"]*)" data-copy-label="command"', page)
+        return TestWeb._words(html_mod.unescape(found.group(1))) if found else None
+
+    @needs_byte_names
+    def test_a_name_that_cannot_be_copied_exactly_gets_no_command(self, web):
+        client, clone, _, _ = web
+        subprocess.run([b"git", b"update-ref", b"refs/remotes/origin/topic\xff", b"HEAD"], cwd=clone, check=True)
+        subprocess.run([b"git", b"checkout", b"-q", b"--no-track", b"-b", b"topic\xff"], cwd=clone, check=True)
+        page = client.get("/repo/t/clone").text
+        assert self._command(page) is None and '<pre class="gitsaid">' not in page
+        assert "cannot be copied exactly, so gitstow shows no command" in page
+
+    def test_a_name_that_does_not_print_gets_no_command(self, web):
+        client, clone, _, _ = web
+        name = "zero\u200bwidth"
+        git("update-ref", f"refs/remotes/origin/{name}", "HEAD", cwd=clone)
+        git("checkout", "-q", "--no-track", "-b", name, cwd=clone)
+        page = client.get("/repo/t/clone").text
+        assert self._command(page) is None and "cannot be copied exactly" in page
+
+    def test_only_an_exact_remote_branch_name_is_offered(self, web):
+        """refs/remotes/origin/release/solo is not a branch named solo on origin."""
+        client, clone, _, _ = web
+        git("update-ref", "refs/remotes/origin/release/solo", "HEAD", cwd=clone)
+        git("checkout", "-q", "--no-track", "-b", "solo", cwd=clone)
+        page = client.get("/repo/t/clone").text
+        assert self._command(page) is None and "release/solo" not in page
+        assert "sees no branch named <code>solo</code>" in page
+
+    def test_a_remote_whose_name_holds_a_slash_is_shown_whole(self, web, tmp_path):
+        client, clone, _, _ = web
+        git("remote", "add", "my/fork", str(tmp_path / "nowhere.git"), cwd=clone)
+        git("update-ref", "refs/remotes/my/fork/feat", "HEAD", cwd=clone)
+        git("checkout", "-q", "--no-track", "-b", "feat", cwd=clone)
+        page = client.get("/repo/t/clone").text
+        assert "does have a remote, <code>my/fork</code>, and gitstow can see a branch <code>my/fork/feat</code>" in page
+        argv = self._command(page)
+        assert argv == ["git", "branch", "--set-upstream-to=refs/remotes/my/fork/feat", "feat"]
+        git(*argv[1:], cwd=clone)
+        assert git("rev-parse", "--symbolic-full-name", "feat@{upstream}", cwd=clone) == "refs/remotes/my/fork/feat"
+
+    def test_the_command_follows_the_remote_branch_when_a_local_branch_has_its_short_name(self, web):
+        """A local branch named origin/main makes `origin/main` mean that local branch; the full ref does not."""
+        client, clone, _, _ = web
+        git("branch", "-q", "--unset-upstream", "main", cwd=clone)
+        git("branch", "-q", "origin/main", "HEAD", cwd=clone)
+        argv = self._command(client.get("/repo/t/clone").text)
+        git(*argv[1:], cwd=clone)  # first: what the copied command does
+        assert git("rev-parse", "--symbolic-full-name", "main@{upstream}", cwd=clone) == "refs/remotes/origin/main"
+        assert argv == ["git", "branch", "--set-upstream-to=refs/remotes/origin/main", "main"]
 
     @pytest.mark.parametrize("name", HOSTILE)
     def test_local_commits_command_quotes_the_branch(self, web, name, monkeypatch):
