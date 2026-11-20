@@ -19,9 +19,9 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from gitstow.core.config import load_config
+from gitstow.core.git import PullResult, get_status, is_git_repo
 from gitstow.core.git import clone as git_clone
 from gitstow.core.git import fetch as git_fetch
-from gitstow.core.git import get_status, is_git_repo
 from gitstow.core.git import pull as git_pull
 from gitstow.core.operations import move_repo
 from gitstow.core.parallel import run_parallel
@@ -170,7 +170,10 @@ async def fetch_single(workspace: str, key: str, request: Request):
 def _pull_if_safe(path):
     """Bulk-pull worker: same skip rules as the CLI — modified/staged and
     diverged skip; untracked-only pulls."""
-    state = classify(exists=True, frozen=False, status=get_status(path))
+    status = get_status(path)
+    if status.error:  # a failed read is never treated as clean enough to pull
+        return PullResult(success=False, error=f"could not read status: {status.error}")
+    state = classify(exists=True, frozen=False, status=status)
     if state.blocks_pull:
         return {"skipped_local": True, "detail": state.local_summary}
     if state.pull_action == "skip-diverged":

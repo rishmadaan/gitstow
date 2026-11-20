@@ -28,6 +28,9 @@ class RepoState:
     ahead: int = 0
     behind: int = 0
     has_upstream: bool = True
+    has_remote: bool = True       # meaningful only without an upstream
+    upstream_gone: bool = False   # an upstream is configured but its branch is not here
+    error: str = ""               # git's message when presence is "unreadable"
 
     @property
     def has_local_changes(self) -> bool:
@@ -116,6 +119,9 @@ def classify(*, exists: bool, frozen: bool, status: RepoStatus | None) -> RepoSt
         return RepoState(presence="missing", frozen=frozen)
     if status is None:
         return RepoState(presence="unreadable", frozen=frozen)
+    if status.error:  # a failed read is never classified as clean or in sync
+        return RepoState(presence="unreadable", frozen=frozen, branch=status.branch,
+                         error=status.error)
     return RepoState(
         presence="ok",
         frozen=frozen,
@@ -126,4 +132,6 @@ def classify(*, exists: bool, frozen: bool, status: RepoStatus | None) -> RepoSt
         ahead=status.ahead,
         behind=status.behind,
         has_upstream=status.has_upstream,
+        has_remote=status.has_remote,
+        upstream_gone=status.upstream_gone,
     )

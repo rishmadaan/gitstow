@@ -399,6 +399,10 @@ def repo_status(
             continue
 
         status = get_status(path)
+        if status.error:
+            statuses.append({"repo": repo.key, "workspace": repo.workspace,
+                             "error": f"could not read status: {status.error}"})
+            continue
         commit = get_last_commit(path)
 
         entry = {
@@ -457,8 +461,10 @@ def repo_info(repo_key: str) -> str:
         "exists_on_disk": path.exists() if path else False,
     }
 
-    if path and path.exists() and is_git_repo(path):
-        status = get_status(path)
+    status = get_status(path) if path and path.exists() and is_git_repo(path) else None
+    if status is not None and status.error:
+        info["error"] = f"could not read status: {status.error}"
+    elif status is not None:
         commit = get_last_commit(path)
         size = get_disk_size(path)
 

@@ -34,6 +34,9 @@ def _get_repo_status(repo: Repo, ws: Workspace) -> dict:
         return {"repo": repo.key, "workspace": repo.workspace, "error": "Not a git repo"}
 
     status = get_status(path)
+    if status.error:  # same shape as the other unreadable cases: never a clean row
+        return {"repo": repo.key, "workspace": repo.workspace,
+                "error": f"Could not read status: {status.error}"}
     commit = get_last_commit(path)
     state = classify(exists=True, frozen=repo.frozen, status=status)
 

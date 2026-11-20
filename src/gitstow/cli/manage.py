@@ -266,8 +266,15 @@ def info(
     }
 
     # Git info (if repo exists on disk)
-    if path.exists() and is_git_repo(path):
-        status = get_status(path)
+    status = get_status(path) if path.exists() and is_git_repo(path) else None
+    if status is not None and status.error:  # never shown as clean or in sync
+        info_data.update({
+            "branch": status.branch,
+            "status": f"could not read: {status.error}",
+            "error": f"Could not read status: {status.error}",
+            **classify(exists=True, frozen=repo.frozen, status=status).to_dict(),
+        })
+    elif status is not None:
         commit = get_last_commit(path)
         size = get_disk_size(path)
         state = classify(exists=True, frozen=repo.frozen, status=status)

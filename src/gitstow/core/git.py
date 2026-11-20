@@ -9,12 +9,15 @@ All git interaction goes through this module. Nothing else shells out to git.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from gitstow.core.locking import LockTimeout, repo_lock
 
 
 @dataclass
@@ -47,6 +50,19 @@ class RepoStatus:
     ahead: int = 0            # Commits ahead of upstream
     behind: int = 0           # Commits behind upstream
     has_upstream: bool = True  # Whether upstream is configured
+    # Set only when has_upstream is False: whether `git remote` lists any remote,
+    # which separates "no upstream selected" from "no remote at all".
+    has_remote: bool = True
+    upstream: str = ""        # the upstream as git status names it, e.g. "origin/main"
+    upstream_gone: bool = False  # configured, but that remote-tracking branch is not here
+    head_oid: str = ""        # full commit id of HEAD, read by the same status call
+    # Full id of the upstream commit the ahead/behind counts were computed against.
+    # Read only when the two differ (else it equals head_oid); a "Pull N" built from
+    # this status moves to exactly this commit.
+    upstream_oid: str = ""
+    # git's own message when the read failed. Every count above is then meaningless:
+    # callers must show the failure, never a clean or zero state.
+    error: str = ""
 
     @property
     def clean(self) -> bool:
@@ -126,6 +142,7 @@ def _run_git(
     cwd: Path | None = None,
     timeout: int = 60,
     binary: bool = False,
+    input: bytes | None = None,
 ) -> subprocess.CompletedProcess:
     """Run a git command and return the result.
 
@@ -148,6 +165,7 @@ def _run_git(
         capture_output=True,
         timeout=timeout,
         env=_git_env(cwd),
+        input=input,
         **text_kwargs,
     )
 
@@ -273,13 +291,48 @@ def clone(
 # pull.twohead (pinned here); merge.ff (argv --ff-only wins); pull.octopus (never
 # reached with one upstream head). tests/test_pull_safety.py pins the merge.* and
 # pull.* names so a newer git's new key gets a look.
-def _safe_merge_args(branch: str) -> list[str]:
+def _safe_merge_args(branch: str, target: str = "@{upstream}") -> list[str]:
     return [
         "-c", "merge.autoStash=false",
         "-c", "pull.twohead=recursive",
         "-c", f"branch.{branch}.mergeOptions=",
-        "merge", "--no-stat", "--ff-only", "--no-overwrite-ignore", "@{upstream}",
+        "merge", "--no-stat", "--ff-only", "--no-overwrite-ignore", target,
     ]
+
+
+PULL_LOCKED = "another gitstow pull is running on this repo; nothing was pulled. Try again when it finishes"
+
+
+def checked_out_branch(repo_path: Path) -> tuple[str, str] | str:
+    """The checked-out branch as (name for git's argv, name for messages), or why there is none.
+
+    The full ref, never `--short`: the short form is a display name (a tag also
+    called `main` makes it `heads/main`), while git keys branch config on the
+    full ref minus `refs/heads/`, byte for byte. So it is read as bytes and only
+    the final newline is dropped: `.strip()` would eat Unicode spaces a ref may
+    end with, and a lossy decode would name another branch's config key.
+    """
+    head = _run_git(["symbolic-ref", "-q", "HEAD"], cwd=repo_path, binary=True)
+    ref = head.stdout.removesuffix(b"\n")
+    if not ref:  # -q: silent on a detached HEAD, stderr only for a real failure
+        return (head.stderr.decode("utf-8", "replace").strip()
+                or "not on a branch (detached HEAD): check out a branch, then pull")
+    if not ref.startswith(b"refs/heads/"):
+        return (f"not on a branch (HEAD points at {ref.decode('utf-8', 'replace')}): "
+                "check out a branch, then pull")
+    raw = ref[len(b"refs/heads/"):]
+    shown = raw.decode("utf-8", "replace")  # messages only; never passed to git
+    try:
+        branch = os.fsdecode(raw)  # POSIX: surrogateescape, the exact bytes reach argv again
+    except UnicodeDecodeError:  # Windows: a non-UTF-8 name cannot be passed exactly
+        return f"branch '{shown}' has a name gitstow cannot pass to git exactly; pull it with git"
+    # `-c key=value` splits at the first '=', so the mergeOptions override cannot
+    # name a branch containing '='; refuse only when there is something to override.
+    if "=" in branch and _run_git(
+            ["config", "--get", f"branch.{branch}.mergeOptions"], cwd=repo_path).stdout.strip():
+        return (f"branch '{shown}' has merge options (branch.{shown}.mergeOptions) that gitstow "
+                "cannot switch off for a branch name containing '='; pull it with git")
+    return branch, shown
 
 
 def pull(repo_path: Path) -> PullResult:
@@ -287,39 +340,25 @@ def pull(repo_path: Path) -> PullResult:
 
     Refuses (error result, files untouched) whenever the fast-forward would
     overwrite a local edit or an ignored local file, and on a detached HEAD, a
-    missing upstream, or merge options it cannot switch off.
+    missing upstream, or merge options it cannot switch off. Holds the repo's
+    pull lock throughout, so no other gitstow pull (this kind or the exact pull
+    of the incoming view) runs on the same folder at the same time.
     """
+    try:
+        with repo_lock(repo_path):
+            return _pull_locked(repo_path)
+    except LockTimeout:
+        return PullResult(success=False, error=PULL_LOCKED)
+
+
+def _pull_locked(repo_path: Path) -> PullResult:
     try:
         if refused := _not_own_toplevel(repo_path):
             return PullResult(success=False, error=refused)
-        # The full ref, never `--short`: the short form is a display name (a tag also
-        # called `main` makes it `heads/main`), while git keys branch config on the
-        # full ref minus `refs/heads/`, byte for byte. So it is read as bytes and only
-        # the final newline is dropped: `.strip()` would eat Unicode spaces a ref may
-        # end with, and a lossy decode would name another branch's config key.
-        head = _run_git(["symbolic-ref", "-q", "HEAD"], cwd=repo_path, binary=True)
-        ref = head.stdout.removesuffix(b"\n")
-        if not ref:  # -q: silent on a detached HEAD, stderr only for a real failure
-            return PullResult(success=False, error=head.stderr.decode("utf-8", "replace").strip()
-                              or "not on a branch (detached HEAD): check out a branch, then pull")
-        if not ref.startswith(b"refs/heads/"):
-            return PullResult(success=False, error=(
-                f"not on a branch (HEAD points at {ref.decode('utf-8', 'replace')}): "
-                "check out a branch, then pull"))
-        raw = ref[len(b"refs/heads/"):]
-        shown = raw.decode("utf-8", "replace")  # messages only; never passed to git
-        try:
-            branch = os.fsdecode(raw)  # POSIX: surrogateescape, the exact bytes reach argv again
-        except UnicodeDecodeError:  # Windows: a non-UTF-8 name cannot be passed exactly
-            return PullResult(success=False, error=(
-                f"branch '{shown}' has a name gitstow cannot pass to git exactly; pull it with git"))
-        # `-c key=value` splits at the first '=', so the mergeOptions override cannot
-        # name a branch containing '='; refuse only when there is something to override.
-        if "=" in branch and _run_git(
-                ["config", "--get", f"branch.{branch}.mergeOptions"], cwd=repo_path).stdout.strip():
-            return PullResult(success=False, error=(
-                f"branch '{shown}' has merge options (branch.{shown}.mergeOptions) that gitstow "
-                "cannot switch off for a branch name containing '='; pull it with git"))
+        named = checked_out_branch(repo_path)
+        if isinstance(named, str):
+            return PullResult(success=False, error=named)
+        branch, shown = named
         fetched = _run_git(["fetch", "--prune"], cwd=repo_path, timeout=120)
         if fetched.returncode != 0:
             return PullResult(success=False,
@@ -344,6 +383,29 @@ def pull(repo_path: Path) -> PullResult:
             return PullResult(success=False, error=stderr or output)
     except subprocess.TimeoutExpired:
         return PullResult(success=False, error="Pull timed out (2 minutes)")
+
+
+def merge_exact(repo_path: Path, branch: str, target_oid: str) -> tuple[bool, str]:
+    """Fast-forward the checked-out `branch` to exactly `target_oid`. No fetch.
+
+    The same merge settings as `pull` (no autostash, no injected merge options,
+    no overwriting of ignored files, fast-forward only), with a commit id in
+    place of `@{upstream}`, so the result is that commit and nothing newer.
+    Returns (success, git's message).
+    """
+    try:
+        result = _run_git(_safe_merge_args(branch, target_oid), cwd=repo_path, timeout=120)
+    except subprocess.TimeoutExpired:
+        return False, "the merge timed out (2 minutes)"
+    if result.returncode == 0:
+        return True, result.stdout.strip()
+    return False, result.stderr.strip() or result.stdout.strip() or f"git merge failed (exit {result.returncode})"
+
+
+def head_oid(repo_path: Path) -> str:
+    """HEAD's full commit id, or "" when it cannot be read."""
+    result = _run_git(["rev-parse", "--verify", "-q", "HEAD^{commit}"], cwd=repo_path)
+    return result.stdout.strip() if result.returncode == 0 else ""
 
 
 def fetch(repo_path: Path) -> FetchResult:
@@ -371,38 +433,53 @@ def fetch(repo_path: Path) -> FetchResult:
 
 
 def get_status(repo_path: Path) -> RepoStatus:
-    """Get full repository status in a single git call.
+    """Get full repository status, mostly in a single git call.
 
     Uses `git status --porcelain=v2 --branch` which gives:
-    - Branch name and upstream tracking
+    - Branch name, HEAD's commit id and upstream tracking
     - Ahead/behind counts
     - Per-file status (modified, staged, untracked)
 
-    This is ONE subprocess call vs gita's 4-5 separate calls.
+    A failed read comes back with `error` set (git's own words) and is never a
+    clean status. Two follow-up calls happen only when they carry information:
+    `git remote` when no upstream is set (no upstream vs no remote at all), and,
+    when the branch and its upstream differ, the upstream's commit id with the
+    ahead/behind counts recomputed between those two exact ids, so a count and
+    the commit it describes can never come from two different moments.
     """
     # --untracked-files=normal pins git's default untracked-listing behavior,
     # overriding a user's `status.showUntrackedFiles=no` config (which would
     # otherwise silently hide untracked files from every gitstow surface).
-    result = _run_git(
-        ["status", "--porcelain=v2", "--branch", "--untracked-files=normal"], cwd=repo_path
-    )
+    try:
+        result = _run_git(
+            ["status", "--porcelain=v2", "--branch", "--untracked-files=normal"], cwd=repo_path
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return RepoStatus(branch="unknown", error=f"git status could not run: {exc}")
     if result.returncode != 0:
-        # Fallback: just get the branch name
         branch_result = _run_git(["branch", "--show-current"], cwd=repo_path)
-        return RepoStatus(branch=branch_result.stdout.strip() or "unknown")
+        return RepoStatus(branch=branch_result.stdout.strip() or "unknown",
+                          error=result.stderr.strip() or result.stdout.strip()
+                          or f"git status failed (exit {result.returncode})")
 
     status = RepoStatus()
+    saw_ab = False
     for line in result.stdout.splitlines():
         if line.startswith("# branch.head "):
             status.branch = line.split(" ", 2)[2]
+        elif line.startswith("# branch.oid "):
+            oid = line.split(" ", 2)[2]
+            status.head_oid = "" if oid == "(initial)" else oid
         elif line.startswith("# branch.ab "):
             # Format: # branch.ab +3 -5
             parts = line.split()
             if len(parts) >= 4:
+                saw_ab = True
                 status.ahead = int(parts[2].lstrip("+"))
                 status.behind = abs(int(parts[3]))
         elif line.startswith("# branch.upstream "):
             status.has_upstream = True
+            status.upstream = line.split(" ", 2)[2]
         elif line.startswith(("1 ", "2 ")):
             # Changed entry: 1 XY ... or 2 XY ...
             # X = staged, Y = unstaged
@@ -421,7 +498,29 @@ def get_status(repo_path: Path) -> RepoStatus:
     # Detect if no upstream is set (branch.upstream line is absent)
     if "# branch.upstream" not in result.stdout:
         status.has_upstream = False
-
+        remotes = _run_git(["remote"], cwd=repo_path)
+        if remotes.returncode != 0:
+            status.error = remotes.stderr.strip() or "git remote failed"
+        status.has_remote = bool(remotes.stdout.strip())
+        return status
+    if not saw_ab:
+        # git prints no ahead/behind when the upstream it names does not exist here.
+        status.upstream_gone = True
+        return status
+    if not (status.ahead or status.behind):
+        status.upstream_oid = status.head_oid
+        return status
+    up = _run_git(["rev-parse", "--verify", "-q", "@{upstream}^{commit}"], cwd=repo_path)
+    oid = up.stdout.strip()
+    counts = _run_git(["rev-list", "--left-right", "--count", f"{status.head_oid}...{oid}"],
+                      cwd=repo_path) if up.returncode == 0 and oid else up
+    fields = counts.stdout.split()
+    if counts.returncode != 0 or len(fields) != 2:
+        status.error = (counts.stderr.strip()
+                        or f"could not read the commit {status.upstream} points at")
+        return status
+    status.upstream_oid = oid
+    status.ahead, status.behind = int(fields[0]), int(fields[1])
     return status
 
 
@@ -444,6 +543,7 @@ class ChangedFiles:
     staged: list[FileChange] = field(default_factory=list)
     unstaged: list[FileChange] = field(default_factory=list)
     untracked: list[str] = field(default_factory=list)
+    error: str = ""      # git's message when the listing could not be read
 
     def __bool__(self) -> bool:
         # A repo that went clean between status and listing must read as empty,
@@ -454,7 +554,7 @@ class ChangedFiles:
 _KIND = {"A": "added", "D": "deleted", "R": "renamed", "C": "added"}
 
 
-def _numstat_map(repo_path: Path, cached: bool) -> dict[str, tuple[int, int, bool]]:
+def _numstat_map(repo_path: Path, cached: bool) -> dict[str, tuple[int, int, bool]] | str:
     """path -> (added, removed, binary) from one NUL-delimited numstat call.
 
     ``git diff --numstat -z`` (format verified against real git): normal
@@ -462,7 +562,8 @@ def _numstat_map(repo_path: Path, cached: bool) -> dict[str, tuple[int, int, boo
     ``added TAB removed TAB NUL src NUL dst NUL``. Keyed by the destination
     path so it lines up with the porcelain-v2 new path. This replaces the old
     ``old => new`` / ``{brace}`` heuristic, which crashed on filenames that
-    legitimately contained braces and ` => `.
+    legitimately contained braces and ` => `. A failed read returns git's
+    message (a str) instead of a map, so no count is ever invented as zero.
     """
     # --find-renames pins rename detection on regardless of the user's
     # diff.renames config, so numstat rename records line up with the
@@ -477,10 +578,17 @@ def _numstat_map(repo_path: Path, cached: bool) -> dict[str, tuple[int, int, boo
     # Linux filesystems; APFS/NTFS enforce Unicode) decode lossily — accepted
     # ceiling, since surrogate-escape round-tripping would poison the JSON layer
     # for a pathology this tool's platforms can't produce.
-    stdout = _run_git(args, cwd=repo_path, binary=True).stdout.decode(
-        "utf-8", errors="replace")
+    result = _run_git(args, cwd=repo_path, binary=True)
+    if result.returncode != 0:
+        return result.stderr.decode("utf-8", "replace").strip() or "git diff --numstat failed"
+    return _parse_numstat(result.stdout.decode("utf-8", errors="replace"))[0]
+
+
+def _parse_numstat(stdout: str) -> tuple[dict[str, tuple[int, int, bool]], dict[str, str]]:
+    """NUL-delimited numstat → ({path: (added, removed, binary)}, {new path: old path})."""
     tokens = stdout.split("\0")
     counts: dict[str, tuple[int, int, bool]] = {}
+    renames: dict[str, str] = {}
     i = 0
     while i < len(tokens):
         tok = tokens[i]
@@ -497,12 +605,13 @@ def _numstat_map(repo_path: Path, cached: bool) -> dict[str, tuple[int, int, boo
         if path == "":
             # rename: empty inline path → next two tokens are src, dst
             path = tokens[i + 2] if i + 2 < len(tokens) else ""
+            renames[path] = tokens[i + 1] if i + 1 < len(tokens) else ""
             i += 3
         else:
             i += 1
         binary = a == "-"
         counts[path] = (0 if binary else int(a), 0 if binary else int(r), binary)
-    return counts
+    return counts, renames
 
 
 def _add_change(changes: ChangedFiles, xy: str, path: str, old_path: str,
@@ -549,13 +658,17 @@ def get_changed_files(repo_path: Path) -> ChangedFiles:
                        "--untracked-files=all", "--find-renames"],
                       cwd=repo_path, binary=True)
     if result.returncode != 0:
-        return ChangedFiles()
+        return ChangedFiles(error=result.stderr.decode("utf-8", "replace").strip()
+                            or "git status failed")
     # Decode raw bytes ourselves — text-mode universal-newline translation would
     # rewrite a \r inside a NUL-delimited filename (see _run_git binary= note).
     stdout = result.stdout.decode("utf-8", errors="replace")
 
     staged_counts = _numstat_map(repo_path, cached=True)
     unstaged_counts = _numstat_map(repo_path, cached=False)
+    for counts in (staged_counts, unstaged_counts):
+        if isinstance(counts, str):
+            return ChangedFiles(error=counts)
     changes = ChangedFiles()
 
     # Token walker over NUL-terminated records. A `2 ` (rename/copy) record is
@@ -581,6 +694,20 @@ def get_changed_files(repo_path: Path) -> ChangedFiles:
     return changes
 
 
+@dataclass
+class DiffRead:
+    """One file's raw diff as read, and whether the read was complete.
+
+    `error` means the read failed (git's message, or a timeout): the text, if any,
+    is not the file's change and must never be shown as "no changes". `cut` means
+    git was stopped at the byte cap: the text is the start of a longer diff.
+    """
+
+    text: str = ""
+    error: str = ""
+    cut: bool = False
+
+
 def get_file_diff(
     repo_path: Path,
     file: str,
@@ -588,84 +715,110 @@ def get_file_diff(
     staged: bool = False,
     untracked: bool = False,
     old_path: str = "",
+    revs: tuple[str, str] | None = None,
     max_bytes: int = 512_000,
     timeout_s: float = 10.0,
-) -> str:
+) -> DiffRead:
     """Raw unified diff for one file, view-only.
 
     Untracked files diff against /dev/null so they render as all-new lines
     (git for Windows translates /dev/null itself). `--no-index` exits 1 when
-    the files differ — that is success here, so we ignore the return code.
+    the files differ — that is success there; any other non-zero exit is a
+    failed read.
+
+    `revs=(a, b)` diffs the file between two commits as `a...b` (from their
+    merge base to b): the incoming view's "what would a pull bring".
 
     `--literal-pathspecs` disables git's pathspec magic so a file literally
     named `*.txt` (or containing `?`, `:(...)`) is treated as a plain path,
     not a glob that merges unrelated diffs into one panel.
 
     `old_path` (a rename's source) is passed alongside `file` after `--` so a
-    staged rename renders as the rename edit; passing only the new name makes
-    git show a full add of an all-new file.
+    rename renders as the rename edit; passing only the new name makes git
+    show a full add of an all-new file.
 
     Reads at most `max_bytes` of git's stdout in a daemon reader thread joined
     with a `timeout_s` deadline, then kills the process, so a huge file can't
     buffer megabytes and a slow textconv/filter can't stall forever. A thread
     (not select() on the pipe fd, which is POSIX-only and breaks on Windows —
-    which pyproject targets) keeps this portable; on deadline expiry we return
-    whatever landed (degrade-soft), which also keeps the web route's threadpool
-    worker from wedging. 512KB is far beyond 500 rendered lines at any sane
-    width; the byte-capped read may drop the parser's "truncated" flag —
-    acceptable, the display cap still applies. Same env conventions as
-    `_run_git` (GIT_TERMINAL_PROMPT=0, LC_ALL=C). Degrades to "" like the rest
-    of git.py.
+    which pyproject targets) keeps this portable. Whatever stopped the read
+    early is reported in the result (`error` for a timeout or a git failure,
+    `cut` for the byte cap) so the page can say so instead of "No changes".
+    Same env conventions as `_run_git` (GIT_TERMINAL_PROMPT=0, LC_ALL=C).
     """
     paths = [old_path, file] if old_path else [file]
+    base = ["--literal-pathspecs", "diff", "--no-ext-diff", "--no-color"]
     if untracked:
-        args = ["--literal-pathspecs", "diff", "--no-ext-diff", "--no-color",
-                "--no-index", "--", "/dev/null", file]
+        args = base + ["--no-index", "--", "/dev/null", file]
+    elif revs is not None:
+        args = base + ["--find-renames", f"{revs[0]}...{revs[1]}", "--", *paths]
     elif staged:
-        args = ["--literal-pathspecs", "diff", "--no-ext-diff", "--no-color",
-                "--cached", "--", *paths]
+        args = base + ["--cached", "--", *paths]
     else:
-        args = ["--literal-pathspecs", "diff", "--no-ext-diff", "--no-color", "--", *paths]
+        args = base + ["--", *paths]
 
     try:
         proc = subprocess.Popen(
             ["git"] + args,
             cwd=repo_path,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             env=_git_env(repo_path),
         )
-    except FileNotFoundError:
-        return ""
+    except OSError as exc:
+        return DiffRead(error=f"git could not run: {exc}")
 
     # Bounded chunked read on a daemon thread. One blocking read(max_bytes)
     # would return empty at the deadline for a git that writes some bytes then
     # stalls — the read is still parked when the join times out. Looping small
     # reads means the chunks already written are captured; after we kill(), the
     # pipe hits EOF and the final read flushes them. Daemon so a truly hung read
-    # never blocks exit. Reads are capped to max_bytes total so a huge file
-    # can't over-buffer.
+    # never blocks exit. stderr drains on its own thread so a chatty git can never
+    # block on a full pipe while we wait on stdout.
     chunks: list[bytes] = []
+    errs: list[bytes] = []
+    total = [0]
 
-    def _read() -> None:
-        total = 0
-        while total < max_bytes:
-            chunk = proc.stdout.read(min(65536, max_bytes - total))
+    def _read() -> None:  # one byte past the cap tells a cut diff from one that fits exactly
+        while total[0] <= max_bytes:
+            chunk = proc.stdout.read(min(65536, max_bytes + 1 - total[0]))
             if not chunk:
                 break
             chunks.append(chunk)
-            total += len(chunk)
+            total[0] += len(chunk)
+
+    def _read_err() -> None:
+        errs.append(proc.stderr.read(65536))
 
     reader = threading.Thread(target=_read, daemon=True)
+    err_reader = threading.Thread(target=_read_err, daemon=True)
     reader.start()
+    err_reader.start()
     reader.join(timeout_s)
+    timed_out = reader.is_alive()
+    cut = total[0] > max_bytes
+    if not (timed_out or cut):
+        try:  # stdout hit EOF: git is exiting; give it a moment to report its code
+            proc.wait(timeout=timeout_s)
+        except subprocess.TimeoutExpired:
+            timed_out = True
     try:
-        proc.kill()  # ponytail: partial read is fine — display truncates at 500 lines
+        proc.kill()
         proc.wait()
     except OSError:
         pass
     reader.join(2)  # post-kill EOF lets the stalled read flush its partial chunks in
-    return b"".join(chunks).decode("utf-8", errors="replace")
+    err_reader.join(2)
+    text = b"".join(chunks)[:max_bytes].decode("utf-8", errors="replace")
+    if timed_out:
+        return DiffRead(text=text, error=f"the read timed out after {timeout_s:g} seconds")
+    if cut:
+        return DiffRead(text=text, cut=True)
+    ok_codes = (0, 1) if untracked else (0,)
+    if proc.returncode not in ok_codes:
+        message = b"".join(errs).decode("utf-8", "replace").strip()
+        return DiffRead(text=text, error=message or f"git diff failed (exit {proc.returncode})")
+    return DiffRead(text=text)
 
 
 def run_interactive_diff(repo_path: Path, staged: bool = False) -> int:
@@ -832,3 +985,192 @@ def search_repo(
         else:
             matches.append({"file": line, "text": ""})
     return matches[:max_results]
+
+
+# ---------------------------------------------------------------------------
+# Comparing two commits — the incoming view. Every reader takes resolved commit
+# ids (never names that can move between calls) and returns git's message as a
+# str when the read fails, so a failure can never be mistaken for "nothing".
+# ---------------------------------------------------------------------------
+
+_OID = re.compile(r"[0-9a-f]{40}([0-9a-f]{24})?")
+
+
+def is_oid(value: str) -> bool:
+    """A full commit id (SHA-1 or SHA-256), the only form the comparison readers accept."""
+    return bool(_OID.fullmatch(value or ""))
+
+
+@dataclass
+class LogEntry:
+    """One commit, with its own shortstat (that commit alone, against its first parent)."""
+
+    oid: str
+    short: str
+    author: str
+    time: int              # author date, unix seconds
+    subject: str
+    body: str = ""
+    files: int = 0         # 0 for a merge commit: git prints no stat for those
+    added: int = 0
+    removed: int = 0
+
+
+_SHORTSTAT = re.compile(r"(\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:, (\d+) deletions?\(-\))?")
+
+
+def read_log(repo_path: Path, exclude: str, include: str, limit: int | None = None) -> list[LogEntry] | str:
+    """`git log exclude..include` (or all of `include`'s history when `exclude` is ""),
+    newest first, each commit with its own shortstat."""
+    args = ["log", "--no-color", "--no-show-signature", "--find-renames",
+            "--format=%x1e%H%x1f%h%x1f%aN%x1f%at%x1f%s%x1f%b%x1f", "--shortstat"]
+    if limit is not None:
+        args.append(f"-n{limit}")
+    result = _run_git(args + [f"{exclude}..{include}" if exclude else include, "--"],
+                      cwd=repo_path, timeout=120)
+    if result.returncode != 0:
+        return result.stderr.strip() or "git log failed"
+    entries = []
+    for rec in result.stdout.split("\x1e")[1:]:
+        parts = rec.split("\x1f")
+        if len(parts) < 7:
+            continue
+        entry = LogEntry(oid=parts[0], short=parts[1], author=parts[2], time=int(parts[3] or 0),
+                         subject=parts[4], body=parts[5].strip())
+        if m := _SHORTSTAT.search(parts[6]):
+            entry.files, entry.added, entry.removed = (int(m.group(i) or 0) for i in (1, 2, 3))
+        entries.append(entry)
+    return entries
+
+
+@dataclass
+class RangeSummary:
+    count: int
+    authors: int
+    first_time: int = 0     # oldest author date in the range
+    last_time: int = 0
+
+
+def read_range_summary(repo_path: Path, exclude: str, include: str) -> RangeSummary | str:
+    """Commit count, distinct authors and date span of `exclude..include`: the whole range."""
+    result = _run_git(["log", "--no-show-signature", "--format=%aN%x1f%at",
+                       f"{exclude}..{include}", "--"], cwd=repo_path, timeout=120)
+    if result.returncode != 0:
+        return result.stderr.strip() or "git log failed"
+    rows = [line.split("\x1f") for line in result.stdout.splitlines() if line]
+    times = [int(r[1]) for r in rows if len(r) == 2 and r[1]]
+    return RangeSummary(count=len(rows), authors=len({r[0] for r in rows}),
+                        first_time=min(times, default=0), last_time=max(times, default=0))
+
+
+def read_tags_between(repo_path: Path, exclude: str, include: str) -> list[str] | str:
+    """Tags reachable from `include` and not from `exclude`, oldest first."""
+    result = _run_git(["for-each-ref", "--sort=creatordate", "--format=%(refname:short)",
+                       f"--merged={include}", f"--no-merged={exclude}", "refs/tags"], cwd=repo_path)
+    if result.returncode != 0:
+        return result.stderr.strip() or "git for-each-ref failed"
+    return [t for t in result.stdout.splitlines() if t]
+
+
+@dataclass
+class RangeFile:
+    """One file changed between two commits."""
+
+    path: str
+    kind: str                 # "added" | "modified" | "deleted" | "renamed" | "copied" | "type changed"
+    old_path: str = ""        # renames and copies
+    added: int = 0
+    removed: int = 0
+    binary: bool = False
+    old_mode: str = ""
+    new_mode: str = ""
+    old_oid: str = ""
+    new_oid: str = ""
+    old_size: int | None = None   # binary files only
+    new_size: int | None = None
+
+
+_RAW_KIND = {"A": "added", "D": "deleted", "M": "modified", "R": "renamed", "C": "copied",
+             "T": "type changed"}
+_ZERO = re.compile(r"0+")
+
+
+def _diff_args(*extra: str) -> list[str]:
+    # --no-relative: a user's diff.relative must not shorten paths; --find-renames pins
+    # rename detection on, identically for both queries, so their rows match by path.
+    return ["diff", "--no-ext-diff", "--no-color", "--no-relative", "--find-renames", *extra]
+
+
+def read_range_files(repo_path: Path, exclude: str, include: str) -> list[RangeFile] | str:
+    """Every file changed in `exclude...include` (merge base to include), with kind and line counts.
+
+    Two queries, matched by path: `--raw` (the kind letter, as `--name-status`
+    prints it, plus modes and blob ids) and `--numstat`. Asking for both formats in
+    one command returns only one of them. Binary files get their sizes from one
+    `cat-file --batch-check` call.
+    """
+    rng = f"{exclude}...{include}"
+    raw = _run_git(_diff_args("--raw", "-z", "--no-abbrev", rng, "--"), cwd=repo_path,
+                   binary=True, timeout=120)
+    if raw.returncode != 0:
+        return raw.stderr.decode("utf-8", "replace").strip() or "git diff --raw failed"
+    num = _run_git(_diff_args("--numstat", "-z", rng, "--"), cwd=repo_path, binary=True, timeout=120)
+    if num.returncode != 0:
+        return num.stderr.decode("utf-8", "replace").strip() or "git diff --numstat failed"
+    counts, _ = _parse_numstat(num.stdout.decode("utf-8", "replace"))
+
+    files: list[RangeFile] = []
+    tokens = raw.stdout.decode("utf-8", "replace").split("\0")
+    i = 0
+    while i < len(tokens):
+        head = tokens[i]
+        if not head.startswith(":"):
+            i += 1
+            continue
+        meta = head[1:].split(" ")
+        if len(meta) < 5:
+            i += 1
+            continue
+        old_mode, new_mode, old_oid, new_oid, letter = meta[:5]
+        if letter[0] in "RC":
+            old_path, path = tokens[i + 1], tokens[i + 2] if i + 2 < len(tokens) else ""
+            i += 3
+        else:
+            old_path, path = "", tokens[i + 1] if i + 1 < len(tokens) else ""
+            i += 2
+        a, r, binary = counts.get(path, (0, 0, False))
+        files.append(RangeFile(
+            path=path, kind=_RAW_KIND.get(letter[0], "modified"), old_path=old_path,
+            added=a, removed=r, binary=binary, old_mode=old_mode, new_mode=new_mode,
+            old_oid="" if _ZERO.fullmatch(old_oid) else old_oid,
+            new_oid="" if _ZERO.fullmatch(new_oid) else new_oid))
+
+    blobs = sorted({o for f in files if f.binary for o in (f.old_oid, f.new_oid) if o})
+    if blobs:
+        sizes = _run_git(["cat-file", "--batch-check=%(objectname) %(objectsize)"], cwd=repo_path,
+                         input="".join(f"{o}\n" for o in blobs).encode())
+        size_of = {}
+        for line in sizes.stdout.splitlines():
+            parts = line.split()
+            if len(parts) == 2 and parts[1].isdigit():
+                size_of[parts[0]] = int(parts[1])
+        for f in files:
+            if f.binary:
+                f.old_size = size_of.get(f.old_oid)
+                f.new_size = size_of.get(f.new_oid)
+    return files
+
+
+def read_changed_paths(repo_path: Path, exclude: str, include: str) -> set[str] | str:
+    """Paths changed in `exclude...include` (merge base to include), as a set."""
+    result = _run_git(_diff_args("--name-only", "-z", f"{exclude}...{include}", "--"),
+                      cwd=repo_path, binary=True, timeout=120)
+    if result.returncode != 0:
+        return result.stderr.decode("utf-8", "replace").strip() or "git diff --name-only failed"
+    return {p for p in result.stdout.decode("utf-8", "replace").split("\0") if p}
+
+
+def run_interactive_log(repo_path: Path, exclude: str, include: str) -> int:
+    """Hand the terminal to `git log -p exclude..include`: git's own colours and pager."""
+    return subprocess.run(["git", "log", "-p", f"{exclude}..{include}", "--"], cwd=repo_path,
+                          check=False, env=_cwd_only_env(repo_path)).returncode

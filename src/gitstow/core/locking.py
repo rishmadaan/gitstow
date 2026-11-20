@@ -1,14 +1,19 @@
 # SPDX-FileCopyrightText: 2026 rishmadaan
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Cross-process file lock — guards repos.yaml against concurrent CLI/web writes."""
+"""Cross-process file locks — repos.yaml writes, and one pull at a time per repo folder."""
 
 from __future__ import annotations
 
 import contextlib
+import hashlib
+import os
 import sys
 import time
 from pathlib import Path
+
+#: How long a pull waits for another gitstow pull of the same folder before refusing.
+PULL_LOCK_WAIT = 3.0
 
 
 class LockTimeout(Exception):
@@ -25,6 +30,31 @@ def file_lock(lock_path: Path, timeout: float = 10.0):
             yield
         finally:
             _release(handle)
+
+
+def repo_lock_path(repo_path: Path) -> Path:
+    """The lock file for one repo folder: under ~/.gitstow/locks, never inside the user's .git.
+
+    Keyed by the folder's resolved path, so every route to the same worktree (a
+    symlinked workspace, a relative path) meets the same lock. Two worktrees of one
+    repository are separate folders with their own checked-out branch: separate locks.
+    """
+    from gitstow.core import paths  # read at call time, so a test's patched home applies
+
+    key = hashlib.sha256(os.fsencode(os.path.realpath(repo_path))).hexdigest()[:32]
+    return paths.APP_HOME / "locks" / f"pull-{key}.lock"
+
+
+@contextlib.contextmanager
+def repo_lock(repo_path: Path, timeout: float | None = None):
+    """Hold the pull lock of one repo folder. Raises LockTimeout if another pull holds it.
+
+    Every gitstow pull path (fetching pull, exact pull) takes this lock across its
+    checks and its merge. An OS lock (flock / msvcrt), released by the kernel if the
+    holder dies, so a crashed pull never leaves the repo locked.
+    """
+    with file_lock(repo_lock_path(repo_path), timeout=PULL_LOCK_WAIT if timeout is None else timeout):
+        yield
 
 
 if sys.platform == "win32":

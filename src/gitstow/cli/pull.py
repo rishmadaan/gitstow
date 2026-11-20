@@ -45,6 +45,8 @@ def _pull_one_repo(repo: Repo, ws: Workspace, force: bool = False) -> dict:
         return {"repo": repo.key, "status": "error", "detail": "Not a git repo"}
 
     status = get_status(path)
+    if status.error:  # a failed read is never treated as clean enough to pull
+        return {"repo": repo.key, "status": "error", "detail": f"Could not read status: {status.error}"}
     state = classify(exists=True, frozen=repo.frozen, status=status)
     if state.blocks_pull and not force:
         return {
