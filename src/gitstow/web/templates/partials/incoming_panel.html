@@ -115,7 +115,7 @@ SPDX-License-Identifier: GPL-3.0-or-later #}
 <div class="block">
   <h4>Local commits not in {{ inc.upstream }} <span class="sub">{{ inc.local_commit_total }}</span></h4>
   <div class="commits{% if inc.local_commits|length > 12 %} capbox{% endif %}">{% for c in inc.local_commits %}{{ commit_row(c) }}{% endfor %}</div>
-  {% if inc.local_commits_cut %}<p class="cap-note">Showing the newest {{ inc.local_commits|length }} of {{ inc.local_commit_total }} local commits. <span>All of them, in a terminal: git log {{ inc.upstream }}..{{ inc.branch }}</span></p>{% endif %}
+  {% if inc.local_commits_cut %}<p class="cap-note">Showing the newest {{ inc.local_commits|length }} of {{ inc.local_commit_total }} local commits. <span>All of them, in a terminal: {{ inc.local_log_cmd }}</span></p>{% endif %}
 </div>
 {% endif %}
 

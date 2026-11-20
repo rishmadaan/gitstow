@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shlex
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Request
@@ -85,6 +86,12 @@ def _fetch_info(iso: str, now: datetime) -> dict:
     age = (now - dt).total_seconds()
     return {"none": False, "old": age > STALE_FETCH_DAYS * 86400, "rel": _ago(age),
             "abs": f"{_day(dt, now)}, {dt:%H:%M}"}
+
+
+def _sh(*argv: str) -> str:
+    """A command to copy into a terminal, each argument quoted for POSIX shells (sh, bash, zsh):
+    branch and file names may hold ; $ ' and spaces, and must reach git as written."""
+    return shlex.join(argv)
 
 
 def _n(x: int) -> str:
@@ -308,7 +315,7 @@ def build_incoming(repo, repo_path, result: dict | None = None) -> dict:
         if rng.error:  # the move above was read back; only the list of what came in is missing
             facts.insert(1, _fact("blocked", "not read", Markup(
                 "<b>The list of what came in could not be read.</b> In a terminal, run in this repo's folder: "
-                "{} git said: {}").format(_code(f"git log {before[:7]}..{after[:7]}"),
+                "{} git said: {}").format(_code(_sh("git", "log", f"{before[:7]}..{after[:7]}")),
                                           Markup('<pre class="gitsaid wrap">{}</pre>').format(rng.error))))
     elif kind in ("failed", "locked"):
         message = result.get("message", "")
@@ -396,7 +403,7 @@ def build_incoming(repo, repo_path, result: dict | None = None) -> dict:
             lede.append(Markup("The repo does have a remote, {}, and gitstow can see a branch {} from it. To make "
                                "{} follow that branch, run this in the repo's folder, then reload this page:").format(
                 _code(remote), _code(view.upstream_hint), br))
-            command = f"git branch --set-upstream-to={view.upstream_hint} {st.branch}"
+            command = _sh("git", "branch", f"--set-upstream-to={view.upstream_hint}", st.branch)
         else:
             lede.append(Markup("The repo has a remote, but gitstow sees no branch named {} on it. Choosing the "
                                "branch to follow happens in a terminal (git branch --set-upstream-to).").format(br))
@@ -460,10 +467,13 @@ def build_incoming(repo, repo_path, result: dict | None = None) -> dict:
     commits = _commit_rows(rng.commits, now) if show_lists else []
     files = _file_rows(rng, tags_for) if show_lists else []
     n_all = _n(rng.commit_total)
-    rest_c = (f"The messages of all {n_all}, in a terminal, run in this repo's folder: git log {before[:7]}..{after[:7]}"
-              if pinned else f"All {n_all}, uncut, in a terminal: gitstow diff {repo.key} --incoming")
-    rest_f = (f"Every file and its patch, in a terminal, run in this repo's folder: git diff {before[:7]} {after[:7]}"
-              if pinned else f"Everything, uncut, in a terminal: gitstow diff {repo.key} --incoming")
+    uncut = _sh("gitstow", "diff", repo.key, "--incoming")
+    rest_c = (f"The messages of all {n_all}, in a terminal, run in this repo's folder: "
+              + _sh("git", "log", f"{before[:7]}..{after[:7]}") if pinned
+              else f"All {n_all}, uncut, in a terminal: {uncut}")
+    rest_f = (f"Every file and its patch, in a terminal, run in this repo's folder: "
+              + _sh("git", "diff", before[:7], after[:7]) if pinned
+              else f"Everything, uncut, in a terminal: {uncut}")
     kinds_line = (" · ".join(f"{_n(c)} {k}" for k, c in sorted(rng.kind_counts.items(), key=lambda kv: -kv[1]))
                   if rng.files_cut else "")
 
@@ -494,6 +504,7 @@ def build_incoming(repo, repo_path, result: dict | None = None) -> dict:
         "local_commits": _commit_rows(view.local_commits, now),
         "local_commit_total": _n(view.local_commit_total),
         "local_commits_cut": view.local_commit_total > len(view.local_commits),
+        "local_log_cmd": _sh("git", "log", f"{st.upstream}..{st.branch}"),
         "diff_from": before, "diff_to": after, "pinned": pinned,
         "incoming_count": incoming_count, "local_count": local_count,
         "local": view.local, "local_overlap": set(view.overlap) if view.kind in ("behind", "diverged") else set(),
@@ -582,8 +593,8 @@ def incoming_diff(workspace: str, key: str, request: Request, file: str,
     if read.error:
         return render(request, "partials/diff_view.html", diff=None, read_error=read.error, retry_url=retry, file=file)
     whole = f"This file's whole change is +{_n(change.added)} −{_n(change.removed)} lines."
-    rest = (f"All of it, in a terminal, run in this repo's folder: git diff {base[:7]} {tip[:7]} -- {file}"
-            if pinned else f"Everything, uncut, in a terminal: gitstow diff {repo.key} --incoming")
+    rest = (f"All of it, in a terminal, run in this repo's folder: {_sh('git', 'diff', base[:7], tip[:7], '--', file)}"
+            if pinned else f"Everything, uncut, in a terminal: {_sh('gitstow', 'diff', repo.key, '--incoming')}")
     return render(request, "partials/diff_view.html", diff=parse_unified_diff(read.text), file=file,
                   cut=read.cut, full_note=f"{whole} {rest}")
 

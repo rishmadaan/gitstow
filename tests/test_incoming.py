@@ -637,6 +637,63 @@ class TestWeb:
         assert f"is still at <code>{before[:7]}</code>" in page and "Nothing was pulled." in page
         assert "Try the pull again" in page
 
+    # Names git accepts that a shell would run, split or expand when pasted unquoted.
+    HOSTILE = ["fix;echo${IFS}injected", "it's", "cost$HOME"]
+
+    @staticmethod
+    def _words(command: str) -> list[str]:
+        """The argv a POSIX shell builds from a pasted command (it only prints them, runs nothing else
+        unless the command itself is broken open)."""
+        out = subprocess.run(["sh", "-c", "printf '%s\\0' " + command], capture_output=True, text=True,
+                             env={"PATH": os.environ["PATH"], "HOME": "/expanded-home", "IFS": " "})
+        assert out.returncode == 0, out.stderr
+        return out.stdout.split("\0")[:-1]
+
+    @classmethod
+    def _copied(cls, text: str, start: str, end: str = "<") -> list[str]:
+        import html as html_mod
+        tail = html_mod.unescape(text).split(start, 1)[1]
+        return cls._words(tail.split(end, 1)[0])
+
+    @pytest.mark.parametrize("name", HOSTILE)
+    def test_copy_the_command_quotes_the_branch(self, web, name):
+        client, clone, _, _ = web
+        git("update-ref", f"refs/remotes/origin/{name}", "HEAD", cwd=clone)
+        git("checkout", "-q", "--no-track", "-b", name, cwd=clone)
+        page = client.get("/repo/t/clone").text
+        import html as html_mod
+        import re
+        copied = re.search(r'data-copy="([^"]*)" data-copy-label="command"', page).group(1)
+        argv = self._words(html_mod.unescape(copied))
+        assert self._copied(page, '<pre class="gitsaid">') == argv  # the shown text is the copied text
+        assert argv == ["git", "branch", f"--set-upstream-to=origin/{name}", name]
+        git(*argv[1:], cwd=clone)  # the copied words, run without a shell, do what the page says
+        assert get_status(clone).upstream == f"origin/{name}"
+
+    @pytest.mark.parametrize("name", HOSTILE)
+    def test_local_commits_command_quotes_the_branch(self, web, name, monkeypatch):
+        client, clone, _, _ = web
+        monkeypatch.setattr("gitstow.core.incoming.COMMIT_LIMIT", 1)
+        head = git("rev-parse", "HEAD", cwd=clone)
+        git("checkout", "-q", "-b", name, "--track", "origin/main", cwd=clone)
+        git("reset", "-q", "--hard", head, cwd=clone)
+        commit(clone, "one", {"a.md": "1\n"})
+        commit(clone, "two", {"a.md": "2\n"})
+        page = client.get("/repo/t/clone").text
+        assert self._copied(page, "local commits. <span>All of them, in a terminal: ") == [
+            "git", "log", f"origin/main..{name}"]
+
+    def test_file_command_quotes_the_file(self, web, monkeypatch):
+        client, clone, pusher, _ = web
+        name = "it's $HOME;echo x.md"
+        commit(pusher, "hostile", {name: lines(600, "h")})
+        git("push", "-q", "origin", "HEAD:refs/heads/main", cwd=pusher)
+        git("fetch", "-q", cwd=clone)
+        head, tip = git("rev-parse", "HEAD", cwd=clone), git("rev-parse", "origin/main", cwd=clone)
+        from urllib.parse import quote
+        r = client.get(f"/repos/t/clone/incoming/diff?file={quote(name)}&base={head}&tip={tip}&pinned=1")
+        assert self._copied(r.text, "run in this repo's folder: ") == ["git", "diff", head[:7], tip[:7], "--", name]
+
     def test_diff_route_only_serves_files_of_the_comparison(self, web):
         client, clone, _, ids = web
         head = git("rev-parse", "HEAD", cwd=clone)
