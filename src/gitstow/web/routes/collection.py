@@ -133,9 +133,10 @@ async def import_collection(
     succeeded = 0
     why: list[str] = []
     seen: dict = {}  # (workspace, key) → first URL in this file that resolved there
+    failed_clones: set = set()  # (workspace, key) whose clone failed: the same repo listed again is tried
     for e in entries:
         store.load()  # another writer (or an earlier entry of this file) may have added it
-        plan = classify_entry(store, seen, e, settings, ws)
+        plan = classify_entry(store, seen, e, settings, ws, failed_clones)
         if plan.error:
             why.append(f"{plan.label}: {plan.error}")
             continue
@@ -184,6 +185,7 @@ async def import_collection(
                 succeeded += 1
         else:
             why.append(f"{plan.key}: clone failed: {(err.strip().splitlines() or ['unknown error'])[-1]}")
+            failed_clones.add((entry_ws.label, plan.key))
 
     # Redirect to dashboard with a flash-style count in URL (simple)
     # shortcut: the reasons ride in the redirect URL, so only the first 10 are kept

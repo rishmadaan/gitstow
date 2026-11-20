@@ -208,6 +208,7 @@ def import_collection(
     skipped = 0
     failed = 0
     seen: dict = {}  # (workspace, key) → first URL in this file that resolved there
+    failed_clones: set = set()  # (workspace, key) whose clone failed: the same repo listed again is tried
 
     def refused(key: str, refusal) -> None:
         nonlocal skipped, failed
@@ -221,7 +222,7 @@ def import_collection(
 
     for entry in repos_to_import:
         store.load()  # another writer (or an earlier entry of this file) may have added it
-        plan = classify_entry(store, seen, entry, settings, ws)
+        plan = classify_entry(store, seen, entry, settings, ws, failed_clones)
         if plan.note:
             console.print(f"  [dim]{plan.note}[/dim]")
         if plan.error:
@@ -270,6 +271,7 @@ def import_collection(
         else:
             err_console.print(f"  [red]✗[/red] {parsed.key}: {error}")
             failed += 1
+            failed_clones.add((entry_ws.label, key))
 
     console.print(f"\n  Done: {succeeded} imported", end="")
     if skipped:

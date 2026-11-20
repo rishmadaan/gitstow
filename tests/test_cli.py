@@ -557,6 +557,31 @@ class TestCollectionListsATargetTwice:
         assert "conflict: this file also lists" in " ".join(result.output.split())
         assert self._records(tmp_path) == []
 
+    @pytest.mark.parametrize("surface", ["cli", "dashboard"])
+    def test_same_repo_listed_again_after_its_clone_failed_is_tried_again(
+            self, tmp_path, monkeypatch, surface):
+        """CR9: a failed entry was not "imported once", so its duplicate is cloned, not skipped."""
+        self._setup(tmp_path, monkeypatch, "flat")
+        calls = []
+
+        def clone(url, target, **kw):
+            calls.append(url)
+            if len(calls) == 1:
+                return False, "network down"
+            (target / ".git").mkdir(parents=True)
+            return True, ""
+
+        out = self._import(surface, tmp_path,
+                           b"- https://github.com/acme/widget\n- git@github.com:acme/widget.git\n", clone)
+
+        assert calls == ["https://github.com/acme/widget.git", "git@github.com:acme/widget.git"]
+        assert "imported once" not in out
+        if surface == "cli":
+            assert "Done: 1 imported, 1 failed" in out
+        else:
+            assert out == "imported=1 failed=1 | widget: clone failed: network down"
+        assert self._records(tmp_path) == [("widget", "git@github.com:acme/widget.git", [], False)]
+
     def _import(self, surface, tmp_path, body, clone):
         """Run one import with `clone` as git_clone; return the CLI output or the redirect target."""
         from unittest.mock import patch
