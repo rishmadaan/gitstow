@@ -214,10 +214,19 @@ def _read_incoming(repo_path: Path) -> IncomingView | Unreadable:
     status = get_status(repo_path)
     if status.error:
         return Unreadable(status.error)
+    local = None
+    try:
+        if not status.clean:
+            local = get_changed_files(repo_path)
+        return _read_after_status(repo_path, status, local)
+    except Exception as exc:  # a later read failed (a timeout included): keep the good status
+        return Unreadable(failure_text(exc), status=status, local=local)
+
+
+def _read_after_status(repo_path: Path, status: RepoStatus, local) -> IncomingView | Unreadable:
     cap = status.cap
     view = IncomingView(kind="detached", cap=cap, status=status, ahead=status.ahead, behind=status.behind)
-    if not status.clean:
-        view.local = get_changed_files(repo_path)
+    view.local = local
     if cap.unborn:
         view.kind = "unborn"
         return view

@@ -240,6 +240,24 @@ class TestFailedReads:
         assert view.status.branch == "main" and not view.status.error
         assert [f.path for f in view.local.unstaged] == ["README.md"]
 
+    @pytest.mark.parametrize("which", ["read_log", "read_range", "read_changed_paths", "_same_named_remote_branch"])
+    def test_a_later_read_that_raises_keeps_the_good_status(self, behind, monkeypatch, which):
+        import gitstow.core.incoming as I
+        clone, _, _ = behind
+        if which == "_same_named_remote_branch":
+            git("branch", "--unset-upstream", cwd=clone)
+        else:  # diverged: all three range reads run
+            commit(clone, "mine", {"local.txt": "x\n"})
+        (clone / "README.md").write_text("mine\n")
+
+        def timed_out(*a, **k):
+            raise subprocess.TimeoutExpired(["git", which], 30)
+        monkeypatch.setattr(I, which, timed_out)
+        view = read_incoming(clone)
+        assert view.kind == "unknown" and view.error
+        assert view.status is not None and view.status.branch == "main" and not view.status.error
+        assert [f.path for f in view.local.unstaged] == ["README.md"]
+
 
 # ---------- the exact pull ----------
 
@@ -872,8 +890,9 @@ class TestWeb:
         r = client.post("/incoming/t/clone/fetch", data={"prev_tip": ""})
         assert "Fetch failed" in r.text
         assert "part of the fetch got through" not in r.text, re.search(r"Re-read after[^.]*\.[^.]*\.", r.text).group(0)
-        assert (f"Re-read after the failed fetch: <code>origin/main</code> is at <code>{tip[:7]}</code>, "
-                "as of the last fetch that worked") in r.text
+        assert (f"Re-read after the failed fetch: <code>origin/main</code> is at <code>{tip[:7]}</code>. "
+                "Other upstream changes may be missing.") in r.text
+        assert "last fetch that worked" not in r.text  # the page cannot know which fetch put it there
 
     def test_fetch_success_stamps_and_redraws(self, web):
         client, clone, pusher, _ = web
