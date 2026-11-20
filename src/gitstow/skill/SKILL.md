@@ -108,7 +108,7 @@ For commands shown to the user to run themselves, use the human-readable form (n
 | Remove a tag | `gitstow repo untag owner/repo tagname` |
 | List all tags | `gitstow repo tags` |
 | Repo details | `gitstow repo info owner/repo` |
-| Remove a repo | `gitstow remove owner/repo` |
+| Remove a repo | `gitstow remove owner/repo --yes` (stops tracking, files stay; in an agent session pass `--yes`, without it remove waits on a hidden y/N prompt) |
 | Adopt existing repos | `gitstow migrate /path/to/repo` |
 | Run command in all repos | `gitstow exec -- git log -1 --oneline` |
 | Search across all repos | `gitstow search "pattern" --glob "*.py"` |
