@@ -148,6 +148,9 @@ async def import_collection(
         all_tags = list(dict.fromkeys(list(e.get("tags", [])) + list(entry_ws.auto_tags)))
 
         if target.exists():
+            if refusal := plan.adopt_refusal():
+                why.append(f"{plan.key}: {refusal[0]}: {refusal[1]}")
+                continue
             # Already on disk — just register
             refusal = register_unless_tracked(store, Repo(
                 owner=plan.owner,

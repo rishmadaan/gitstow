@@ -162,6 +162,15 @@ class EntryPlan:
     target: Path | None = None
     refusal: Refusal | None = None
     error: str | None = None
+    retry: bool = False  # the same repo again after this file's earlier clone of it failed
+
+    def adopt_refusal(self) -> Refusal | None:
+        """Why the folder now at `target` must not be registered: on a retry it appeared
+        while the failed clone ran, so it is not known to be this repo (refused like a
+        clone finding its target occupied)."""
+        if self.retry:
+            return "conflict", f"{self.target} appeared during the import; left untouched"
+        return None
 
     @property
     def label(self) -> str:
@@ -193,4 +202,5 @@ def classify_entry(store: RepoStore, seen: dict, entry: dict, settings: Settings
     clone_url = plan.parsed.clone_url
     plan.refusal = (duplicate_in_file(seen, ws.label, plan.key, clone_url, settings.default_host, failed)
                     or tracked_conflict(store, ws.label, plan.key, clone_url, settings.default_host))
+    plan.retry = plan.refusal is None and (ws.label, plan.key) in failed
     return plan

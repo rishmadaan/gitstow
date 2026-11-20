@@ -237,6 +237,9 @@ def import_collection(
         frozen = entry.get("frozen", False)
 
         if target.exists():
+            if refusal := plan.adopt_refusal():
+                refused(key, refusal)
+                continue
             repo = Repo(owner=plan.owner, name=parsed.repo, remote_url=plan.url, workspace=entry_ws.label,
                         tags=entry_tags, frozen=frozen)
             refusal = register_unless_tracked(store, repo, settings.default_host)

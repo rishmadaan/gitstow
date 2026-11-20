@@ -582,6 +582,46 @@ class TestCollectionListsATargetTwice:
             assert out == "imported=1 failed=1 | widget: clone failed: network down"
         assert self._records(tmp_path) == [("widget", "git@github.com:acme/widget.git", [], False)]
 
+    @pytest.mark.parametrize("surface", ["cli", "dashboard"])
+    @pytest.mark.parametrize("intruder", ["folder", "other-repo"])
+    def test_retry_after_a_failed_clone_never_adopts_a_folder_that_appeared(
+            self, tmp_path, monkeypatch, surface, intruder):
+        """PT-C1: while the first clone fails, something else creates the target; the retried
+        duplicate refuses it (like a clone finding its target occupied) and registers nothing."""
+        import subprocess
+
+        ws_dir = self._setup(tmp_path, monkeypatch, "flat")
+        dest = ws_dir / "widget"
+        calls = []
+
+        def clone(url, target, **kw):
+            calls.append(url)
+            dest.mkdir()
+            (dest / "notes.txt").write_bytes(b"user work\n")
+            if intruder == "other-repo":
+                subprocess.run(["git", "init", "-q", str(dest)], check=True)
+                subprocess.run(["git", "-C", str(dest), "remote", "add", "origin",
+                                "https://example.com/someone/else.git"], check=True)
+            return False, f"{target} already exists (created after gitstow checked it); left untouched"
+
+        out = self._import(surface, tmp_path,
+                           b"- https://github.com/acme/widget\n- git@github.com:acme/widget.git\n", clone)
+
+        assert calls == ["https://github.com/acme/widget.git"]
+        refusal = f"widget: conflict: {dest} appeared during the import; left untouched"
+        assert "".join(refusal.split()) in "".join(out.split())  # Rich may fold a long path
+        if surface == "cli":
+            assert "Done: 0 imported, 2 failed" in out
+        else:
+            assert out.startswith("imported=0 failed=2 | widget: clone failed: ")
+            assert out.endswith(" | " + refusal)
+        assert self._records(tmp_path) == []
+        assert (dest / "notes.txt").read_bytes() == b"user work\n"
+        if intruder == "other-repo":
+            assert subprocess.run(["git", "-C", str(dest), "remote", "get-url", "origin"],
+                                  capture_output=True, text=True, check=True).stdout.strip() \
+                == "https://example.com/someone/else.git"
+
     def _import(self, surface, tmp_path, body, clone):
         """Run one import with `clone` as git_clone; return the CLI output or the redirect target."""
         from unittest.mock import patch
