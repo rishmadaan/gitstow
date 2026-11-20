@@ -1020,6 +1020,18 @@ class TestWeb:
         assert git("rev-parse", "--symbolic-full-name", "main@{upstream}", cwd=clone) == "refs/remotes/origin/main"
         assert argv == ["git", "branch", "--set-upstream-to=refs/remotes/origin/main", "main"]
 
+    def test_two_remotes_with_the_branch_name_are_not_no_branch(self, web, tmp_path):
+        """R5-C3: forkA/solo and forkB/solo, no origin/solo: gitstow picks neither and says why, with
+        no command, rather than "sees no branch named solo"."""
+        client, clone, _, _ = web
+        for fork in ("forkA", "forkB"):
+            git("remote", "add", fork, str(tmp_path / f"{fork}.git"), cwd=clone)
+            git("update-ref", f"refs/remotes/{fork}/solo", "HEAD", cwd=clone)
+        git("checkout", "-q", "--no-track", "-b", "solo", cwd=clone)
+        page = client.get("/repo/t/clone").text
+        assert "more than one remote with a branch named <code>solo</code>, so gitstow does not pick one" in page
+        assert "sees no branch named" not in page and self._command(page) is None and "Open folder" in page
+
     @pytest.mark.parametrize("name", HOSTILE)
     def test_local_commits_command_quotes_the_branch(self, web, name, monkeypatch):
         client, clone, _, _ = web

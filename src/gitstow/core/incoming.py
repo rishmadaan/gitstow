@@ -173,7 +173,7 @@ class IncomingView:
     both_changed: list[str] = field(default_factory=list)   # diverged: changed on both sides
     local: ChangedFiles | None = None                       # None when nothing is edited
     overlap: list[str] = field(default_factory=list)        # edited here and changed upstream
-    upstream_hint: tuple[bytes, bytes] | None = None        # noupstream: (remote, its branch's full ref) to follow
+    upstream_hint: list[tuple[bytes, bytes]] = field(default_factory=list)  # noupstream: (remote, full ref) candidates
 
     @property
     def branch(self) -> str:
@@ -256,11 +256,11 @@ def _read_incoming(repo_path: Path) -> IncomingView | Unreadable:
     return view
 
 
-def _same_named_remote_branch(repo_path: Path, branch: bytes) -> tuple[bytes, bytes] | None | str:
-    """(remote, full ref) of a remote-tracking branch named exactly like the checked-out one
-    (refs/remotes/<remote>/<name> for a remote `git remote` lists): origin's when it has one, else
-    the only match; None when there is none or more than one; git's message when a listing failed.
-    Bytes, so the name is never altered."""
+def _same_named_remote_branch(repo_path: Path, branch: bytes) -> list[tuple[bytes, bytes]] | str:
+    """(remote, full ref) of each remote-tracking branch named exactly like the checked-out one
+    (refs/remotes/<remote>/<name> for a remote `git remote` lists): origin's alone when it has one,
+    else every match (more than one: none is chosen for the person); git's message when a listing
+    failed. Bytes, so the name is never altered."""
     remotes = _run_git(["remote"], cwd=repo_path, binary=True)
     refs = _run_git(["for-each-ref", "--format=%(refname)", "refs/remotes/"], cwd=repo_path, binary=True)
     for listed in (remotes, refs):
@@ -272,7 +272,7 @@ def _same_named_remote_branch(repo_path: Path, branch: bytes) -> tuple[bytes, by
     found = [(r, b"refs/remotes/" + r + b"/" + name) for r in remotes.stdout.split(b"\n")
              if r and b"refs/remotes/" + r + b"/" + name in have]
     origin = [f for f in found if f[0] == b"origin"]
-    return origin[0] if origin else found[0] if len(found) == 1 else None
+    return origin or found
 
 
 def row_pull(repo_path: Path, status: RepoStatus) -> tuple[Snapshot, int] | None:

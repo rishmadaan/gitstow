@@ -554,8 +554,12 @@ def _inspection(repo, repo_path, view: IncomingView, now: datetime, prev_tip: st
     elif kind == "noupstream":
         lede.append(Markup("{} in this folder is not set to follow a remote branch, so gitstow has nothing to "
                            "compare it with and cannot list incoming commits. Pull all skips this repo.").format(br))
-        if view.upstream_hint:
-            remote, ref = view.upstream_hint
+        if len(view.upstream_hint) > 1:
+            lede.append(Markup("The repo has more than one remote with a branch named {}, so gitstow does not "
+                               "pick one. Choose the upstream in a terminal (git branch --set-upstream-to), then "
+                               "reload this page.").format(br))
+        elif view.upstream_hint:
+            (remote, ref), = view.upstream_hint
             exact = _copyable(ref), _copyable(view.cap.branch.removeprefix(b"refs/heads/"))
             if None not in exact:
                 lede.append(Markup("The repo does have a remote, {}, and gitstow can see a branch {} from it. To "
