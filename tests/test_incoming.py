@@ -589,6 +589,17 @@ class TestWeb:
         assert "Pull now" not in html  # the dead header button is gone
         assert "/incoming/pull" in html and ids[-1] in html
 
+    def test_no_pull_on_the_page_is_ever_disabled_with_a_hidden_reason(self, web):
+        """R2-C5/R2-F2: the page's Pull comes from the same capture as its list, so a behind
+        panel always offers it; a disabled Pull explained only by a tooltip never appears."""
+        import re
+        client, clone, _, _ = web
+        for _ in range(2):  # no fetch on record (the old-fetch layout), then a fresh fetch
+            html = client.get("/repo/t/clone").text
+            assert 'hx-post="/repos/t/clone/incoming/pull"' in html
+            assert not re.search(r"<button[^>]*\bdisabled\b[^>]*>[^<]*Pull", html)
+            client.post("/repos/t/clone/incoming/fetch", data={"prev_tip": ""})
+
     def test_incoming_pull_result_reads_back_from_git(self, web):
         import json
         import re

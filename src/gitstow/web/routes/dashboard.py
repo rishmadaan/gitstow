@@ -206,8 +206,8 @@ def row_context(repo, ws, repo_path, status, num: int | None, sorted_labels: lis
     if pull_variant == "primary" and snapshot is None:  # no id to honour: nothing exact to offer
         pull_variant = "disabled"
         pull_note = ("Pull is off: the commit this count came from could not be pinned (the branch may "
-                     "have just changed). Open the repo page to see what is waiting.")
-        pull_tooltip = pull_note
+                     "have just changed).")
+        pull_tooltip = pull_note + " Open the repo page to see what is waiting."
     page = f"/repo/{repo.workspace}/{repo.key}"
     status_tooltip = f"{_STATUS_TOOLTIPS.get(status_class, status_label)} ({state.local_summary})"
     if status_label == "local edits":

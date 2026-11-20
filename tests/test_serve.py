@@ -1013,7 +1013,12 @@ class TestStatusModelInWeb:
         """"Pull 3" must carry the commit its count came from; with none, there is no exact pull to offer."""
         self._seed(workspace_dir, _fake_status(behind=3, upstream_oid=""), monkeypatch)
         r = client.get("/dashboard/rows")
-        assert "↓ Pull 3" not in r.text and "could not be pinned" in r.text
+        import re
+        assert "↓ Pull 3" not in r.text
+        # The reason and the way forward are visible text in the row, not only a tooltip.
+        note = re.search(r'<div class="row-note">(.*?)</div>', r.text, re.S)
+        assert note and "could not be pinned" in note.group(1)
+        assert '<a href="/repo/test-ws/a/one?tab=incoming">Open the repo page to see what is waiting</a>' in note.group(1)
 
     def test_diverged_disables_pull(self, client, configured, workspace_dir, monkeypatch):
         # Diverged + clean local: ff-only pull can't succeed, so Pull is disabled.

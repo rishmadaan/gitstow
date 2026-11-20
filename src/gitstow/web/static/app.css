@@ -531,6 +531,12 @@ table.ledger { width: 100%; border-collapse: collapse; background: transparent; 
   color: var(--muted); font-size: 1rem; line-height: 1;
 }
 .row-error-close:hover { color: var(--text); }
+/* Why this row's Pull is off, when its status label does not already say it. Visible, never hover-only. */
+.row-note {
+  margin-top: 0.4rem; min-width: 16rem; max-width: 46rem;
+  font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; line-height: 1.45;
+  color: var(--c-dirty); overflow-wrap: anywhere;
+}
 
 .branch-name {
   font-family: 'JetBrains Mono', monospace;
