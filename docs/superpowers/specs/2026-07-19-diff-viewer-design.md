@@ -1,7 +1,7 @@
 # Diff Viewer — Design
 
 **Date:** 2026-07-19
-**Status:** Approved by Rishabh (web-first, full diffs, CLI parity, view-only)
+**Status:** Approved by the owner (web-first, full diffs, CLI parity, view-only)
 
 ## Problem
 
