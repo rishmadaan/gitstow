@@ -4,8 +4,8 @@ Features noted for future releases, in rough priority order. Not commitments.
 
 ## Incoming-changes viewer ("what would a pull bring?") — done
 
-**Noted:** 2026-07-19 (Rishabh, right after shipping the 0.6.0 diff viewer)
-**Done:** 2026-11-20, unreleased (see CHANGELOG `[Unreleased]`): the repo page's Incoming
+**Noted:** 2026-07-19 (right after shipping the 0.6.0 diff viewer)
+**Done:** 2026-11-20, released in 0.10.0 (see CHANGELOG `[0.10.0]`): the repo page's Incoming
 tab, the library row's `↓ N incoming ›` chip, the exact Pull, and `gitstow diff <repo> --incoming`.
 
 Today gitstow shows *that* a repo is behind (`↓3` after a fetch) but not *what's
