@@ -194,7 +194,7 @@ Results are collected and shown in a summary table at the end.
 Bulk operations (`pull`, `status`) run concurrently using asyncio with a semaphore. The default limit is 6 concurrent operations.
 
 This matters because:
-- Too many simultaneous SSH connections crash (gita's most-reported issue — 87 repos at once kills SSH)
+- Too many simultaneous SSH connections get refused by the server (gita sets no limit, and has an open report of exactly this with a group of 87 repos: [nosarthur/gita#232](https://github.com/nosarthur/gita/issues/232))
 - Too few is slow with large collections
 - 6 is a practical sweet spot (same as ghq's parallel clone limit)
 
@@ -217,7 +217,7 @@ This is the core thesis: developers increasingly maintain local repo clones that
 | Auto-organize by owner/repo | ✅ | ✅ (with host prefix) | ❌ |
 | Multiple workspaces | ✅ | ❌ | ❌ |
 | Flat + structured layouts | ✅ | ❌ | ❌ |
-| Bulk pull | ✅ | ❌ | ✅ |
+| Bulk pull | ✅ | Partial (`ghq get -u`, fed a list on stdin) | ✅ |
 | Status dashboard | ✅ | ❌ | ✅ |
 | Browser dashboard | ✅ (`gitstow ui`) | ❌ | ❌ |
 | Freeze/skip repos | ✅ | ❌ | Via groups |
@@ -225,7 +225,9 @@ This is the core thesis: developers increasingly maintain local repo clones that
 | URL shorthand | ✅ | ✅ | ❌ |
 | JSON output | ✅ | ❌ | ❌ |
 | AI integration | ✅ | ❌ | ❌ |
-| Concurrency throttle | ✅ | ✅ | ❌ (causes SSH crashes) |
+| Concurrency throttle | ✅ | ✅ | ❌ (no limit) |
 | Any git host | ✅ | ✅ | ✅ |
-| Migrate existing repos | ✅ | ✅ | ❌ |
+| Migrate existing repos | ✅ | ✅ | Registers in place (`gita add -a`) |
 | Language | Python | Go | Python |
+
+[mani](https://github.com/alajmo/mani) covers similar ground from a different starting point: it clones (`mani sync`) and runs commands (`mani exec`) across repos listed in a `mani.yaml` file you maintain, where gitstow starts from a pasted URL.

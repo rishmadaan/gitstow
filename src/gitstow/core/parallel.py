@@ -4,7 +4,8 @@
 """Parallel execution — async operations with bounded concurrency.
 
 Uses asyncio with a semaphore to prevent SSH connection storms
-(gita's biggest complaint: 87 repos opens 87 SSH connections simultaneously).
+(gita sets no limit; nosarthur/gita#232 reports 87 repos opening 87 SSH
+connections at once and the server refusing some).
 """
 
 from __future__ import annotations

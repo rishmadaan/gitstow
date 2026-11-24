@@ -11,10 +11,11 @@ A git repository library manager — clone, organize, and maintain collections o
 AI-assisted development has created a new relationship with open source. Developers increasingly maintain local clones of repositories they study and reference, not just repos they contribute to. `gitstow` manages this collection as a first-class concern.
 
 Existing tools solve parts of this:
-- **[ghq](https://github.com/x-motemen/ghq)** (3.5k stars) auto-organizes repos by `host/owner/repo` — but can't pull, status-check, or run commands across them.
-- **[gita](https://github.com/nosarthur/gita)** (1.8k stars) runs bulk git operations — but doesn't organize or auto-structure anything.
+- **[ghq](https://github.com/x-motemen/ghq)** auto-organizes clones by `host/owner/repo` and can update them (`ghq get -u`, which also reads a list from stdin), but has no status view, no tags, and no way to run a command across them.
+- **[gita](https://github.com/nosarthur/gita)** shows status and runs bulk git operations on repos you register with it, but where each clone lives is up to you.
+- **[mani](https://github.com/alajmo/mani)** clones and runs commands across repos listed in a `mani.yaml` file you maintain.
 
-`gitstow` combines the best of both: **paste a URL → auto-organized → bulk pull, freeze, tag, and manage your entire collection.** Works across multiple workspaces — open-source collections, active projects, and more.
+`gitstow` does both from a pasted URL, with no config file to hand-edit: **paste a URL → auto-organized → bulk pull, freeze, tag, and manage your entire collection.** It adds a browser dashboard and an AI skill, and works across multiple workspaces — open-source collections, active projects, and more.
 
 ## Quick Start
 

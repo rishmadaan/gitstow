@@ -13,7 +13,7 @@ Supports:
     git@ssh.dev.azure.com:v3/org/project/repo, org.visualstudio.com/project/_git/repo,
     org@vs-ssh.visualstudio.com:v3/org/project/repo
 
-Resolution algorithm adopted from ghq (3.5k stars) with improvements.
+Resolution algorithm adopted from ghq with improvements.
 """
 
 from __future__ import annotations

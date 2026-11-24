@@ -762,4 +762,6 @@ footer { border-top: 1px solid #24272d; }
   .brand-tag { display: none; }
   .nav-links a.nl { padding: 10px 8px; }
   .col-l, .col-r, .col-r.ai { min-width: 100%; }
+  /* three 110px columns overflow a phone-width table and clip the last one */
+  .ctable .chead, .ctable .crow { grid-template-columns: 1fr 68px 48px 48px; padding-left: 14px; padding-right: 14px; }
 }
